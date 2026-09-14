@@ -1,4 +1,6 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+import { signIn, tokenFromEmail, uniqueEmail } from "./helpers";
 
 /**
  * Credentials auth end to end. Requires the app to run with EMAIL_TRANSPORT=test so emailed
@@ -7,31 +9,6 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const FIRST_PASSWORD = "firstPass123";
 const NEW_PASSWORD = "secondPass456";
-
-function uniqueEmail(): string {
-  return `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
-}
-
-/** Polls the test outbox for the newest email to `to` containing a `path?token=` link. */
-async function tokenFromEmail(request: APIRequestContext, to: string, path: "/verify" | "/reset", notToken?: string) {
-  const pattern = new RegExp(`${path}\\?token=([\\w-]+)`);
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const res = await request.get(`/api/test/outbox?to=${encodeURIComponent(to)}`);
-    expect(res.status(), "outbox unavailable: run the app with EMAIL_TRANSPORT=test").toBe(200);
-    const body = (await res.json()) as { message: { text: string } | null };
-    const token = body.message?.text.match(pattern)?.[1];
-    if (token && token !== notToken) return token;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error(`no ${path} email arrived for ${to}`);
-}
-
-async function signIn(page: Page, email: string, password: string) {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-}
 
 test("register, verify, reset password and sign out through the confirmation modal", async ({ page, request }) => {
   const email = uniqueEmail();
@@ -120,5 +97,8 @@ test("register, verify, reset password and sign out through the confirmation mod
 
 test("rejects unsafe callback URLs after sign-in", async ({ page }) => {
   await page.goto("/sign-in?callbackUrl=https://evil.example.com/");
-  await expect(page.locator('input[name="callbackUrl"]')).toHaveValue("/books");
+  // One hidden input per sign-in form (two when Google is configured); every one must be sanitised.
+  const inputs = await page.locator('input[name="callbackUrl"]').all();
+  expect(inputs.length).toBeGreaterThan(0);
+  for (const input of inputs) await expect(input).toHaveValue("/books");
 });

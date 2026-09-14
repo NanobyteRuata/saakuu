@@ -35,10 +35,12 @@ POST /api/auth/reset                { token, password }   signs out every sessio
 GET    /api/books                          list
 POST   /api/books                          { name, defaultModel, columns[] }
 GET    /api/books/:id                      book + columns + counts
-PATCH  /api/books/:id                      { name?, defaultModel?, numeralSystem?, dateEra?, exportPrefs? }
-POST   /api/books/delete                   { ids[], confirm } soft delete
-GET    /api/books/:id/delete-impact        { books, documents, photos, rows, editedCells }
+PATCH  /api/books/:id                      { name?, defaultModel?, numeralSystem?, dateEra?, exportPrefs?: { blankToken?, illegibleToken? } }
+POST   /api/books/delete                   { ids[], impactHash, confirm } soft delete
+POST   /api/books/delete-impact            { ids[] } -> { impactHash, books, documents, photos, rows, editedCells }
+GET    /api/books/:id/delete-impact        same, for one book
 ```
+Every id must be a live book the caller owns, otherwise the whole request is `NOT_FOUND`.
 
 ## Output columns
 ```
@@ -47,7 +49,18 @@ POST   /api/books/:id/columns/preview      { ops[] } -> impact report (see below
 POST   /api/books/:id/columns/apply        { ops[], impactHash, confirm }
 ```
 
-`ops[]` is a diff, not a replacement: `{ kind: "add"|"update"|"delete"|"move", ... }`.
+`ops[]` is a diff, not a replacement, applied in order:
+```jsonc
+{ "kind": "add",    "tempId": "tmp_…", "afterId": "<id|tempId>" | null, "key", "label", "dataType", "enumValues", "isRequired" }
+{ "kind": "update", "id", "key"?, "label"?, "dataType"?, "enumValues"?, "isRequired"? }
+{ "kind": "delete", "id" }
+{ "kind": "move",   "id", "afterId": "<id|tempId>" | null }   // null = first; writes exactly one row
+```
+Severity is the net effect: label/key/required/order and added list values are `SAFE`; new
+columns are `ADDITIVE`; deletes, removed list values and type changes other than to `TEXT` are
+`DESTRUCTIVE`. A deleted column's key is rewritten to `<key>~del~<id>` so the key can be reused.
+New columns get an empty `Cell` in every existing row. Apply locks the book row, recomputes the
+report and returns `CONFLICT` if the hash no longer matches.
 
 **Impact report shape** (used by every destructive preview):
 ```jsonc
@@ -65,7 +78,8 @@ POST   /api/books/:id/columns/apply        { ops[], impactHash, confirm }
 
 ## Glossary & validation rules
 ```
-GET/POST/PATCH/DELETE  /api/books/:id/glossary
+GET/POST               /api/books/:id/glossary          { term, meaning }; list ordered by position
+PATCH/DELETE           /api/books/:id/glossary/:entryId
 GET/POST/PATCH/DELETE  /api/books/:id/rules
 POST /api/books/:id/rules/revalidate       re-runs rules over all cells (queued job)
 ```

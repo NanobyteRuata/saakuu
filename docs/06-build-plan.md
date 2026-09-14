@@ -3,6 +3,18 @@
 Ten phases. Each is independently shippable and has acceptance criteria. Do not start
 a phase before the previous one's criteria pass. Phases 0–9 are v1.
 
+## Testing policy (until launch)
+
+Tests stay minimal until after launch. Acceptance criteria are checked by hand unless listed
+here. Only write automated tests for code where a silent bug loses or corrupts data:
+
+- **Unit:** pure logic that decides what gets written: output-column op simulation and
+  diff (Phase 2), the transform pipeline golden files (Phase 6), and the rule that re-runs
+  never overwrite an edited cell. Auth security tests from Phase 1 stay.
+- **E2E:** one happy-path spec per phase at most: smoke (Phase 0), auth (Phase 1), the
+  books acceptance flow (Phase 2), and the full stubbed flow in Phase 9.
+- No tests for UI copy, schemas, formatting helpers, or CRUD that the E2E path already covers.
+
 ---
 
 ## Phase 0 — Foundation

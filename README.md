@@ -63,7 +63,8 @@ pnpm test:e2e          # Playwright; reuses a running app on :3000 or starts `pn
 
 First Playwright run: `pnpm exec playwright install chromium`.
 
-The auth E2E test needs the app running with `EMAIL_TRANSPORT=test`, e.g.:
+The auth and books E2E tests need the app running with `EMAIL_TRANSPORT=test` (each test
+registers a fresh account through the outbox), e.g.:
 
 ```sh
 EMAIL_TRANSPORT=test AUTH_URL=http://localhost:3001 pnpm dev --port 3001

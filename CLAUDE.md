@@ -98,3 +98,4 @@ docs/
 - Loading, empty, and error states in the UI
 - Optimistic update only where rollback is safe
 - No `any`, no unchecked `!`
+- Tests only as allowed by the testing policy in `docs/06-build-plan.md` (minimal until launch)

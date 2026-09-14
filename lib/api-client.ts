@@ -1,15 +1,15 @@
 import type { Result } from "@/lib/errors";
 
 /**
- * Client-side JSON POST to a Route Handler that returns a `Result`. Network failures and
+ * Client-side JSON calls to Route Handlers that return a `Result`. Network failures and
  * non-JSON responses become a plain-language INTERNAL error, never an exception.
  */
-export async function postJson<T>(url: string, body: unknown): Promise<Result<T>> {
+async function requestJson<T>(method: string, url: string, body?: unknown): Promise<Result<T>> {
   try {
     const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     return (await res.json()) as Result<T>;
   } catch {
@@ -18,4 +18,20 @@ export async function postJson<T>(url: string, body: unknown): Promise<Result<T>
       error: { code: "INTERNAL", message: "We couldn't reach the server. Check your connection and try again." },
     };
   }
+}
+
+export function getJson<T>(url: string): Promise<Result<T>> {
+  return requestJson<T>("GET", url);
+}
+
+export function postJson<T>(url: string, body: unknown): Promise<Result<T>> {
+  return requestJson<T>("POST", url, body);
+}
+
+export function patchJson<T>(url: string, body: unknown): Promise<Result<T>> {
+  return requestJson<T>("PATCH", url, body);
+}
+
+export function deleteJson<T>(url: string): Promise<Result<T>> {
+  return requestJson<T>("DELETE", url);
 }

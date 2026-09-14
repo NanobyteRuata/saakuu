@@ -1,30 +1,30 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
-import { sortByPosition } from "@/lib/books/column-ops";
 import { AppError } from "@/lib/errors";
 
-type Positioned = { id: string; position: string };
+import { compareSiblings, sameRef, type Sibling, type SiblingRef } from "./tree";
 
 /** Position after the last sibling. */
-export function appendPosition(siblings: Positioned[]): string {
-  return generateKeyBetween(sortByPosition(siblings).at(-1)?.position ?? null, null);
+export function appendPosition(siblings: { id: string; position: string }[]): string {
+  return generateKeyBetween([...siblings].sort(compareSiblings).at(-1)?.position ?? null, null);
 }
 
 /**
- * Where `movingId` lands when placed after `afterId` (null = first) among its new siblings.
- * Normally a single new key, so a move writes one row. If neighbouring keys are equal (only
- * possible after a collision), the whole sibling list is re-spaced and returned in `rewrites`.
+ * Where `moving` lands when placed after `after` (null = first) among its new siblings, which may
+ * be groups and fields mixed. Normally a single new key, so a move writes one row. If neighbouring
+ * keys are equal (only possible after a collision), the whole sibling list is re-spaced and
+ * returned in `rewrites`.
  */
 export function positionAfter(
-  siblings: Positioned[],
-  afterId: string | null,
-  movingId: string,
-): { position: string; rewrites: Positioned[] } {
-  const list = sortByPosition(siblings.filter((s) => s.id !== movingId));
+  siblings: Sibling[],
+  after: SiblingRef | null,
+  moving: SiblingRef,
+): { position: string; rewrites: Sibling[] } {
+  const list = siblings.filter((s) => !sameRef(s, moving)).sort(compareSiblings);
   let at = 0;
-  if (afterId !== null) {
-    if (afterId === movingId) throw new AppError("VALIDATION", "An item can't be placed after itself.");
-    const idx = list.findIndex((s) => s.id === afterId);
+  if (after !== null) {
+    if (sameRef(after, moving)) throw new AppError("VALIDATION", "An item can't be placed after itself.");
+    const idx = list.findIndex((s) => sameRef(s, after));
     if (idx < 0) throw new AppError("VALIDATION", "The item you placed this next to has moved or been deleted. Reload and try again.");
     at = idx + 1;
   }
@@ -35,13 +35,13 @@ export function positionAfter(
   }
 
   const keys = generateNKeysBetween(null, null, list.length + 1);
-  const ordered = [...list.slice(0, at).map((s) => s.id), movingId, ...list.slice(at).map((s) => s.id)];
+  const ordered: SiblingRef[] = [...list.slice(0, at), moving, ...list.slice(at)];
   let position = "";
-  const rewrites: Positioned[] = [];
-  ordered.forEach((id, i) => {
+  const rewrites: Sibling[] = [];
+  ordered.forEach((ref, i) => {
     const key = keys[i] ?? "";
-    if (id === movingId) position = key;
-    else rewrites.push({ id, position: key });
+    if (sameRef(ref, moving)) position = key;
+    else rewrites.push({ kind: ref.kind, id: ref.id, position: key });
   });
   return { position, rewrites };
 }

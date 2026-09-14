@@ -187,15 +187,42 @@ model Template {
   @@index([bookId, deletedAt])
 }
 
+enum GroupSelection {
+  NONE
+  ONE_OF
+  ANY_OF
+}
+
+enum NoneMarked {
+  BLANK
+  REVIEW
+  ERROR
+}
+
+enum MultipleMarked {
+  REVIEW
+  ERROR
+}
+
+// A header on the paper. May span columns and nest (depth capped in code). Never holds raw values.
 model FieldGroup {
-  id         String   @id @default(cuid(2))
-  templateId String
-  label      String
-  position   String
-  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  fields     Field[]
+  id             String         @id @default(cuid(2))
+  templateId     String
+  parentGroupId  String? // null = top level
+  labelSource    String // as written on the paper
+  labelMeaning   String? // English meaning
+  position       String // shares one order with sibling fields (same parent)
+  selection      GroupSelection @default(NONE) // tick columns encoding one / many answers
+  noneMarked     NoneMarked     @default(REVIEW) // selection group with nothing ticked
+  multipleMarked MultipleMarked @default(ERROR) // ONE_OF group with 2+ ticks
+  note           String? // instruction to the AI
+  template       Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent         FieldGroup?    @relation("GroupNesting", fields: [parentGroupId], references: [id], onDelete: Restrict)
+  children       FieldGroup[]   @relation("GroupNesting")
+  fields         Field[]
 
   @@index([templateId])
+  @@index([parentGroupId])
 }
 
 enum FieldType {

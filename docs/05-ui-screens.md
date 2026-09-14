@@ -76,13 +76,27 @@ Documents tab filtered to this template.
 Full-page, three tabs: **Fields** · **Mapping** · **Validation**.
 
 ### Fields tab
-Two-pane. Left: the field tree (groups → fields), drag-reorderable, with add buttons.
-Right: the selected field's properties.
+Two-pane. Left: the field tree (groups → fields), drag-reorderable, with an add bar above it.
+Right: the selected field's or group's properties.
 
 **Tree (Phase 3.1).** Mirrors the paper. Groups and single fields interleave in one order at
 every level, and groups nest up to 3 levels; there is no fixed "Ungrouped" section.
+- Group rows are bordered, padded and lightly tinted, so a header reads differently from a field.
+  Thin vertical guide lines, one per nesting level, run beside the rows inside each group, so a
+  group's contents read as one block without breaking the flat drag list.
+- **Adding.** One add bar, pinned above the list while it scrolls: a `Field | Group` switch, the
+  label, the parent (top level or any group) and, for fields, the type (defaults to Mark / tick
+  inside a selection group, Text elsewhere). Choice isn't offered there: a choice field needs its
+  choices, so add the field, then set Type to Choice in its properties. Selecting a row points the parent at it: a group
+  itself, or a field's group. Adding a group switches the bar to adding fields into that group.
+- Each group row has a `+` that opens an inline row at the end of that group: type a label, Enter,
+  the next label, Enter; Escape closes it. New rows scroll into view.
 - Drag vertically to reorder; drag right to move into the group above, left to move out one
   level. Keyboard: Space to lift, ↑/↓ to move, →/← to nest or un-nest, Space to drop.
+- Screen readers hear each drag step by label, never by id: what was picked up and where it is,
+  where it would land ("Neg. would go inside RDT Test, after Positive"), why a spot is refused,
+  and the result.
+- Parent pickers grey out parents that would refuse the item (depth, cycle, selection rules).
 - A `Group` select in the field and group properties panels is the non-drag alternative.
 - A move past the depth cap, or a group into itself, is refused with a plain message.
 - Group rows: source label (in its script), meaning (muted), a selection chip (`One of` /

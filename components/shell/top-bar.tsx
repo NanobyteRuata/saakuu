@@ -8,7 +8,8 @@ import { UserMenu } from "./user-menu";
 export function TopBar({ user }: { user: SessionUser }) {
   return (
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 border-b backdrop-blur">
-      <div className="flex h-14 items-center justify-between px-4 sm:px-6">
+      {/* Height comes from --top-bar-height so sticky elements below can offset by it. */}
+      <div className="flex h-(--top-bar-height) items-center justify-between px-4 sm:px-6">
         <Link href="/books" className="text-lg font-semibold tracking-tight">
           SaaKuu
         </Link>

@@ -151,7 +151,9 @@ Remarks                     field  (TEXT, Skip)
   projection). Keyboard: Space to lift, ↑/↓ move, →/← nest/un-nest, Space to drop.
 - Group properties panel (selection settings explain their effect in one line and list the
   options); a `Group` select in field and group properties as the non-drag alternative.
-- Quick-add creates the field or group at the end of the chosen parent.
+- Quick-add creates the field or group at the end of the chosen parent: one pinned add bar whose
+  parent follows the selection, and a `+` on each group for adding fields inline at its end.
+  Group rows are bordered with guide lines per nesting level (docs/05).
 - Guidance copy in the empty state and Mode help: for Table templates, add every column in paper
   order and set unwanted ones to Skip; for forms, add look-alike fields as Skip (docs/01 §6.5).
 

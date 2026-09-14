@@ -126,19 +126,29 @@ POST   /api/fields/:id/restore             -> { field, sequenceRestored, mapping
 
 **Phase 3.1 changes** (nested groups and paper order; see docs/06):
 ```
-POST   /api/templates/:id/groups            { labelSource, labelMeaning?, parentGroupId?, selection?, noneMarked?, multipleMarked?, note? }
-PATCH  /api/groups/:id                      any of the above except parentGroupId, + move: { parentGroupId | null, after: { kind: "field" | "group", id } | null }
-GET    /api/groups/:id/delete-impact        -> { fields, groups, deletedFields, parentLabel }   counts for the confirmation
-DELETE /api/groups/:id                      -> { movedFields, movedGroups }   children move up into the group's slot
+POST   /api/templates/:id/groups            { labelSource, labelMeaning?, parentGroupId?, noneMarked?, multipleMarked?, note? }   starts as Header only
+PATCH  /api/groups/:id                      any of the above except parentGroupId, + selection?, + move: { parentGroupId | null, after: { kind: "field" | "group", id } | null }
+GET    /api/groups/:id/delete-impact        -> { impactHash, groupLabel, fields, groups, deletedFields, parentLabel }   counts for the confirmation
+DELETE /api/groups/:id                      { impactHash, confirm } -> { movedFields, movedGroups }   children move up into the group's slot
 POST   /api/templates/:id/fields            groupId is the parent group (any depth); appended at the end of that parent
 PATCH  /api/fields/:id                      move: { groupId | null, after: { kind: "field" | "group", id } | null }   replaces afterId
+POST   /api/fields/:id/restore              -> { ..., placedOutside }
 ```
 - `after` names a sibling of either kind because groups and fields share one order under a parent;
   null = first. A move still writes one row.
 - `VALIDATION` refusals, each with a plain message: depth over `MAX_GROUP_DEPTH` (3, counting the
   moved group's subtree); a group under itself or a descendant; a selection group containing a
   non-`MARK` field or another selection group, or with fewer than 2 options; changing a field
-  inside a selection group away from `MARK`.
+  inside a selection group away from `MARK`. The nesting and non-`MARK` rules always apply. Fewer than
+  2 options is refused only when the group had no problem before, so a group left with one option
+  by a field delete can still be renamed (the editor shows the problem).
+- A group is created as Header only: `selection` is set with PATCH once it holds 2 mark fields.
+- Group delete is refused with `CONFLICT` when its `impactHash` no longer matches (counts or the
+  children that move changed since the preview).
+- Field create without `dataType` gets `MARK` inside a selection group, `TEXT` elsewhere.
+- Restore lands in the field's group (a deleted group already handed it to the nearest surviving
+  ancestor). If a non-`MARK` field would land inside a selection group, it's placed just after that
+  group instead and `placedOutside` is true.
 - Group responses carry `labelSource`, `labelMeaning`, `parentGroupId`, `position`, `selection`,
   `noneMarked`, `multipleMarked`, `note`. `GET /api/templates/:id` returns groups and fields flat;
   `lib/templates/tree.ts` builds the ordered tree and header paths.

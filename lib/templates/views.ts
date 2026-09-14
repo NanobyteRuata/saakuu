@@ -1,8 +1,26 @@
 import type { Prisma } from "@prisma/client";
 
-import { markSymbolsSchema, type FieldMode, type FieldType, type MarkSymbols } from "./schemas";
+import {
+  markSymbolsSchema,
+  type FieldMode,
+  type FieldType,
+  type GroupSelection,
+  type MarkSymbols,
+  type MultipleMarked,
+  type NoneMarked,
+} from "./schemas";
 
-export type GroupView = { id: string; label: string; position: string };
+export type GroupView = {
+  id: string;
+  parentGroupId: string | null;
+  labelSource: string;
+  labelMeaning: string | null;
+  position: string;
+  selection: GroupSelection;
+  noneMarked: NoneMarked;
+  multipleMarked: MultipleMarked;
+  note: string | null;
+};
 
 export type FieldView = {
   id: string;
@@ -20,7 +38,17 @@ export type FieldView = {
 
 export type DeletedFieldView = FieldView & { deletedAt: string };
 
-export const groupSelect = { id: true, label: true, position: true } satisfies Prisma.FieldGroupSelect;
+export const groupSelect = {
+  id: true,
+  parentGroupId: true,
+  labelSource: true,
+  labelMeaning: true,
+  position: true,
+  selection: true,
+  noneMarked: true,
+  multipleMarked: true,
+  note: true,
+} satisfies Prisma.FieldGroupSelect;
 
 export const fieldSelect = {
   id: true,

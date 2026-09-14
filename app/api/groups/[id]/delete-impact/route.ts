@@ -1,0 +1,16 @@
+import { requireSessionUserId } from "@/lib/auth/session";
+import { resultResponse, runAction } from "@/lib/errors";
+import { groupDeleteImpact } from "@/lib/templates/structure-service";
+import { idSchema, parseInput } from "@/lib/validation";
+
+export const dynamic = "force-dynamic";
+
+/** Counts for the group delete confirmation. */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
+  const result = await runAction(async () => {
+    const userId = await requireSessionUserId();
+    const groupId = parseInput(idSchema, (await params).id);
+    return groupDeleteImpact(userId, groupId);
+  });
+  return resultResponse(result);
+}

@@ -1,5 +1,13 @@
 import type { RunSummary } from "./config-state";
-import type { ConfigState, FieldMode, FieldType, TemplateKind } from "./schemas";
+import type {
+  ConfigState,
+  FieldMode,
+  FieldType,
+  GroupSelection,
+  MultipleMarked,
+  NoneMarked,
+  TemplateKind,
+} from "./schemas";
 
 export const TEMPLATE_KIND_LABELS: Record<TemplateKind, string> = { FORM: "Form", TABLE: "Table" };
 
@@ -24,8 +32,38 @@ export const FIELD_MODE_LABELS: Record<FieldMode, string> = { EXTRACT: "Extract"
 
 export const FIELD_MODE_HINTS: Record<FieldMode, string> = {
   EXTRACT: "The AI reads this field.",
-  SKIP: "The AI is told to ignore this field.",
+  SKIP: "On the paper, but the AI ignores it and the cell stays empty. Listing it keeps neighbouring values in the right place.",
   MANUAL: "Never sent to the AI. You type it once per document.",
+};
+
+/** Which fields to add (docs/01 §6.5), shown in the empty state and under Mode. */
+export const FIELD_GUIDANCE: Record<TemplateKind, string> = {
+  TABLE:
+    "Add every column on the paper, in paper order, and set the ones you don't need to Skip. A column left out gives its handwriting nowhere to go, so it drifts into a neighbour.",
+  FORM: "Add the fields you want. Also add look-alikes, such as mother's and father's name or two different dates, as Skip so the AI can tell them apart.",
+};
+
+export const GROUP_SELECTION_LABELS: Record<GroupSelection, string> = { NONE: "Header only", ONE_OF: "One of", ANY_OF: "Any of" };
+
+export const GROUP_SELECTION_HINTS: Record<GroupSelection, string> = {
+  NONE: "A header above its columns. Each column is read on its own.",
+  ONE_OF: "Tick columns that give one answer, e.g. Sex: M or F. The ticked option becomes the value.",
+  ANY_OF: "Tick columns where several can be ticked. The ticked options become the value.",
+};
+
+export const NONE_MARKED_LABELS: Record<NoneMarked, string> = { BLANK: "Normal blank", REVIEW: "Flag for review", ERROR: "Error" };
+
+export const NONE_MARKED_HINTS: Record<NoneMarked, string> = {
+  BLANK: "Blank is a normal answer, e.g. not tested: no flag.",
+  REVIEW: "A row with nothing ticked is flagged for you to check.",
+  ERROR: "A row with nothing ticked is marked as an error.",
+};
+
+export const MULTIPLE_MARKED_LABELS: Record<MultipleMarked, string> = { REVIEW: "Flag for review", ERROR: "Error" };
+
+export const MULTIPLE_MARKED_HINTS: Record<MultipleMarked, string> = {
+  REVIEW: "Several ticks are flagged for you to check. No option is picked.",
+  ERROR: "Several ticks are marked as an error. No option is picked.",
 };
 
 export const LANGUAGE_HINTS = [

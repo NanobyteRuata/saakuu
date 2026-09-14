@@ -13,12 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { patchJson } from "@/lib/api-client";
 import { pickOption } from "@/lib/books/labels";
-import { FIELD_MODE_HINTS, FIELD_MODE_LABELS, FIELD_TYPE_LABELS } from "@/lib/templates/labels";
+import { FIELD_GUIDANCE, FIELD_MODE_HINTS, FIELD_MODE_LABELS, FIELD_TYPE_LABELS } from "@/lib/templates/labels";
 import { FIELD_MODES, FIELD_TYPES, fieldShapeProblem, type FieldMode, type FieldType, type MarkSymbols } from "@/lib/templates/schemas";
 import type { TemplateDetail } from "@/lib/templates/service";
-import type { FieldView } from "@/lib/templates/views";
+import { childrenOf, formatPath, headerPath, moveProblem, nearestSelectionGroup, type Tree } from "@/lib/templates/tree";
+import type { FieldView, GroupView } from "@/lib/templates/views";
 
 import { ChipListEditor } from "./chip-list-editor";
+import { ParentGroupSelect } from "./parent-group-select";
 
 const MARK_MEANINGS = [
   { value: "true", label: "Yes / ticked" },
@@ -79,6 +81,7 @@ function draftProblem(d: Draft): string | null {
 type Props = {
   field: FieldView;
   template: TemplateDetail;
+  tree: Tree<GroupView, FieldView>;
   lang: string | undefined;
   onDirtyChange: (dirty: boolean) => void;
   onSaved: (field: FieldView) => void;
@@ -86,11 +89,14 @@ type Props = {
   onDelete: () => void;
 };
 
-export function FieldProperties({ field, template, lang, onDirtyChange, onSaved, onTemplate, onDelete }: Props) {
+export function FieldProperties({ field, template, tree, lang, onDirtyChange, onSaved, onTemplate, onDelete }: Props) {
   const [draft, setDraft] = useState(() => toDraft(field));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [sequencePending, setSequencePending] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const path = headerPath(tree, { kind: "field", id: field.id });
+  const selectionGroup = nearestSelectionGroup(tree, field.groupId);
 
   const saved = JSON.stringify(toPayload(toDraft(field)));
   const dirty = JSON.stringify(toPayload(draft)) !== saved;
@@ -104,7 +110,11 @@ export function FieldProperties({ field, template, lang, onDirtyChange, onSaved,
 
   async function save(e?: FormEvent) {
     e?.preventDefault();
-    const problem = draftProblem(draft);
+    const problem =
+      draftProblem(draft) ??
+      (selectionGroup && draft.dataType !== "MARK"
+        ? `“${selectionGroup.group.labelSource}” is a selection group, so this field has to stay Mark / tick. Move it out of the group first.`
+        : null);
     if (problem) {
       setError(problem);
       return;
@@ -134,6 +144,24 @@ export function FieldProperties({ field, template, lang, onDirtyChange, onSaved,
     onTemplate(result.data);
   }
 
+  async function moveTo(groupId: string | null) {
+    if (groupId === field.groupId) return;
+    const last = childrenOf(tree, groupId)
+      .filter((n) => !(n.kind === "field" && n.id === field.id))
+      .at(-1);
+    setMoving(true);
+    const result = await patchJson<FieldView>(`/api/fields/${field.id}`, {
+      move: { groupId, after: last ? { kind: last.kind, id: last.id } : null },
+    });
+    setMoving(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    setError(null);
+    onSaved(result.data);
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -143,6 +171,11 @@ export function FieldProperties({ field, template, lang, onDirtyChange, onSaved,
 
   return (
     <form onSubmit={save} onKeyDown={onKeyDown} className="flex flex-col gap-4" noValidate aria-label="Field properties form">
+      {path.length > 1 ? (
+        <p lang={lang} className="font-value text-muted-foreground text-sm">
+          {formatPath(path)}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-2">
         <Label htmlFor="field-label-source">Label on the paper</Label>
         <Input
@@ -161,6 +194,24 @@ export function FieldProperties({ field, template, lang, onDirtyChange, onSaved,
           value={draft.labelMeaning}
           onChange={(e) => set({ labelMeaning: e.target.value })}
         />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="field-group">Group</Label>
+        <ParentGroupSelect
+          id="field-group"
+          tree={tree}
+          value={field.groupId}
+          onChange={(id) => void moveTo(id)}
+          isDisabled={(id) =>
+            id !== field.groupId && moveProblem(tree, template.groups, template.fields, { kind: "field", id: field.id }, id) !== null
+          }
+          disabled={moving}
+          lang={lang}
+        />
+        <p className="text-muted-foreground text-xs">
+          Moves it to the end of the chosen group. Greyed-out choices would refuse this field. Or drag it in the list.
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -198,6 +249,8 @@ export function FieldProperties({ field, template, lang, onDirtyChange, onSaved,
       <p className="text-muted-foreground -mt-2 text-xs">
         {FIELD_MODE_HINTS[draft.mode]}
         {isSequence ? " This is the sequence field, so it has to stay on Extract." : ""}
+        {selectionGroup ? ` It's an option of “${selectionGroup.group.labelSource}” unless set to Skip.` : ""}
+        <span className="mt-1 block">{FIELD_GUIDANCE[template.kind]}</span>
       </p>
 
       {draft.dataType === "CHOICE" ? (

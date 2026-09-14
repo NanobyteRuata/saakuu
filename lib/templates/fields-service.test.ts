@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { db } = vi.hoisted(() => ({
   db: {
     field: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), updateMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    fieldGroup: { findMany: vi.fn(), update: vi.fn() },
     template: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
     mapping: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     mappingInput: { deleteMany: vi.fn() },
@@ -95,7 +96,10 @@ describe("field soft delete and restore", () => {
 
   it("restores the same field in place, reinstates the sequence field and repairs its mappings", async () => {
     db.field.findFirst.mockResolvedValue(seqField);
-    db.field.findMany.mockReset().mockResolvedValue([{ id: "f_other", position: "a1" }]);
+    db.fieldGroup.findMany.mockResolvedValue([
+      { id: "g1", parentGroupId: null, labelSource: "Child", labelMeaning: null, position: "a1", selection: "NONE" },
+    ]);
+    db.field.findMany.mockReset().mockResolvedValue([{ ...seqField, id: "f_other", isSequence: false, position: "a1" }]);
     db.template.findUniqueOrThrow.mockResolvedValue({ kind: "TABLE", sequenceFieldId: null });
     db.field.update.mockResolvedValue({ ...seqField });
     db.mapping.findMany
@@ -105,7 +109,7 @@ describe("field soft delete and restore", () => {
     const result = await restoreField("u1", "f_seq");
 
     expect(db.field.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "f_seq" }, data: { deletedAt: null, position: "a0", isSequence: true } }),
+      expect.objectContaining({ where: { id: "f_seq" }, data: { deletedAt: null, groupId: "g1", position: "a0", isSequence: true } }),
     );
     expect(db.template.update).toHaveBeenCalledWith({ where: { id: "t1" }, data: { sequenceFieldId: "f_seq" } });
     expect(db.mapping.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["m1"] } }, data: { state: "OK" } });

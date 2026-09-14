@@ -8,6 +8,8 @@ import { impactHash, type BrokenMapping, type ImpactReport } from "@/lib/impact"
 import { lockTemplate, recomputeConfigState, requireFieldAccess, type Db } from "./access";
 import { positionAfter } from "./positions";
 import { MAX_FIELDS, type ConfigState, type DeleteFieldsInput } from "./schemas";
+import { applySiblingRewrites, loadSourceTree } from "./source-tree";
+import { childrenOf, nearestSelectionGroup, toSibling, type Sibling } from "./tree";
 import { fieldSelect, toFieldView, type FieldView } from "./views";
 
 /**
@@ -145,30 +147,46 @@ export async function deleteFields(
 export async function restoreField(
   userId: string,
   fieldId: string,
-): Promise<{ field: FieldView; sequenceRestored: boolean; mappingsRepaired: number; configState: ConfigState }> {
+): Promise<{
+  field: FieldView;
+  sequenceRestored: boolean;
+  mappingsRepaired: number;
+  configState: ConfigState;
+  /** A non-mark field whose group became a selection group lands just after that group instead. */
+  placedOutside: boolean;
+}> {
   const { templateId } = await requireFieldAccess(userId, fieldId, true);
 
   return prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const field = await tx.field.findFirst({ where: { id: fieldId, deletedAt: { not: null } }, select: fieldSelect });
     if (!field) throw new AppError("NOT_FOUND", "That field isn't in the deleted list any more. Reload the page.");
-    const liveCount = await tx.field.count({ where: { templateId, deletedAt: null } });
-    if (liveCount >= MAX_FIELDS) throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields.`);
+    const { tree, fields } = await loadSourceTree(tx, templateId);
+    if (fields.length >= MAX_FIELDS) throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields.`);
 
-    // Back into its group (or Ungrouped if the group is gone) at its old position, unless a
-    // field added since holds that exact key.
-    const siblings = await tx.field.findMany({
-      where: { templateId, groupId: field.groupId, deletedAt: null },
-      select: { id: true, position: true },
-      take: MAX_FIELDS,
-    });
+    // Back into its group (a deleted group already handed it to the nearest surviving ancestor) at
+    // its old position, unless a sibling of either kind added since holds that exact key.
+    let groupId = field.groupId !== null && tree.groups.has(field.groupId) ? field.groupId : null;
+    const moving = { kind: "field" as const, id: fieldId };
     let position = field.position;
-    const collider = siblings.find((s) => s.position === field.position);
-    if (collider) {
-      const placed = positionAfter(siblings, collider.id, fieldId);
-      for (const r of placed.rewrites) await tx.field.update({ where: { id: r.id }, data: { position: r.position } });
+    let rewrites: Sibling[] = [];
+    const selection = nearestSelectionGroup(tree, groupId);
+    const placedOutside = selection !== undefined && field.dataType !== "MARK";
+    if (selection && placedOutside) {
+      groupId = selection.parentId;
+      const placed = positionAfter(childrenOf(tree, groupId).map(toSibling), { kind: "group", id: selection.id }, moving);
       position = placed.position;
+      rewrites = placed.rewrites;
+    } else {
+      const siblings = childrenOf(tree, groupId).map(toSibling);
+      const collider = siblings.find((s) => s.position === field.position);
+      if (collider) {
+        const placed = positionAfter(siblings, collider, moving);
+        position = placed.position;
+        rewrites = placed.rewrites;
+      }
     }
+    await applySiblingRewrites(tx, rewrites);
 
     const template = await tx.template.findUniqueOrThrow({ where: { id: templateId }, select: { kind: true, sequenceFieldId: true } });
     const sequenceRestored =
@@ -179,7 +197,7 @@ export async function restoreField(
 
     const restored = await tx.field.update({
       where: { id: fieldId },
-      data: { deletedAt: null, position, isSequence: sequenceRestored },
+      data: { deletedAt: null, groupId, position, isSequence: sequenceRestored },
       select: fieldSelect,
     });
 
@@ -201,6 +219,6 @@ export async function restoreField(
     }
 
     const configState = await recomputeConfigState(tx, templateId);
-    return { field: toFieldView(restored), sequenceRestored, mappingsRepaired: repairable.length, configState };
+    return { field: toFieldView(restored), sequenceRestored, mappingsRepaired: repairable.length, configState, placedOutside };
   });
 }

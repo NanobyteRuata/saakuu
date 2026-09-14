@@ -37,11 +37,15 @@ export function DeleteFieldDialog({ field, lang, open, onOpenChange, onDeleted }
   const [reload, setReload] = useState(0);
   const id = field?.id;
 
+  // Clear old errors when the dialog opens, but not on a re-count, so a conflict message stays visible.
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open, id]);
+
   useEffect(() => {
     if (!open || !id) return;
     let cancelled = false;
     setImpact(null);
-    setError(null);
     void getJson<FieldsDeleteImpact>(`/api/fields/${id}/delete-impact`).then((result) => {
       if (cancelled) return;
       if (result.ok) setImpact(result.data);

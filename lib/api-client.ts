@@ -32,6 +32,6 @@ export function patchJson<T>(url: string, body: unknown): Promise<Result<T>> {
   return requestJson<T>("PATCH", url, body);
 }
 
-export function deleteJson<T>(url: string): Promise<Result<T>> {
-  return requestJson<T>("DELETE", url);
+export function deleteJson<T>(url: string, body?: unknown): Promise<Result<T>> {
+  return requestJson<T>("DELETE", url, body);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -18,13 +18,16 @@ import { getJson, postJson } from "@/lib/api-client";
 import { isoDate } from "@/lib/format";
 import { langOf } from "@/lib/templates/labels";
 import type { TemplateDetail } from "@/lib/templates/service";
-import type { FieldView } from "@/lib/templates/views";
+import { buildTree, formatPath, headerPath, sameRef, type SiblingRef } from "@/lib/templates/tree";
+import type { FieldView, GroupView } from "@/lib/templates/views";
 import { cn } from "@/lib/utils";
 
 import { DeleteFieldDialog } from "./delete-field-dialog";
+import { DeleteGroupDialog } from "./delete-group-dialog";
 import { DuplicateTemplateDialog } from "./duplicate-template-dialog";
 import { FieldProperties } from "./field-properties";
 import { FieldTree } from "./field-tree";
+import { GroupProperties } from "./group-properties";
 import { TemplateHeaderForm } from "./template-header-form";
 
 const TABS = [
@@ -38,14 +41,17 @@ type Tab = (typeof TABS)[number]["id"];
 export function TemplateEditor({ initial, bookDefaultModel }: { initial: TemplateDetail; bookDefaultModel: string }) {
   const [template, setTemplate] = useState(initial);
   const [tab, setTab] = useState<Tab>("fields");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SiblingRef | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [pendingSelect, setPendingSelect] = useState<string | null>(null);
+  const [pendingSelect, setPendingSelect] = useState<SiblingRef | null>(null);
   const [toDelete, setToDelete] = useState<FieldView | null>(null);
+  const [groupToDelete, setGroupToDelete] = useState<GroupView | null>(null);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const lang = langOf(template.languageHint);
-  const selected = template.fields.find((f) => f.id === selectedId) ?? null;
+  const tree = useMemo(() => buildTree(template.groups, template.fields), [template.groups, template.fields]);
+  const selectedField = selected?.kind === "field" ? (template.fields.find((f) => f.id === selected.id) ?? null) : null;
+  const selectedGroup = selected?.kind === "group" ? (template.groups.find((g) => g.id === selected.id) ?? null) : null;
 
   const reload = useCallback(async () => {
     const result = await getJson<TemplateDetail>(`/api/templates/${template.id}`);
@@ -56,31 +62,48 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
   // A save that finishes while the discard prompt is open leaves nothing to discard: just switch.
   useEffect(() => {
     if (pendingSelect !== null && !dirty) {
-      setSelectedId(pendingSelect);
+      setSelected(pendingSelect);
       setPendingSelect(null);
     }
   }, [pendingSelect, dirty]);
 
-  function requestSelect(id: string) {
-    if (id === selectedId) return;
-    if (dirty) setPendingSelect(id);
-    else setSelectedId(id);
+  function requestSelect(ref: SiblingRef) {
+    if (sameRef(ref, selected)) return;
+    if (dirty) setPendingSelect(ref);
+    else setSelected(ref);
+  }
+
+  function clearSelection() {
+    setSelected(null);
+    setDirty(false);
   }
 
   async function restore(field: { id: string; labelSource: string }) {
     setRestoring(field.id);
-    const result = await postJson<{ field: FieldView; sequenceRestored: boolean }>(`/api/fields/${field.id}/restore`, {});
+    const result = await postJson<{ field: FieldView; sequenceRestored: boolean; placedOutside: boolean }>(
+      `/api/fields/${field.id}/restore`,
+      {},
+    );
     setRestoring(null);
     if (!result.ok) {
       toast.error(result.error.message);
       return;
     }
     await reload();
-    if (!dirty) setSelectedId(result.data.field.id);
+    if (!dirty) setSelected({ kind: "field", id: result.data.field.id });
     toast.success(
-      `Restored “${result.data.field.labelSource}”.${result.data.sequenceRestored ? " It's the sequence field again." : ""}`,
+      `Restored “${result.data.field.labelSource}”.${result.data.sequenceRestored ? " It's the sequence field again." : ""}${
+        result.data.placedOutside ? " Its group only takes Mark / tick fields now, so it's placed just after that group." : ""
+      }`,
     );
   }
+
+  function deletedFieldPath(f: FieldView): string {
+    if (f.groupId === null || !tree.groups.has(f.groupId)) return "";
+    return `${formatPath(headerPath(tree, { kind: "group", id: f.groupId }))} › `;
+  }
+
+  const pendingLabel = selectedField?.labelSource ?? selectedGroup?.labelSource;
 
   return (
     <div className="flex flex-col gap-6">
@@ -116,9 +139,11 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
           <section aria-label="Field list" className="flex flex-col gap-4">
             <FieldTree
               template={template}
+              tree={tree}
               setTemplate={setTemplate}
-              selectedId={selectedId}
+              selected={selected}
               onSelect={requestSelect}
+              onDeleteGroup={setGroupToDelete}
               reload={reload}
               lang={lang}
             />
@@ -132,6 +157,7 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
                     <li key={f.id} className="flex items-center gap-3 px-3 py-2">
                       <div className="min-w-0 flex-1">
                         <p lang={lang} className="font-value truncate">
+                          <span className="text-muted-foreground">{deletedFieldPath(f)}</span>
                           {f.labelSource}
                         </p>
                         <p className="text-muted-foreground truncate text-xs">
@@ -155,25 +181,37 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
             ) : null}
           </section>
 
-          <section aria-label="Field properties" className="rounded-xl border p-4 lg:sticky lg:top-20">
-            {selected ? (
+          <section aria-label="Properties" className="rounded-xl border p-4 lg:sticky lg:top-[calc(var(--top-bar-height)+1.5rem)]">
+            {selectedField ? (
               <FieldProperties
-                key={selected.id}
-                field={selected}
+                key={selectedField.id}
+                field={selectedField}
                 template={template}
+                tree={tree}
                 lang={lang}
                 onDirtyChange={setDirty}
                 onSaved={(field) => setTemplate((t) => ({ ...t, fields: t.fields.map((f) => (f.id === field.id ? field : f)) }))}
                 onTemplate={setTemplate}
-                onDelete={() => setToDelete(selected)}
+                onDelete={() => setToDelete(selectedField)}
+              />
+            ) : selectedGroup ? (
+              <GroupProperties
+                key={selectedGroup.id}
+                group={selectedGroup}
+                template={template}
+                tree={tree}
+                lang={lang}
+                onDirtyChange={setDirty}
+                onSaved={(group) => setTemplate((t) => ({ ...t, groups: t.groups.map((g) => (g.id === group.id ? group : g)) }))}
+                onDelete={() => setGroupToDelete(selectedGroup)}
               />
             ) : (
               <div className="flex flex-col gap-1 py-10 text-center">
-                <p className="font-medium">No field selected</p>
+                <p className="font-medium">Nothing selected</p>
                 <p className="text-muted-foreground text-sm">
                   {template.fields.length === 0
                     ? "Add the first field on the left: type its label exactly as it's written on the paper."
-                    : "Choose a field on the left to set its meaning, type, mode and a note for the AI."}
+                    : "Choose a field to set its meaning, type, mode and a note for the AI, or a group to set how its tick columns are read."}
                 </p>
               </div>
             )}
@@ -201,14 +239,23 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
         open={toDelete !== null}
         onOpenChange={(open) => !open && setToDelete(null)}
         onDeleted={async (field) => {
-          if (selectedId === field.id) {
-            setSelectedId(null);
-            setDirty(false);
-          }
+          if (sameRef(selected, { kind: "field", id: field.id })) clearSelection();
           await reload();
           toast.success(`Deleted “${field.labelSource}”. Its values are kept.`, {
             action: { label: "Restore", onClick: () => void restore(field) },
           });
+        }}
+      />
+
+      <DeleteGroupDialog
+        group={groupToDelete}
+        lang={lang}
+        open={groupToDelete !== null}
+        onOpenChange={(open) => !open && setGroupToDelete(null)}
+        onDeleted={async (group, summary) => {
+          if (sameRef(selected, { kind: "group", id: group.id })) clearSelection();
+          await reload();
+          toast.success(`Deleted the group “${group.labelSource}”. ${summary}`);
         }}
       />
 
@@ -225,7 +272,7 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
           <AlertDialogHeader>
             <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
             <AlertDialogDescription>
-              You changed “{selected?.labelSource}” without saving. Discard those changes and open the other field?
+              You changed “{pendingLabel}” without saving. Discard those changes and open the other item?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -234,7 +281,7 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
               variant="destructive"
               onClick={() => {
                 setDirty(false);
-                setSelectedId(pendingSelect);
+                setSelected(pendingSelect);
                 setPendingSelect(null);
               }}
             >

@@ -35,6 +35,8 @@
 }
 
 :root {
+  /* Top bar height; sticky elements below it offset by this. */
+  --top-bar-height: 3.5rem;
   --radius: 0.5rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);

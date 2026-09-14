@@ -90,23 +90,39 @@ GET    /api/books/:id/templates
 POST   /api/books/:id/templates            { name, kind, modelOverride? }
 GET    /api/templates/:id                  source layer + mapping layer + counts
 PATCH  /api/templates/:id                  { name?, instructions?, anchors?, languageHint?, modelOverride?, doubleExtraction?, sequenceFieldId? }
-POST   /api/templates/:id/duplicate        { includeMappings, targetBookId? }
-POST   /api/templates/delete               { ids[], confirm }
-GET    /api/templates/:id/delete-impact
+POST   /api/templates/:id/duplicate        { includeMappings, kind?, name? } -> { id, skippedMappings }
+POST   /api/templates/delete               { ids[], impactHash, confirm }   soft-deletes templates and their documents
+POST   /api/templates/delete-impact        { ids[] } -> { impactHash, templates, documents, photos, rows, editedCells }
+GET    /api/templates/:id/delete-impact    same, for one template
 ```
+- `PATCH` refuses `kind` (switching Form ↔ Table is structural); duplicate with `kind` instead.
+  `doubleExtraction` only accepts `false` in v1. `sequenceFieldId` is TABLE-only and must be a
+  live `EXTRACT` field; that field's mode can't change while it is the sequence field.
+- `configState` is recomputed in the same transaction as every field create/delete/restore:
+  `CONFLICTED` if any mapping is `BROKEN`, else `DRAFT` until ≥1 live field and ≥1 mapping, else `READY`.
+- Cross-book duplicate (`targetBookId`) is deferred. Mappings are copied only when every input
+  field and the column are live; the rest are counted in `skippedMappings`.
 
 ### Fields & groups
 ```
 POST   /api/templates/:id/groups           { label }
-PATCH  /api/groups/:id                     { label?, position? }
-DELETE /api/groups/:id                     fields move to ungrouped
+PATCH  /api/groups/:id                     { label?, afterId? }       afterId: group id | null (first); writes one row
+DELETE /api/groups/:id                     fields move to the end of Ungrouped
 
 POST   /api/templates/:id/fields           { labelSource, labelMeaning?, dataType, mode, note?, groupId?, choices?, markSymbols? }
-PATCH  /api/fields/:id                     any of the above + position
-GET    /api/fields/:id/delete-impact
-POST   /api/fields/delete                  { ids[], impactHash, confirm }   soft delete
-POST   /api/fields/:id/restore
+PATCH  /api/fields/:id                     any of the above + move: { groupId | null, afterId | null }; a move writes one row
+GET    /api/fields/:id/delete-impact       impact report + { fields, fieldLabels, rawValues, clearsSequence }
+POST   /api/fields/delete                  { ids[], impactHash, confirm }   soft delete, one template per call
+POST   /api/fields/:id/restore             -> { field, sequenceRestored, mappingsRepaired, configState }
 ```
+- Structural writes lock the template row, so concurrent moves can't compute the same position.
+- Field delete keeps the row, its `RawValue`s and `MappingInput`s; mappings reading it turn `BROKEN`.
+  If it was the sequence field, `Template.sequenceFieldId` is cleared but `Field.isSequence` stays
+  set, so restore reinstates it (when the template has no other sequence field). Restore returns
+  the field to its group and position and marks its mappings `OK` again when all their inputs and
+  their column are live.
+- `markSymbols` maps a symbol to `true`, `false` or `"count"`. `CHOICE` needs ≥1 choice; choices
+  and symbols are cleared when the type changes away from `CHOICE`/`MARK`.
 
 ### Mappings
 ```

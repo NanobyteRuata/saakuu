@@ -1,0 +1,182 @@
+# 04 — API Surface
+
+Server Actions for mutations that originate from a form or a single UI control.
+Route Handlers (`app/api/...`) for uploads, downloads, polling, and anything the
+worker or a future client needs. Every entry point: Zod-validated input, ownership
+guard, typed result.
+
+## Conventions
+
+- All handlers call `requireBookAccess(userId, bookId)` from `lib/auth/guards.ts`.
+- List endpoints are cursor-paginated: `?cursor=&limit=` → `{ items, nextCursor }`.
+- Mutations return `{ ok: true, data }` or `{ ok: false, error: { code, message, details } }`.
+- Errors use stable codes: `UNAUTHORIZED`, `NOT_FOUND`, `VALIDATION`, `CONFLICT`,
+  `RATE_LIMITED`, `PROVIDER_ERROR`, `INTERNAL`.
+- Destructive endpoints take `confirm: true` **and** an `impact` hash returned by the
+  matching preview endpoint, so the UI cannot skip the blast-radius check.
+
+## Auth
+```
+POST /api/auth/*                    Auth.js handlers (Google, credentials)
+POST /api/auth/register             { email, password } -> sends verification
+POST /api/auth/verify               { token }
+POST /api/auth/forgot               { email }
+POST /api/auth/reset                { token, password }
+```
+
+## Books
+```
+GET    /api/books                          list
+POST   /api/books                          { name, defaultModel, columns[] }
+GET    /api/books/:id                      book + columns + counts
+PATCH  /api/books/:id                      { name?, defaultModel?, numeralSystem?, dateEra?, exportPrefs? }
+POST   /api/books/delete                   { ids[], confirm } soft delete
+GET    /api/books/:id/delete-impact        { books, documents, photos, rows, editedCells }
+```
+
+## Output columns
+```
+GET    /api/books/:id/columns
+POST   /api/books/:id/columns/preview      { ops[] } -> impact report (see below)
+POST   /api/books/:id/columns/apply        { ops[], impactHash, confirm }
+```
+
+`ops[]` is a diff, not a replacement: `{ kind: "add"|"update"|"delete"|"move", ... }`.
+
+**Impact report shape** (used by every destructive preview):
+```jsonc
+{
+  "impactHash": "sha256:...",
+  "severity": "SAFE" | "ADDITIVE" | "DESTRUCTIVE",
+  "brokenMappings": [{ "templateId", "templateName", "columnLabel", "reason" }],
+  "clearedColumns": ["columnId"],
+  "affectedRows": 412,
+  "affectedCells": 412,
+  "editedCells": 38,
+  "reviewedCells": 120
+}
+```
+
+## Glossary & validation rules
+```
+GET/POST/PATCH/DELETE  /api/books/:id/glossary
+GET/POST/PATCH/DELETE  /api/books/:id/rules
+POST /api/books/:id/rules/revalidate       re-runs rules over all cells (queued job)
+```
+
+## Templates
+```
+GET    /api/books/:id/templates
+POST   /api/books/:id/templates            { name, kind, modelOverride? }
+GET    /api/templates/:id                  source layer + mapping layer + counts
+PATCH  /api/templates/:id                  { name?, instructions?, anchors?, languageHint?, modelOverride?, doubleExtraction?, sequenceFieldId? }
+POST   /api/templates/:id/duplicate        { includeMappings, targetBookId? }
+POST   /api/templates/delete               { ids[], confirm }
+GET    /api/templates/:id/delete-impact
+```
+
+### Fields & groups
+```
+POST   /api/templates/:id/groups           { label }
+PATCH  /api/groups/:id                     { label?, position? }
+DELETE /api/groups/:id                     fields move to ungrouped
+
+POST   /api/templates/:id/fields           { labelSource, labelMeaning?, dataType, mode, note?, groupId?, choices?, markSymbols? }
+PATCH  /api/fields/:id                     any of the above + position
+GET    /api/fields/:id/delete-impact
+POST   /api/fields/delete                  { ids[], impactHash, confirm }   soft delete
+POST   /api/fields/:id/restore
+```
+
+### Mappings
+```
+GET    /api/templates/:id/mappings
+POST   /api/templates/:id/mappings         { outputColumnId, kind, inputs[], separator?, splitBy?, splitIndex?, splitRegex?, constantValue?, expression?, fillDown? }
+PATCH  /api/mappings/:id
+DELETE /api/mappings/:id
+POST   /api/templates/:id/mappings/validate   -> per-mapping OK/BROKEN + reasons
+POST   /api/templates/:id/retransform         re-runs transform for all documents, no AI cost
+```
+
+`retransform` is the cheap path used after any mapping or normalisation change. It is
+queued (it can touch thousands of rows) and reports progress like an extraction job.
+
+## Documents & photos
+```
+GET    /api/books/:id/documents            filters: templateId, runState, needsReview, hasEdits, q, cursor
+POST   /api/templates/:id/documents        { photoIds[] } group uploaded photos into documents
+GET    /api/documents/:id
+PATCH  /api/documents/:id                  { label?, position?, manualValues? }
+POST   /api/documents/move                 { ids[], targetTemplateId, confirm }
+GET    /api/documents/move-impact          { ids[], targetTemplateId } -> rows/cells/edits discarded
+POST   /api/documents/delete               { ids[], confirm }
+POST   /api/documents/:id/split            { photoIds[] } -> new document
+POST   /api/documents/:id/reorder-photos   { photoIds[] in order }
+```
+
+**Move semantics:** field IDs differ between templates, so raw values cannot carry
+over. Moving transfers photos, batch membership and page order; it deletes the raw
+layer and derived rows; the document lands in `NEVER_RUN`. Warn hard when edits exist.
+
+### Upload
+```
+POST   /api/uploads/presign                { filename, mimeType, byteSize } -> { url, key }
+POST   /api/uploads/complete               { key, templateId, documentId? }
+```
+Server-side on complete: read EXIF and apply orientation, convert HEIC → JPEG, split
+PDFs into per-page images, generate `workingKey` (max 2048px) and `thumbKey`, create
+the `Photo` row. Reject files over 25 MB and non-image/PDF MIME types.
+
+### Photo editing
+```
+PATCH  /api/photos/:id/transform           { crop?, rotate?, deskew? }  non-destructive
+POST   /api/photos/:id/transform/reset
+POST   /api/photos/:id/autodeskew          -> suggested angle
+DELETE /api/photos/:id
+```
+Changing a transform invalidates `workingKey`; regenerate lazily on next extraction
+and mark the document as stale (its last run no longer matches its inputs).
+
+## Extraction
+```
+GET    /api/models                                     available models + cost tier
+POST   /api/extractions/estimate                       { documentIds[], model } -> { pages, estInputTokens, warnings }
+POST   /api/extractions/start                          { documentIds[], model, nonce } -> { jobIds[] }
+GET    /api/extractions/status?documentIds=a,b,c       poll: per-document runState + progress
+POST   /api/extractions/retry                          { documentIds[] | photoIds[] }
+POST   /api/extractions/cancel                         { documentIds[] }
+GET    /api/runs/:id                                   run detail incl. rawResponse (debug)
+```
+
+`estimate` also returns warnings: documents with edited cells, documents flagged as
+possible template mismatch, templates in `CONFLICTED` state.
+
+## Output table
+```
+GET    /api/books/:id/rows                 cursor on position; ?columns=&filter=&needsReview=
+PATCH  /api/cells/:id                      { value, reason? } -> writes CellEdit, sets isEdited
+POST   /api/cells/bulk                     { edits: [{cellId, value}] }
+POST   /api/cells/:id/revert               currentValue = extractedValue, isEdited = false
+POST   /api/cells/review                   { cellIds[], isReviewed }
+POST   /api/rows/reorder                   { rowId, beforeRowId?, afterRowId? } -> new fractional position
+PATCH  /api/rows/:id                       { isVoid? }
+POST   /api/rows/delete                    { ids[], confirm }
+GET    /api/books/:id/review-queue         next unreviewed cells, ordered by column then row
+```
+
+`PATCH /api/cells/:id` must be idempotent enough for fast typing: debounce client-side
+at ~400ms, and no-op when the value is unchanged.
+
+## Export
+```
+POST   /api/books/:id/export               { includeVoid, includeProvenance, columns? } -> { downloadUrl }
+GET    /api/exports/:token                 streams CSV, UTF-8 with BOM
+```
+Export streams rather than buffering. Provenance columns when requested:
+`_document`, `_template`, `_photo`, `_model`, `_reviewed`, `_confidence`.
+
+## Worker-only internals
+
+Not HTTP. The worker imports the same `lib/` code directly. Keep all business logic in
+`lib/` so it is callable from both the Next.js process and the worker — no logic in
+route handlers beyond validation, guard, call, respond.

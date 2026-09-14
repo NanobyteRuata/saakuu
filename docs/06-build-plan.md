@@ -1,7 +1,8 @@
 # 06 — Build Plan
 
 Ten phases. Each is independently shippable and has acceptance criteria. Do not start
-a phase before the previous one's criteria pass. Phases 0–9 are v1.
+a phase before the previous one's criteria pass. Phases 0–9 are v1. Phase 3.1 is an
+inserted revision of the source layer and must pass before Phase 4.
 
 ## Testing policy (until launch)
 
@@ -73,6 +74,106 @@ column all behave correctly, and the delete path shows an accurate impact report
 
 **Done when:** a 12-field Burmese vaccination-card template can be built, grouped,
 reordered, and a field soft-deleted and restored without data loss.
+
+---
+
+## Phase 3.1 — Source layer: paper structure
+
+Inserted after Phase 3 shipped, from modelling real registers. The template must mirror the
+paper's header structure exactly: groups and single fields interleaved in paper order, spanning
+headers nested over sub-headers, and rows of tick columns that encode one answer. Reasoning and
+decisions: docs/01 §6.5 and §11.7, docs/02 invariants 9–12, docs/07 decisions 28–32.
+
+Example it must represent (a TABLE register):
+
+```
+| No. | Name | Sex   | Age | RDT Test              | Remarks |
+|     |      | M | F |     | Positive     | Neg.   |         |
+|     |      |   |   |     | A | B | C    |        |         |
+```
+
+```
+No.                         field  (INTEGER, sequence)
+Name                        field  (TEXT, Manual)
+▾ Sex                       group  selection: One of · nothing ticked: Normal blank
+    M                       field  (MARK)
+    F                       field  (MARK)
+Age                         field  (AGE)
+▾ RDT Test                  group  selection: One of · nothing ticked: Flag for review
+    ▾ Positive              group  selection: Header only
+        A                   field  (MARK)
+        B                   field  (MARK)
+        C                   field  (MARK)
+    Neg.                    field  (MARK)
+Remarks                     field  (TEXT, Skip)
+```
+
+**Schema (first change since Phase 0, additive):**
+- `FieldGroup`: `label` renamed to `labelSource`; add `labelMeaning`, `parentGroupId`
+  (self-relation, `onDelete: Restrict`), `selection` (`NONE | ONE_OF | ANY_OF`, default `NONE`),
+  `noneMarked` (`BLANK | REVIEW | ERROR`, default `REVIEW`), `multipleMarked`
+  (`REVIEW | ERROR`, default `ERROR`), `note`; index on `parentGroupId`. See docs/02.
+- One-off, idempotent script that re-spaces each template's top-level positions so existing
+  templates keep their current visual order (ungrouped fields first, then groups) in the new
+  shared order. Run it once after the migration.
+
+**Ordering and nesting:**
+- Under one parent (the template root or a group), child groups and fields share one fractional
+  position space. A move names its new parent and the sibling it goes after
+  (`after: { kind: "field" | "group", id } | null`) and still writes one row, under the template
+  row lock.
+- Groups nest. `MAX_GROUP_DEPTH = 3` is a code constant, not a schema limit; raising it later
+  needs no migration. Refuse moves that exceed it (counting the moved group's own subtree height)
+  and moves of a group under itself or a descendant.
+- A pure tree helper (`lib/templates/tree.ts`) builds the ordered tree and header paths from the
+  flat rows; the editor, the Phase 5 prompt builder and review labels all use it.
+
+**Group configuration:**
+- Label on the paper, English meaning, note for the AI.
+- Selection: `Header only` / `One of` / `Any of`. A selection group's options are its descendant
+  `MARK` fields in `Extract` or `Manual` mode (Skip fields are not options).
+- When nothing is ticked: `Normal blank` (e.g. blank means "not tested") / `Flag for review` /
+  `Error`. When several are ticked (`One of` only): `Flag for review` / `Error`.
+- Refused: a selection group containing a non-`MARK` field or another selection group; changing a
+  field under a selection group away from `MARK`; `One of`/`Any of` with fewer than 2 options.
+- Stored only in this phase. The prompt uses it in Phase 5; the transform resolves it in Phase 6.
+
+**Deletes and restores:**
+- Deleting a group (hard delete, as today) moves its child groups and live fields up one level
+  into the group's slot, keeping their order, and re-parents soft-deleted fields to the group's
+  parent. Counted confirmation: "2 fields and 1 group move up into RDT Test. No fields are deleted."
+- A restored field returns to its group, or to the nearest surviving ancestor, at its old
+  position unless a sibling of either kind now holds that key.
+
+**Editor:**
+- One tree with mixed order at every level. Drag vertically to reorder; drag right to nest into
+  the group above, left to move out a level (dnd-kit's sortable tree pattern with depth
+  projection). Keyboard: Space to lift, ↑/↓ move, →/← nest/un-nest, Space to drop.
+- Group properties panel (selection settings explain their effect in one line and list the
+  options); a `Group` select in field and group properties as the non-drag alternative.
+- Quick-add creates the field or group at the end of the chosen parent.
+- Guidance copy in the empty state and Mode help: for Table templates, add every column in paper
+  order and set unwanted ones to Skip; for forms, add look-alike fields as Skip (docs/01 §6.5).
+
+**Tests (per the testing policy):** unit tests for group-delete re-parenting (no field lost or
+orphaned, order kept) and for depth/cycle refusal. Acceptance is checked by hand.
+
+**Out of scope, recorded for later phases:** rendering header paths and selection hints in the
+prompt (Phase 5); resolving selection groups in the transform, and the mapping that turns a
+selection group into an output column, including the value exported when nothing is ticked and
+per-option output values (Phase 6).
+
+**Done when:**
+- The register above can be built as a TABLE template in exactly that paper order, and the order
+  and every group setting survive a reload.
+- A 4th nesting level, moving a group into its own descendant, and a `One of` group containing a
+  non-mark field are each refused with a plain message.
+- Nesting and un-nesting work with the keyboard alone.
+- Deleting `RDT Test` moves `Positive` and `Neg.` up into its slot, in order, and deletes no
+  field; a field soft-deleted from `Positive` before `Positive` itself is deleted restores into
+  `Positive`'s parent.
+- Templates built in Phase 3 keep their visual order after the re-space script, and the Phase 3
+  acceptance flow still passes.
 
 ---
 

@@ -103,8 +103,15 @@ Three sections.
 **a. Source layer**
 - Type: Form or Table (chosen at creation; switching later is blocked — offer
   "duplicate as new template" instead).
-- Groups: named, ordered, collapsible containers for fields.
-- Fields, ordered within groups. Each field has:
+- Groups: the headers on the paper. Each has a label as written plus an optional English
+  meaning, is collapsible, and can nest up to 3 levels (a spanning header over sub-headers).
+  Groups and single fields are ordered **together** at every level, so the template follows the
+  paper exactly (Phase 3.1).
+- A group can declare a **selection** when its columns are tick boxes that together encode one
+  answer: `Header only` (default), `One of` (e.g. Sex: M | F) or `Any of`. Per group, configure
+  what "nothing ticked" means (normal blank / flag for review / error) and, for `One of`, what
+  "several ticked" means (flag for review / error). See §11.7.
+- Fields, ordered within their parent. Each field has:
   - `labelSource` — how it is written on the paper, any script (required)
   - `labelMeaning` — what it means, English (optional)
   - `dataType` — see §9
@@ -115,6 +122,23 @@ Three sections.
 - Optional **anchor strings**: printed text expected on the page, used for template
   mismatch detection (§12).
 - Toggle: **double extraction** (§13).
+
+**Which fields to add** (guidance shown in the editor, Phase 3.1):
+- Every physical column or answer box you add becomes a field. Groups are only the headers above
+  them, never a substitute for the columns themselves.
+- **Table templates: add every column visible on the paper, in paper order, and set the ones you
+  don't need to `Skip`.** Tables are read row by row, matching values to the listed headers. An
+  unlisted column between two listed ones gives the model nowhere to put its values, and
+  handwriting that drifts across ruled lines lands them in a neighbouring field: a plausible wrong
+  value that neither validation nor confidence catches. A listed `Skip` column anchors the column
+  boundaries for a few prompt tokens and no output. The numbered `No.` column must be a field to
+  be the sequence field.
+- **Form templates:** labels sit next to their values, so unrelated fields can be left out. Add
+  look-alikes of the fields you want as `Skip` (mother's vs father's name, date of birth vs date
+  of vaccination, two phone numbers) so the model can tell them apart.
+- `Skip` = on the paper, the AI ignores it, the cell stays empty. `Manual` = on the paper, never
+  sent to the AI, typed once per document. Not listed = the model doesn't know it exists.
+- This is prompt-design reasoning, not yet measured. Validate it in Phase 5 (docs/07 Part C).
 
 **b. Mapping layer**
 Maps fields to output columns. Supported mapping kinds:
@@ -296,6 +320,35 @@ dash means in this dataset.
 ### 11.7 Marks and tallies
 `MARK` field type with configurable symbol semantics (e.g. `✓` → true, `✗` → false,
 circled → true, tally strokes → count).
+
+Registers often encode one answer as a row of tick columns under a spanning header, sometimes
+nested (Phase 3.1):
+
+```
+|  Sex  |         RDT Test          |
+| M | F |   Positive    |   Neg.    |
+|   |   | A | B | C |               |
+---------------------------------------
+| ✓ |   | ✓ |   |   |               |
+|   | ✓ |   |   |   |      ✓        |
+```
+
+- Each tick column is a `MARK` field; each header is a group (`RDT Test` › `Positive` › `A`).
+- The group that carries the answer is set to `One of` (or `Any of`). `Positive` is a
+  `Header only` group inside `RDT Test`.
+- The AI still reports each column's tick verbatim. The transform turns the ticked option into a
+  value (`Sex = F`, `RDT Test = Positive › A`) and applies the group's rules:
+  - nothing ticked → normal blank, review flag or error, as configured (blank often means
+    "not tested");
+  - several ticked in a `One of` group → review flag or error, as configured; the raw ticks are
+    kept and no option is picked;
+  - any option `ILLEGIBLE` → always flagged for review, never treated as "nothing ticked".
+- A selection group's options are its descendant `MARK` fields in `Extract` or `Manual` mode. It
+  can't contain non-mark fields or another selection group.
+- The value exported when nothing is ticked (empty, `Not tested`, `0`) and per-option output
+  values (M → `1`, F → `2`) are mapping options (Phase 6), because they depend on the output
+  table, not the paper. Separate yes/no columns per option remain possible with plain `COPY`
+  mappings from each field.
 
 ### 11.8 Script and numerals
 Burmese digits `၀–၉` collide visually with Latin and punctuation (`၀` vs `0`/`○`,

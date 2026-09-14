@@ -174,14 +174,28 @@ model Template {
   @@index([bookId, deletedAt])
 }
 
+enum GroupSelection { NONE  ONE_OF  ANY_OF }   // Phase 3.1
+enum NoneMarked     { BLANK  REVIEW  ERROR }   // Phase 3.1
+enum MultipleMarked { REVIEW  ERROR }          // Phase 3.1
+
+// A header on the paper. May span columns and nest (Phase 3.1). Never holds raw values.
 model FieldGroup {
-  id         String @id @default(cuid())
-  templateId String
-  label      String
-  position   String
-  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  fields     Field[]
+  id             String         @id @default(cuid())
+  templateId     String
+  parentGroupId  String?                           // Phase 3.1: null = top level; depth capped in code
+  labelSource    String                            // Phase 3.1: renamed from `label`; as written on the paper
+  labelMeaning   String?                           // Phase 3.1: English meaning
+  position       String                            // shares one order with sibling fields (same parent)
+  selection      GroupSelection @default(NONE)     // Phase 3.1: tick columns encoding one / many answers
+  noneMarked     NoneMarked     @default(REVIEW)   // Phase 3.1: selection group with nothing ticked
+  multipleMarked MultipleMarked @default(ERROR)    // Phase 3.1: ONE_OF group with 2+ ticks
+  note           String?                           // Phase 3.1: instruction to the AI
+  template       Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent         FieldGroup?    @relation("GroupNesting", fields: [parentGroupId], references: [id], onDelete: Restrict)
+  children       FieldGroup[]   @relation("GroupNesting")
+  fields         Field[]
   @@index([templateId])
+  @@index([parentGroupId])
 }
 
 enum FieldType { TEXT NUMBER INTEGER DATE MARK CHOICE AGE FRACTION }
@@ -190,7 +204,7 @@ enum FieldMode { EXTRACT SKIP MANUAL }
 model Field {
   id           String    @id @default(cuid())
   templateId   String
-  groupId      String?
+  groupId      String?   // parent group; null = top level of the template
   labelSource  String    // as written on the paper, any script
   labelMeaning String?   // English meaning
   dataType     FieldType @default(TEXT)
@@ -485,6 +499,24 @@ model ValidationRule {
    state and never writes.
 7. **A FORM document has exactly 0 or 1 `RawRecord`.** A TABLE document has 0..N.
 8. **`Template.configState = CONFLICTED`** iff any of its mappings is `BROKEN`.
+9. **Siblings share one order (Phase 3.1).** Under one parent (the template root, or a group),
+   child `FieldGroup`s and `Field`s share a single fractional position space: display order
+   merges `FieldGroup.position` and `Field.position` for rows with the same `templateId` and
+   parent (`parentGroupId` / `groupId`). A move names the new parent and the sibling it goes
+   after, of either kind, and writes one row. Comparisons are code-unit (`COLLATE "C"`), ties
+   broken by id.
+10. **Group depth is capped in code, not in the schema.** `MAX_GROUP_DEPTH = 3` today; raising it
+    needs no migration. A group can never be moved under itself or a descendant. Trees are built
+    in memory from at most 100 groups and 500 fields; no recursive SQL.
+11. **Every physical column or answer box is a `Field`; groups are headers only.** Groups never
+    own raw values. A selection group (`ONE_OF` / `ANY_OF`) is resolved in the transform from its
+    descendant `MARK` fields' raw values; its options are those fields in `EXTRACT` or `MANUAL`
+    mode. Selection groups don't nest inside each other and contain no non-`MARK` fields.
+12. **Deleting a group never deletes or orphans a field.** Groups are hard-deleted, but first
+    their child groups and live fields move up one level into the group's slot (order kept), and
+    soft-deleted fields are re-parented to the group's parent so a restore lands on the nearest
+    surviving ancestor. `parentGroupId` is `onDelete: Restrict`, so a group can never disappear
+    with children still attached.
 
 ## Indexing notes
 

@@ -124,6 +124,25 @@ POST   /api/fields/:id/restore             -> { field, sequenceRestored, mapping
 - `markSymbols` maps a symbol to `true`, `false` or `"count"`. `CHOICE` needs ≥1 choice; choices
   and symbols are cleared when the type changes away from `CHOICE`/`MARK`.
 
+**Phase 3.1 changes** (nested groups and paper order; see docs/06):
+```
+POST   /api/templates/:id/groups            { labelSource, labelMeaning?, parentGroupId?, selection?, noneMarked?, multipleMarked?, note? }
+PATCH  /api/groups/:id                      any of the above except parentGroupId, + move: { parentGroupId | null, after: { kind: "field" | "group", id } | null }
+GET    /api/groups/:id/delete-impact        -> { fields, groups, deletedFields, parentLabel }   counts for the confirmation
+DELETE /api/groups/:id                      -> { movedFields, movedGroups }   children move up into the group's slot
+POST   /api/templates/:id/fields            groupId is the parent group (any depth); appended at the end of that parent
+PATCH  /api/fields/:id                      move: { groupId | null, after: { kind: "field" | "group", id } | null }   replaces afterId
+```
+- `after` names a sibling of either kind because groups and fields share one order under a parent;
+  null = first. A move still writes one row.
+- `VALIDATION` refusals, each with a plain message: depth over `MAX_GROUP_DEPTH` (3, counting the
+  moved group's subtree); a group under itself or a descendant; a selection group containing a
+  non-`MARK` field or another selection group, or with fewer than 2 options; changing a field
+  inside a selection group away from `MARK`.
+- Group responses carry `labelSource`, `labelMeaning`, `parentGroupId`, `position`, `selection`,
+  `noneMarked`, `multipleMarked`, `note`. `GET /api/templates/:id` returns groups and fields flat;
+  `lib/templates/tree.ts` builds the ordered tree and header paths.
+
 ### Mappings
 ```
 GET    /api/templates/:id/mappings

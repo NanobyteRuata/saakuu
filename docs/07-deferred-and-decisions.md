@@ -125,6 +125,37 @@ single use, and a new token revokes older ones. Verification links expire after 
 reset links after 1 hour. Confirming an email requires a click, so link scanners
 cannot use up the token.
 
+**28. Every physical column or answer box is a field; groups are the headers above them.**
+Flattening nested headers into standalone fields ("RDT Positive A") loses the header context the
+model needs, readable labels, and the "only one of these is ticked" check. Collapsing tick
+columns into one field ("Sex") instead would make the model interpret rather than transcribe, and
+lose per-column review crops. Both layers are kept: fields for what is read, groups for structure.
+(Phase 3.1)
+
+**29. Table templates list every column; unwanted ones are Skipped, not omitted.** Tables are read
+row by row against the header list. An unlisted column between listed ones gets its values pushed
+into a neighbour when handwriting drifts, producing plausible wrong values nothing else catches.
+Skipped columns cost a few prompt tokens and no output. Forms may omit unrelated fields but should
+list look-alikes as Skip. This is reasoning, not measurement; see Part C question 6. (Phase 3.1)
+
+**30. Groups and fields share one order at every level.** Real forms interleave single fields and
+grouped columns. A fixed "ungrouped first, groups after" layout can't follow the paper, and paper
+order is what the prompt should present. The existing fractional positions already allow this by
+merging sibling groups and fields; no migration was needed for ordering itself. (Phase 3.1)
+
+**31. Groups nest; the depth cap is a code constant.** Registers have spanning headers over
+sub-headers (`RDT Test › Positive › A`). `parentGroupId` allows any depth, and
+`MAX_GROUP_DEPTH = 3` is enforced in validation, so a deeper form later needs a one-line change,
+not a migration. The practical limit is readability of header paths, not the database. (Phase 3.1)
+
+**32. "One of / Any of" tick groups are a source-layer setting, resolved in the transform.**
+That only one box should be ticked is a fact about the paper, so it lives on the group. The model
+still transcribes each tick; the transform derives the answer. What nothing ticked or several
+ticked mean is configurable per group (blank often means "not tested"), an illegible tick is
+always flagged and never read as blank, and raw ticks are kept. The value exported for "nothing
+ticked" and per-option output codes belong to the mapping, because they depend on the output
+table. (Phase 3.1)
+
 ---
 
 ## Part C — Open questions for later
@@ -144,3 +175,15 @@ Not blocking v1, but worth revisiting once real data exists.
    a real workflow.
 5. Does the operator ever need to add a row by hand (a row with no source photo)?
    Likely yes for marginal insertions. `Row.rawRecordId` is nullable to allow it.
+6. Does listing every table column (unwanted ones as Skip) measurably beat listing only the wanted
+   ones? Current answer: list every column (decision 29). Validate in Phase 5 by running the same
+   ~20 real photos through both template variants and comparing per-cell error rates, especially
+   on narrow tick columns.
+7. How does a mapping reference a selection group? Options: a new mapping kind, an `EXPRESSION`
+   helper such as `oneOf(...)`, or a group reference on `MappingInput`. Current answer: decide in
+   Phase 6; the last two avoid or minimise a schema change.
+8. Is a nesting depth of 3 enough? Current answer: yes for the forms seen so far; raise
+   `MAX_GROUP_DEPTH` when a real form needs more (decision 31).
+9. Should selection-group resolution failures (nothing / several ticked) surface as cell-level
+   validation or as a document-level review flag? Current answer: cell-level on the mapped cell,
+   plus the document's `needsReview`; confirm when building the Phase 6 transform.

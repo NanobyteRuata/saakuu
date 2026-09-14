@@ -96,6 +96,17 @@ records its `promptVersion`.
 9. **Field list.** For each field: `fieldId`, source label (as written), meaning,
    data type, note. Fields with mode `SKIP` are listed under an explicit
    "ignore these fields entirely" heading; `MANUAL` fields are omitted entirely.
+   **Phase 3.1 structure:**
+   - Fields are listed in paper order (the template's merged group/field order) with their
+     header path, e.g. `"path": [{ "label": "RDT Test" }, { "label": "Positive" }, { "label": "A" }]`
+     with meanings where set. Group notes are attached to the group.
+   - For TABLE templates, `SKIP` columns stay **in their paper position**, marked
+     `"mode": "SKIP"` with an ignore instruction, instead of being moved to a separate heading, so
+     the header list still anchors every column boundary.
+   - For selection groups, say that normally one option (`One of`) or a few (`Any of`) are ticked
+     per record, but the model must **report each option's tick exactly as seen, including none or
+     several**, and must never choose between them. Wording that implies "exactly one" invites
+     invented ticks.
 10. **Kind-specific rules** — see §4 and §5.
 11. **Anchors.** "Report which of these printed strings you can see on the page."
 12. **Restate the never-guess rule.**
@@ -213,6 +224,20 @@ transform(document, rawRecords, template, mappings, book, existingCells) -> Row[
    - **Burmese-specific:** normalise the well-known Zawgyi/Unicode confusions and
      apply NFC. Consider `rabbit-node` or a small hand-written digit map; a digit map
      is sufficient for v1 since numerals are the main case.
+5a. **Resolve selection groups** (defined in Phase 3.1, implemented with the transform).
+   For each `ONE_OF` / `ANY_OF` group, read its option fields' normalised `MARK` values for the
+   record:
+   - `ONE_OF` with one tick → the ticked option's path relative to the group, using meaning
+     labels where set, else source labels (`Positive › A`).
+   - `ANY_OF` → the ticked options in paper order.
+   - Nothing ticked → apply `noneMarked`: `BLANK` = empty value, no flag; `REVIEW` = empty value
+     plus a warning; `ERROR` = empty value plus an error.
+   - Several ticked in `ONE_OF` → apply `multipleMarked` (`REVIEW` or `ERROR`) and leave the
+     value empty; never pick one.
+   - Any option `ILLEGIBLE` → review flag, regardless of the settings above.
+   - Raw values are never modified. How a mapping references a group (a new mapping kind, an
+     `EXPRESSION` helper, or a group reference on `MappingInput`) is decided in Phase 6, along
+     with per-option output values and the value exported when nothing is ticked.
 6. **Apply mappings.** COPY / CONCAT / SPLIT / CONSTANT / EXPRESSION, per §9.
 7. **Coerce to column type.** On failure set `validationState = ERROR` with a message
    and keep the raw string in `currentValue` — never discard data to satisfy a type.

@@ -79,6 +79,21 @@ Full-page, three tabs: **Fields** · **Mapping** · **Validation**.
 Two-pane. Left: the field tree (groups → fields), drag-reorderable, with add buttons.
 Right: the selected field's properties.
 
+**Tree (Phase 3.1).** Mirrors the paper. Groups and single fields interleave in one order at
+every level, and groups nest up to 3 levels; there is no fixed "Ungrouped" section.
+- Drag vertically to reorder; drag right to move into the group above, left to move out one
+  level. Keyboard: Space to lift, ↑/↓ to move, →/← to nest or un-nest, Space to drop.
+- A `Group` select in the field and group properties panels is the non-drag alternative.
+- A move past the depth cap, or a group into itself, is refused with a plain message.
+- Group rows: source label (in its script), meaning (muted), a selection chip (`One of` /
+  `Any of`) and a field count. Field rows can show their header path (`RDT Test › Positive › A`)
+  where the bare label is ambiguous, e.g. in search results and the properties panel title.
+- Deleting a group states exact counts and never deletes fields: "2 fields and 1 group move up
+  into RDT Test. No fields are deleted."
+- The empty state and the Mode help text carry the guidance from docs/01 §6.5: for Table
+  templates, add every column in paper order and set unwanted ones to Skip; for forms, add
+  look-alike fields as Skip.
+
 Field row shows: source label (in its own script, prominent), meaning label (muted,
 smaller), type chip, mode chip. Mode chips are colour-coded and immediately legible —
 `Extract` neutral, `Skip` muted/struck, `Manual` accented.
@@ -86,6 +101,13 @@ smaller), type chip, mode chip. Mode chips are colour-coded and immediately legi
 Field properties panel: source label, meaning label, data type, mode, note (multiline,
 with a hint explaining it is an instruction to the AI and an example), choices editor
 for CHOICE, symbol map for MARK, `use as sequence` toggle for table templates.
+
+Group properties panel (Phase 3.1): label on the paper, meaning, parent group, selection
+(`Header only` / `One of` / `Any of`), when nothing is ticked (`Normal blank` /
+`Flag for review` / `Error`), when several are ticked (`One of` only: `Flag for review` /
+`Error`), and a note for the AI. The selection settings explain their effect in one line
+("Blank means not tested: no flag") and list the group's option fields; a group whose
+descendants aren't all mark fields shows why `One of` is unavailable.
 
 Header of the tab: template name, kind (read-only after creation), language hint,
 anchors editor, template-level instructions, double-extraction toggle (disabled in v1

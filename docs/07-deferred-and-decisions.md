@@ -102,6 +102,29 @@ Fractional indexes make a drag a single-row update.
 
 **23. Extraction never runs in a request handler.** Always queued, always idempotent.
 
+**24. Every session is a database row, including password sign-ins.** Auth.js only
+issues JWTs for Credentials, so `jwt.encode` is overridden to create a `Session` row
+and use its token as the cookie. This means a password reset can sign a user out
+everywhere by deleting rows. Auth.js accepts the Credentials + database combination
+only while another provider is registered, so Google is always in the provider list and
+its button is hidden when unconfigured.
+
+**25. Google links to an existing account only when both sides are verified.** Google
+must report the email as verified, and an existing password account must have
+confirmed its email. Otherwise someone could pre-register a victim's address and
+inherit their Google sign-in. A Google-only user can add a password through the
+reset flow.
+
+**26. Email goes through an `EmailSender` interface.** Resend in production, a log
+transport for local work without a key, and an in-memory outbox for E2E tests. Swapping
+providers touches one file.
+
+**27. Auth secrets are stored hashed.** Passwords use scrypt (`node:crypto`, no native
+dependency, parameters stored in the hash). Emailed tokens are stored as sha256 hashes,
+single use, and a new token revokes older ones. Verification links expire after 24 hours and
+reset links after 1 hour. Confirming an email requires a click, so link scanners
+cannot use up the token.
+
 ---
 
 ## Part C — Open questions for later

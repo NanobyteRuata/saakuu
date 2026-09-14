@@ -69,8 +69,8 @@ model Session {
 }
 
 model VerificationToken {
-  identifier String
-  token      String   @unique
+  identifier String   // User.id
+  token      String   @unique  // sha256 of the emailed token; the raw token is never stored
   expires    DateTime
   purpose    String   // EMAIL_VERIFY | PASSWORD_RESET
   @@unique([identifier, token])

@@ -33,6 +33,25 @@ pnpm worker:dev        # worker, in another terminal
 pnpm job:noop          # round-trip a no-op job through the worker
 ```
 
+## Auth
+
+Auth.js v5: email + password and Google, database sessions (30-day rolling).
+Set `AUTH_SECRET` (`openssl rand -base64 33`) and `AUTH_URL` in `.env`; see `.env.example`.
+
+- **Email** goes through `EMAIL_TRANSPORT`: `resend` (needs `RESEND_API_KEY`), `log` (links
+  printed to the server log), or `test` (in-memory, readable at `/api/test/outbox?to=`, 404
+  otherwise and refused in production). With Resend, `onboarding@resend.dev` only delivers
+  to your own Resend account address until you verify a domain and change `EMAIL_FROM`.
+- **Google** is enabled when `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` are both set. Add
+  `<AUTH_URL>/api/auth/callback/google` as an authorised redirect URI.
+- **Account linking:** Google sign-in joins an existing account with the same email only
+  when that account's email is verified; otherwise it is blocked until the user confirms
+  the email.
+
+Manual Google linking check: register with your Gmail address using a password, confirm the
+email, sign out, then "Continue with Google". Expect one `User` row for that email and one
+`Account` row with `provider = 'google'` pointing at it.
+
 ## Checks
 
 ```sh
@@ -43,3 +62,10 @@ pnpm test:e2e          # Playwright; reuses a running app on :3000 or starts `pn
 ```
 
 First Playwright run: `pnpm exec playwright install chromium`.
+
+The auth E2E test needs the app running with `EMAIL_TRANSPORT=test`, e.g.:
+
+```sh
+EMAIL_TRANSPORT=test AUTH_URL=http://localhost:3001 pnpm dev --port 3001
+E2E_BASE_URL=http://localhost:3001 pnpm test:e2e
+```

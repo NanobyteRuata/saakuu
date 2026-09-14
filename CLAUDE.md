@@ -26,7 +26,8 @@ Two rules follow from this and must never be violated:
 
 - Next.js 15 (App Router) + TypeScript strict
 - PostgreSQL + Prisma
-- Auth.js v5 — Google OAuth + email/password credentials
+- Auth.js v5 — Google OAuth + email/password credentials, database sessions
+- Resend for transactional email, behind `lib/email` (`EMAIL_TRANSPORT`: resend | log | test)
 - BullMQ + Redis for the job queue; a separate long-running worker process
 - S3-compatible object storage (MinIO in dev, any S3 in prod)
 - Tailwind + shadcn/ui
@@ -62,6 +63,8 @@ app/                     routes (App Router)
   (app)/books/[bookId]/  book detail: table | templates | documents | settings
 components/
   ui/                    shadcn primitives
+  auth/                  sign-in, sign-up, verify, forgot, reset forms
+  shell/                 top bar, user menu, sign-out confirmation
   table/                 output table, cells, virtualisation
   review/                row review + column sweep
   photo/                 uploader, editor (crop/rotate/deskew), viewer
@@ -69,7 +72,8 @@ lib/
   ai/                    provider interface, gemini impl, prompts, schemas
   transform/             raw -> row engine, normalisers, validators
   db/                    prisma client, query helpers
-  auth/
+  auth/                  Auth.js config, guards, session helpers, account service, tokens
+  email/                 EmailSender interface, Resend/log/test transports, templates
 worker/                  BullMQ worker entrypoint + processors
 prisma/schema.prisma
 docs/

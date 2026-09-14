@@ -17,12 +17,18 @@ guard, typed result.
 
 ## Auth
 ```
-POST /api/auth/*                    Auth.js handlers (Google, credentials)
-POST /api/auth/register             { email, password } -> sends verification
+GET/POST /api/auth/*                Auth.js handlers (Google, credentials)
+POST /api/auth/register             { email, password, name? } -> sends verification
 POST /api/auth/verify               { token }
+POST /api/auth/resend-verification  { email }
 POST /api/auth/forgot               { email }
-POST /api/auth/reset                { token, password }
+POST /api/auth/reset                { token, password }   signs out every session
 ```
+- `register`, `resend-verification` and `forgot` return `{ emailSent: true }` whether or not
+  an account exists, so they cannot be used to discover accounts.
+- Credentials sign-in and sign-out are Server Actions (`lib/auth/actions.ts`), not routes.
+- `GET /api/test/outbox?to=` returns the latest in-memory email for E2E tests. It returns 404
+  unless `EMAIL_TRANSPORT=test`, and that transport is refused in production.
 
 ## Books
 ```

@@ -14,6 +14,15 @@ x-app-env: &app-env
   S3_FORCE_PATH_STYLE: "true"
   WORKER_CONCURRENCY: "3"
   PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  # Auth and email come from the host shell or a root .env; the dev secret is a fallback only.
+  AUTH_SECRET: ${AUTH_SECRET:-dev-only-insecure-secret-change-me-0123456789}
+  AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+  AUTH_TRUST_HOST: "true"
+  AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+  AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+  EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-log}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  EMAIL_FROM: ${EMAIL_FROM:-SaaKuu <onboarding@resend.dev>}
 
 services:
   postgres:

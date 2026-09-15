@@ -9,6 +9,7 @@ import { z } from "zod";
 
 export const QUEUES = {
   system: "system",
+  media: "media",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -27,6 +28,16 @@ export type NoopJobResult = {
   completedAt: string;
 };
 
+/** Photo ingest: orient, convert HEIC, split PDFs, write base/working/thumbnail copies. */
+export const photoIngestJobSchema = z.object({ photoId: z.string().min(1) });
+export type PhotoIngestJobData = z.infer<typeof photoIngestJobSchema>;
+
+/** Photo render: rebuild the working copy and thumbnail after a transform change. */
+export const photoRenderJobSchema = z.object({ photoId: z.string().min(1) });
+export type PhotoRenderJobData = z.infer<typeof photoRenderJobSchema>;
+
 export const JOBS = {
   noop: { queue: QUEUES.system, name: "noop", schema: noopJobSchema },
+  photoIngest: { queue: QUEUES.media, name: "photo.ingest", schema: photoIngestJobSchema },
+  photoRender: { queue: QUEUES.media, name: "photo.render", schema: photoRenderJobSchema },
 } as const;

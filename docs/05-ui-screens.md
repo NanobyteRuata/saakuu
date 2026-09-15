@@ -159,6 +159,23 @@ Default is one document per photo. Multi-select → `Group into one document`. A
 document shows its pages in order with drag-reorder handles. `Done` creates the
 documents.
 
+*As built (Phase 4):*
+- Upload is a large modal. `Upload documents` is always on the Documents tab: the template is
+  pre-selected from the template filter, or when the book has one template; otherwise the operator
+  picks one before the drop zone unlocks. A template card opens the same modal with its template fixed.
+  The template can't change once files are added.
+- Each finished upload is already a document; everything saves as it happens. Per card:
+  - select to group
+  - drag pages to reorder
+  - `Split into single pages`
+  - crop/straighten a page (photo editor)
+  - delete a page or the document (counted confirmations)
+  - open the document drawer for label, Manual values and the rest
+- `Done` closes the modal and refreshes the list, and is disabled while files are uploading. Closing
+  mid-upload asks first ("Stop uploading?") and aborts unfinished uploads; files that finished stay as
+  documents.
+- Each PDF arrives as one document with its pages in order.
+
 **Document detail drawer:** photo strip (drag-reorder), per-photo status/size/actions,
 MANUAL-mode field inputs (typed once here, not per cell), run history, and
 `Extract` / `Re-extract`.
@@ -172,6 +189,14 @@ Tools: **Crop** (drag handles, aspect free), **Rotate** (90° buttons + fine sli
 Footer: `Cancel` / `Save`. Saving writes the transform JSON only; the original is
 never modified. A note warns that changing the transform makes the last extraction
 stale for this document.
+
+*As built (Phase 4):*
+- The editor shows the upright, untransformed copy. The preview uses the same geometry as the server
+  render, so the saved result matches what was on screen.
+- Turning by 90° clears the crop.
+- Auto-detect suggests a deskew for the current turn and switches the grid on.
+- The crop box moves with the arrow keys and resizes with Shift + arrows.
+- The drawer's page cards show `Edited (updating…)` until the new thumbnail is rendered.
 
 ## 11. Extract modal
 Shows: document count, page count, model selector (pre-filled from template override,

@@ -12,7 +12,9 @@ x-app-env: &app-env
   S3_SECRET_ACCESS_KEY: saakuu-secret
   S3_BUCKET: saakuu
   S3_FORCE_PATH_STYLE: "true"
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9002}
   WORKER_CONCURRENCY: "3"
+  MEDIA_CONCURRENCY: "2"
   PRISMA_HIDE_UPDATE_MESSAGE: "1"
   # Auth and email come from the host shell or a root .env; the dev secret is a fallback only.
   AUTH_SECRET: ${AUTH_SECRET:-dev-only-insecure-secret-change-me-0123456789}
@@ -117,6 +119,8 @@ services:
     environment: *app-env
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      minio-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy

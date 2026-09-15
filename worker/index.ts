@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db/client";
 import { log } from "@/lib/log";
 import { QUEUES, closeQueues, createRedisConnection } from "@/lib/queue";
 
+import { processMediaJob } from "./processors/media";
 import { processSystemJob } from "./processors/system";
 
 async function main(): Promise<void> {
@@ -18,6 +19,10 @@ async function main(): Promise<void> {
     new Worker(QUEUES.system, processSystemJob, {
       connection: createRedisConnection(),
       concurrency: env.WORKER_CONCURRENCY,
+    }),
+    new Worker(QUEUES.media, processMediaJob, {
+      connection: createRedisConnection(),
+      concurrency: env.MEDIA_CONCURRENCY,
     }),
   ];
 

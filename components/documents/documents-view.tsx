@@ -1,0 +1,445 @@
+"use client";
+
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowRightLeft, Trash2, Upload } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { FormMessage } from "@/components/auth/form-message";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getJson } from "@/lib/api-client";
+import type { Page } from "@/lib/db/pagination";
+import { CONTENT_STATE_LABELS, RUN_STATE_LABELS } from "@/lib/documents/labels";
+import { RUN_STATES, type RunState } from "@/lib/documents/schemas";
+import type { DocumentSummary } from "@/lib/documents/service";
+import { formatCount, isoDate, plural } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+import { DeleteDocumentsDialog } from "./delete-documents-dialog";
+import { DocumentDrawer } from "./document-drawer";
+import { MoveDocumentsDialog } from "./move-documents-dialog";
+import { UploadDialog, type TemplateOption } from "./upload-dialog";
+
+export type { TemplateOption };
+
+export type DocumentFilters = {
+  templateId: string | null;
+  runState: RunState | null;
+  needsReview: boolean | null;
+  hasEdits: boolean | null;
+  q: string;
+};
+
+type Props = {
+  bookId: string;
+  templates: TemplateOption[];
+  filters: DocumentFilters;
+  initialPage: Page<DocumentSummary>;
+};
+
+const ROW_HEIGHT = 64;
+const ANY = "any";
+const MISMATCH_THRESHOLD = 0.5;
+const COLUMNS =
+  "grid-cols-[2rem_3.5rem_minmax(12rem,2fr)_minmax(8rem,1fr)_4rem_7rem_8rem_4rem_6rem_4rem_6rem_8rem]";
+
+function query(filters: DocumentFilters, cursor?: string): string {
+  const params = new URLSearchParams();
+  if (filters.templateId) params.set("templateId", filters.templateId);
+  if (filters.runState) params.set("runState", filters.runState);
+  if (filters.needsReview !== null) params.set("needsReview", String(filters.needsReview));
+  if (filters.hasEdits !== null) params.set("hasEdits", String(filters.hasEdits));
+  if (filters.q) params.set("q", filters.q);
+  if (cursor) params.set("cursor", cursor);
+  return params.toString();
+}
+
+function isFiltered(f: DocumentFilters): boolean {
+  return f.templateId !== null || f.runState !== null || f.needsReview !== null || f.hasEdits !== null || f.q !== "";
+}
+
+/** Documents tab (docs/05 §8): filter bar, virtualised list, selection bar, detail drawer. */
+export function DocumentsView({ bookId, templates, filters, initialPage }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [items, setItems] = useState(initialPage.items);
+  const [nextCursor, setNextCursor] = useState(initialPage.nextCursor);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [search, setSearch] = useState(filters.q);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const setFilters = useCallback(
+    (patch: Partial<DocumentFilters>) => {
+      const qs = query({ ...filters, ...patch });
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [filters, pathname, router],
+  );
+
+  useEffect(() => {
+    if (search === filters.q) return;
+    const t = window.setTimeout(() => setFilters({ q: search.trim() }), 350);
+    return () => window.clearTimeout(t);
+  }, [search, filters.q, setFilters]);
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastIndex = virtualItems.at(-1)?.index ?? 0;
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setLoadError(null);
+    const result = await getJson<Page<DocumentSummary>>(`/api/books/${bookId}/documents?${query(filters, nextCursor)}`);
+    setLoadingMore(false);
+    if (!result.ok) {
+      setLoadError(result.error.message);
+      return;
+    }
+    setItems((prev) => [...prev, ...result.data.items]);
+    setNextCursor(result.data.nextCursor);
+  }, [bookId, filters, nextCursor, loadingMore]);
+
+  useEffect(() => {
+    if (nextCursor && !loadError && lastIndex >= items.length - 15) void loadMore();
+  }, [lastIndex, items.length, nextCursor, loadError, loadMore]);
+
+  /** Re-reads the list from the top (as many rows as are loaded, up to one full page) after a change. */
+  const reloadList = useCallback(async () => {
+    const limit = Math.min(200, Math.max(50, items.length));
+    const result = await getJson<Page<DocumentSummary>>(`/api/books/${bookId}/documents?${query(filters)}&limit=${limit}`);
+    if (!result.ok) {
+      setLoadError(result.error.message);
+      return;
+    }
+    setItems(result.data.items);
+    setNextCursor(result.data.nextCursor);
+    const live = new Set(result.data.items.map((d) => d.id));
+    setSelected((prev) => new Set([...prev].filter((id) => live.has(id))));
+  }, [bookId, filters, items.length]);
+
+  function removeItems(ids: string[]) {
+    const gone = new Set(ids);
+    setItems((prev) => prev.filter((d) => !gone.has(d.id)));
+    setSelected(new Set());
+    router.refresh();
+  }
+
+  const selectedDocs = items.filter((d) => selected.has(d.id));
+  const allSelected = items.length > 0 && selectedDocs.length === items.length;
+
+  if (templates.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+        <p className="font-medium">No documents yet</p>
+        <p className="text-muted-foreground max-w-md text-sm">
+          Documents are the photos of your paper forms, grouped so that each document is one record. Create a template
+          first so SaaKuu knows what kind of paper you&apos;re uploading.
+        </p>
+        <Button asChild variant="outline">
+          <Link href={`/books/${bookId}/templates`}>Go to templates</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Documents</h2>
+        <Button size="sm" onClick={() => setUploadOpen(true)}>
+          <Upload />
+          Upload documents
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2" role="search" aria-label="Filter documents">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search labels"
+          aria-label="Search document labels"
+          className="w-56"
+        />
+        <Select value={filters.templateId ?? ANY} onValueChange={(v) => setFilters({ templateId: v === ANY ? null : v })}>
+          <SelectTrigger className="w-48" aria-label="Template">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>All templates</SelectItem>
+            {templates.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filters.runState ?? ANY} onValueChange={(v) => setFilters({ runState: v === ANY ? null : (v as RunState) })}>
+          <SelectTrigger className="w-40" aria-label="Run state">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Any run state</SelectItem>
+            {RUN_STATES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {RUN_STATE_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <TriState label="Needs review" value={filters.needsReview} onChange={(v) => setFilters({ needsReview: v })} />
+        <TriState label="Has edits" value={filters.hasEdits} onChange={(v) => setFilters({ hasEdits: v })} />
+        {isFiltered(filters) ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSearch("");
+              router.replace(pathname, { scroll: false });
+            }}
+          >
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
+
+      {selected.size > 0 ? (
+        <div role="region" aria-label="Selection" className="bg-muted flex flex-wrap items-center justify-between gap-3 rounded-lg px-4 py-2 text-sm">
+          <span>{plural(selected.size, "document")} selected</span>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              Clear selection
+            </Button>
+            <span title="Extraction arrives in the next update.">
+              <Button variant="outline" size="sm" disabled>
+                Extract
+              </Button>
+            </span>
+            <span title="Extraction arrives in the next update.">
+              <Button variant="outline" size="sm" disabled>
+                Re-extract
+              </Button>
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setMoveOpen(true)} disabled={templates.length < 2}>
+              <ArrowRightLeft />
+              Move to template
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
+              <Trash2 />
+              Delete ({selected.size})
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {items.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+          {isFiltered(filters) ? (
+            <>
+              <p className="font-medium">No documents match these filters</p>
+              <p className="text-muted-foreground max-w-md text-sm">Clear a filter or change the search to see more documents.</p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium">No documents yet</p>
+              <p className="text-muted-foreground max-w-md text-sm">
+                Upload photos or PDFs of your paper forms to a template. Each photo becomes a document, and you can
+                group the pages of a multi-page form into one.
+              </p>
+              <Button variant="outline" onClick={() => setUploadOpen(true)}>
+                Upload your first documents
+              </Button>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border">
+          <div className="min-w-[72rem]">
+            <div className={cn("text-muted-foreground grid items-center gap-3 border-b px-3 py-2 text-xs", COLUMNS)} role="row">
+              <Checkbox
+                checked={allSelected ? true : selected.size > 0 ? "indeterminate" : false}
+                onCheckedChange={(c) => setSelected(c === true ? new Set(items.map((d) => d.id)) : new Set())}
+                aria-label="Select all loaded documents"
+              />
+              <span className="sr-only">Thumbnail</span>
+              <span>Label</span>
+              <span>Template</span>
+              <span className="text-right">Pages</span>
+              <span>Run state</span>
+              <span>Content</span>
+              <span className="text-right">Rows</span>
+              <span className="text-right">Unreviewed</span>
+              <span className="text-right">Errors</span>
+              <span>Last run</span>
+              <span>Model</span>
+            </div>
+            <div ref={scrollRef} className="max-h-[calc(100vh-22rem)] min-h-64 overflow-y-auto" aria-label="Documents" role="rowgroup">
+              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+                {virtualItems.map((v) => {
+                  const d = items[v.index];
+                  if (!d) return null;
+                  return (
+                    <div
+                      key={d.id}
+                      role="row"
+                      className={cn(
+                        "hover:bg-muted/40 absolute inset-x-0 grid cursor-pointer items-center gap-3 border-b px-3 text-sm",
+                        COLUMNS,
+                        selected.has(d.id) && "bg-primary/5",
+                      )}
+                      style={{ height: ROW_HEIGHT, transform: `translateY(${v.start}px)` }}
+                      onClick={() => setOpenId(d.id)}
+                    >
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selected.has(d.id)}
+                          onCheckedChange={(c) =>
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (c === true) next.add(d.id);
+                              else next.delete(d.id);
+                              return next;
+                            })
+                          }
+                          aria-label={`Select ${d.label ?? "document"}`}
+                        />
+                      </div>
+                      <div className="bg-muted flex h-12 w-12 items-center justify-center overflow-hidden rounded border">
+                        {d.thumbUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- presigned storage URL
+                          <img src={d.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        ) : (
+                          <span className="text-muted-foreground text-[10px]">{d.failedPages > 0 ? "Failed" : "…"}</span>
+                        )}
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <button
+                          type="button"
+                          className="truncate text-left font-medium hover:underline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenId(d.id);
+                          }}
+                        >
+                          {d.label ?? "Untitled document"}
+                        </button>
+                        <DocumentFlags d={d} />
+                      </div>
+                      <span className="truncate">{d.templateName}</span>
+                      <span className="text-right tabular-nums">{formatCount(d.pageCount)}</span>
+                      <span>{RUN_STATE_LABELS[d.runState]}</span>
+                      <span>{CONTENT_STATE_LABELS[d.contentState]}</span>
+                      <span className="text-right tabular-nums">{formatCount(d.rowCount)}</span>
+                      <span className="text-right tabular-nums">{formatCount(d.unreviewedCells)}</span>
+                      <span className={cn("text-right tabular-nums", d.errorCells > 0 && "text-destructive font-medium")}>
+                        {formatCount(d.errorCells)}
+                      </span>
+                      <span className="tabular-nums">{d.lastRunAt ? isoDate(d.lastRunAt) : "—"}</span>
+                      <span className="truncate">{d.lastModel ?? "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="text-muted-foreground text-sm" aria-live="polite">
+        {loadingMore ? "Loading more documents…" : `${plural(items.length, "document")} loaded${nextCursor ? " — scroll for more" : ""}`}
+      </p>
+      {loadError ? (
+        <div className="flex items-center gap-3">
+          <FormMessage tone="error">{loadError}</FormMessage>
+          <Button variant="outline" size="sm" onClick={() => void loadMore()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      <DocumentDrawer
+        documentId={openId}
+        onOpenChange={(open) => !open && setOpenId(null)}
+        onChanged={() => void reloadList()}
+        onRemoved={(id) => {
+          setOpenId(null);
+          removeItems([id]);
+        }}
+      />
+      <UploadDialog
+        bookId={bookId}
+        templates={templates}
+        initialTemplateId={filters.templateId}
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onClosed={() => {
+          void reloadList();
+          router.refresh();
+        }}
+      />
+      <DeleteDocumentsDialog open={deleteOpen} onOpenChange={setDeleteOpen} documentIds={[...selected]} onDeleted={removeItems} />
+      <MoveDocumentsDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        documentIds={[...selected]}
+        templates={templates}
+        onMoved={() => {
+          setSelected(new Set());
+          void reloadList();
+          router.refresh();
+        }}
+      />
+    </div>
+  );
+}
+
+function TriState({ label, value, onChange }: { label: string; value: boolean | null; onChange: (v: boolean | null) => void }) {
+  return (
+    <Select value={value === null ? ANY : String(value)} onValueChange={(v) => onChange(v === ANY ? null : v === "true")}>
+      <SelectTrigger className="w-40" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ANY}>{label}: any</SelectItem>
+        <SelectItem value="true">{label}: yes</SelectItem>
+        <SelectItem value="false">{label}: no</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function DocumentFlags({ d }: { d: DocumentSummary }) {
+  const flags: { text: string; tone: "warn" | "error" | "info" }[] = [];
+  if (d.processingPages > 0) flags.push({ text: `${plural(d.processingPages, "page")} processing`, tone: "info" });
+  if (d.failedPages > 0) flags.push({ text: `${plural(d.failedPages, "page")} failed`, tone: "error" });
+  if (d.templateMatchScore !== null && d.templateMatchScore < MISMATCH_THRESHOLD) flags.push({ text: "possible template mismatch", tone: "warn" });
+  if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });
+  if (d.hasDisagreements) flags.push({ text: "has disagreements", tone: "warn" });
+  if (d.needsReview) flags.push({ text: "needs review", tone: "warn" });
+  if (flags.length === 0) return null;
+  return (
+    <div className="flex gap-1 overflow-hidden">
+      {flags.slice(0, 2).map((f) => (
+        <Badge key={f.text} variant={f.tone === "error" ? "destructive" : "outline"} className="h-4 px-1.5 text-[10px] font-normal">
+          {f.text}
+        </Badge>
+      ))}
+    </div>
+  );
+}

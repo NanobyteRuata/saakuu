@@ -518,6 +518,33 @@ model ValidationRule {
     surviving ancestor. `parentGroupId` is `onDelete: Restrict`, so a group can never disappear
     with children still attached.
 
+## Photo storage and transforms (Phase 4)
+
+No schema change. Object keys:
+
+```
+books/{bookId}/uploads/{uploadId}/original.{ext}   Photo.originalKey — written once by the browser, never by the server
+books/{bookId}/pages/{uploadId}/page-NNN.png       Photo.originalKey of a PDF page — rendered once at ingest
+books/{bookId}/photos/{photoId}/base.jpg           upright (EXIF applied), ≤2048px, no transform — editor and auto-deskew
+books/{bookId}/photos/{photoId}/working-{th}.jpg   Photo.workingKey — transform applied, ≤2048px, sent to the model
+books/{bookId}/photos/{photoId}/thumb-{th}.jpg     Photo.thumbKey — transform applied
+```
+
+`{th}` is a prefix of the transform hash, so a slow render for an old transform never overwrites the
+copy for the current one. The storage helper refuses server writes under `uploads/`.
+
+`Photo.transform` is `{ crop: {x,y,w,h} | null, rotate, deskew }`; `null` means no transform.
+- Rendering rotates the upright original by `rotate + deskew` degrees (clockwise) about its centre. The
+  canvas expands to the rotated bounding box and the new area is filled white. The crop is then taken
+  in that box's coordinates, normalised 0..1.
+- `deskew` is limited to ±15°.
+- `lib/photos/transform.ts` holds this geometry, and both the editor preview and the worker use it.
+- `Photo.width/height` are the upright dimensions of the original. They are 0 until the photo is
+  processed.
+
+Documents are ordered by `position` compared code-unit (`COLLATE "C"`), ties by id, like field
+positions (invariant 9).
+
 ## Indexing notes
 
 - The output table query is `Row where bookId, order by position` with cells joined.

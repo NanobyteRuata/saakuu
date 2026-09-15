@@ -1,10 +1,43 @@
 import { Queue, QueueEvents } from "bullmq";
 
 import { createRedisConnection } from "./connection";
-import { JOBS, QUEUES, type NoopJobData, type NoopJobResult, type QueueName } from "./jobs";
+import {
+  JOBS,
+  QUEUES,
+  type NoopJobData,
+  type NoopJobResult,
+  type PhotoIngestJobData,
+  type PhotoRenderJobData,
+  type QueueName,
+} from "./jobs";
 
 export { JOBS, QUEUES, createRedisConnection };
-export type { NoopJobData, NoopJobResult, QueueName };
+export type { NoopJobData, NoopJobResult, PhotoIngestJobData, PhotoRenderJobData, QueueName };
+
+const MEDIA_JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential", delay: 2000 } } as const;
+
+/** Enqueues ingest once per photo: the job id is the photo id, so a repeated complete is a no-op. */
+export async function enqueuePhotoIngest(data: PhotoIngestJobData): Promise<void> {
+  const payload = JOBS.photoIngest.schema.parse(data);
+  await getQueue(JOBS.photoIngest.queue).add(JOBS.photoIngest.name, payload, {
+    ...MEDIA_JOB_OPTIONS,
+    jobId: `ingest-${payload.photoId}`,
+  });
+}
+
+/**
+ * Enqueues a render keyed by photo and transform hash, so saving the same transform twice renders
+ * once. The processor re-reads the current transform and drops stale results.
+ */
+export async function enqueuePhotoRender(data: PhotoRenderJobData, transformHash: string): Promise<void> {
+  const payload = JOBS.photoRender.schema.parse(data);
+  const queue = getQueue(JOBS.photoRender.queue);
+  const jobId = `render-${payload.photoId}-${transformHash}`;
+  // A failed job keeps its id for a week and would swallow the retry; clear it so the render runs again.
+  const previous = await queue.getJob(jobId);
+  if (previous && (await previous.isFailed())) await previous.remove();
+  await queue.add(JOBS.photoRender.name, payload, { ...MEDIA_JOB_OPTIONS, jobId });
+}
 
 const DEFAULT_JOB_OPTIONS = {
   removeOnComplete: { age: 24 * 3600, count: 1000 },

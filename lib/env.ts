@@ -20,8 +20,13 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  // Origin the browser uses to reach storage (presigned upload/download URLs). Differs from
+  // S3_ENDPOINT when the app talks to storage over an internal network (docker compose).
+  S3_PUBLIC_ENDPOINT: z.url().optional(),
 
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(3),
+  // Photo ingest/render jobs are CPU-heavy (HEIC decode, PDF render, resize); keep this low.
+  MEDIA_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
 
   // Auth.js reads AUTH_SECRET / AUTH_GOOGLE_* itself; they are validated here too so a
   // misconfiguration fails loudly. AUTH_URL is the public origin used in emailed links.

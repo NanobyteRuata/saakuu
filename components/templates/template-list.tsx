@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
+import { UploadDialog } from "@/components/documents/upload-dialog";
 import { Button } from "@/components/ui/button";
 import { getJson } from "@/lib/api-client";
 import type { Page } from "@/lib/db/pagination";
@@ -25,6 +26,7 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toDuplicate, setToDuplicate] = useState<TemplateSummary | null>(null);
   const [toDelete, setToDelete] = useState<TemplateSummary | null>(null);
+  const [uploadTo, setUploadTo] = useState<TemplateSummary | null>(null);
 
   async function loadMore() {
     if (!nextCursor) return;
@@ -75,12 +77,10 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
               </p>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex gap-2">
-                  <span title="Uploading photos arrives in the next update.">
-                    <Button variant="outline" size="sm" disabled>
-                      Upload documents
-                    </Button>
-                  </span>
-                  <span title="Extraction becomes available once documents can be uploaded.">
+                  <Button variant="outline" size="sm" onClick={() => setUploadTo(t)}>
+                    Upload documents
+                  </Button>
+                  <span title="Extraction arrives in the next update.">
                     <Button variant="outline" size="sm" disabled>
                       Extract
                     </Button>
@@ -112,6 +112,17 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
         </Button>
       ) : null}
 
+      {uploadTo ? (
+        <UploadDialog
+          bookId={bookId}
+          templates={[{ id: uploadTo.id, name: uploadTo.name, kind: uploadTo.kind }]}
+          initialTemplateId={uploadTo.id}
+          lockTemplate
+          open
+          onOpenChange={(open) => !open && setUploadTo(null)}
+          onClosed={() => router.refresh()}
+        />
+      ) : null}
       <DuplicateTemplateDialog
         bookId={bookId}
         template={toDuplicate}

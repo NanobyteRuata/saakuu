@@ -183,24 +183,70 @@ POST   /api/documents/:id/reorder-photos   { photoIds[] in order }
 over. Moving transfers photos, batch membership and page order; it deletes the raw
 layer and derived rows; the document lands in `NEVER_RUN`. Warn hard when edits exist.
 
+**Phase 4 as built** (supersedes the lines above where they differ):
+```
+GET    /api/books/:id/documents            ?templateId&runState&needsReview&hasEdits&q&cursor&limit
+                                           ordered by position (code-unit collation); cursor is opaque
+POST   /api/templates/:id/documents        { photoIds[] } -> { documentId, removedDocuments }
+PATCH  /api/documents/:id                  { label?, manualValues?: { fieldId: string | null } }
+POST   /api/documents/delete-impact        { ids[] } -> { impactHash, documents, photos, rows, editedCells }
+POST   /api/documents/delete               { ids[], impactHash, confirm }   soft delete
+POST   /api/documents/move-impact          { ids[], targetTemplateId } -> { impactHash, targetTemplateName, documents,
+                                           alreadyOnTarget, photos, rawValues, rows, cells, editedCells, reviewedCells,
+                                           manualValueDocuments }
+POST   /api/documents/move                 { ids[], targetTemplateId, impactHash, confirm }
+POST   /api/documents/:id/split            { photoIds[] } -> { documentId }   new document placed right after
+POST   /api/documents/:id/reorder-photos   { photoIds[] }   must list exactly the document's pages
+```
+- Grouping: the target is the document of the first listed photo; its pages become the listed photos in
+  order, then its own unlisted pages. Documents left empty are soft-deleted. All photos must be on
+  documents of that template.
+- Group, split, page reorder and page delete lock the book row and are refused with `CONFLICT` for a
+  document that has extraction runs or rows (its rows would stop matching its pages); move it to clear
+  the extraction first.
+- `manualValues` are stored exactly as typed; `null` clears one. Only live `MANUAL` fields of the
+  document's template accept a value.
+- Move also clears `manualValues`, `lastRunAt`, `lastModel`, `templateMatchScore`, `needsReview`, and
+  keeps run history.
+
 ### Upload
 ```
-POST   /api/uploads/presign                { filename, mimeType, byteSize } -> { url, key }
-POST   /api/uploads/complete               { key, templateId, documentId? }
+POST   /api/uploads/batch                  { templateId } -> { batchId }   one implicit batch per upload session
+POST   /api/uploads/presign                { templateId, filename, mimeType, byteSize } -> { url, key, headers }
+POST   /api/uploads/complete               { key, templateId, filename, batchId? } -> { documentId, photo }
+GET    /api/photos/status?ids=a,b,c        poll processing state + image URLs
 ```
-Server-side on complete: read EXIF and apply orientation, convert HEIC → JPEG, split
-PDFs into per-page images, generate `workingKey` (max 2048px) and `thumbKey`, create
-the `Photo` row. Reject files over 25 MB and non-image/PDF MIME types.
+- The browser PUTs straight to storage. Content type and length are signed into the URL.
+- `complete` checks the key belongs to the book and the object exists within 25 MB, then creates one
+  document (label = filename) holding one `QUEUED` photo. One document per photo is the default.
+  Completing the same key twice returns the same document.
+- Processing never runs in the request. `complete` enqueues `photo.ingest` on the `media` queue. The
+  worker sniffs the real file type, decodes HEIC, applies EXIF orientation and writes the base,
+  working (≤2048px, JPEG q85) and thumbnail copies.
+- A PDF is one document: its placeholder photo is replaced in place by one photo per page (≤100
+  pages), each page rendered to PNG and ingested by its own job.
+- A photo still `QUEUED` after a minute is re-enqueued when polled.
+- Accepted types: JPEG, PNG, WebP, HEIC/HEIF, PDF.
 
 ### Photo editing
 ```
 PATCH  /api/photos/:id/transform           { crop?, rotate?, deskew? }  non-destructive
 POST   /api/photos/:id/transform/reset
-POST   /api/photos/:id/autodeskew          -> suggested angle
-DELETE /api/photos/:id
+POST   /api/photos/:id/autodeskew          { rotate } -> { deskew }   suggestion for that turn; nothing saved
+GET    /api/photos/:id/delete-impact       -> { impactHash, documentLabel, pages, deletesDocument }
+DELETE /api/photos/:id                     { impactHash, confirm } -> { documentDeleted }
 ```
-Changing a transform invalidates `workingKey`; regenerate lazily on next extraction
-and mark the document as stale (its last run no longer matches its inputs).
+- The transform geometry is described in docs/02 → Photo storage and transforms.
+- Saving a transform clears `workingKey` and enqueues `photo.render`. The render is stored only if the
+  transform is still current when it finishes.
+- A failed render never fails the photo. It stays `DONE` and editable, with `errorMessage` saying the
+  edit wasn't applied. Saving again, even unchanged, retries the render. Polling re-enqueues renders
+  that were never queued.
+- Problems with the file itself (unreadable, too many PDF pages) fail ingest at once, without retries.
+- Photos of a soft-deleted document or book are not processed.
+- Marking a document's last run stale is Phase 5: the idempotency key includes the transform hash.
+- `DELETE` removes the row and renumbers the pages; deleting the only page soft-deletes the document.
+  Stored files stay until the Phase 9 storage cleanup.
 
 ## Extraction
 ```

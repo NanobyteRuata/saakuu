@@ -1,14 +1,40 @@
+import { DocumentsView } from "@/components/documents/documents-view";
+import { listDocumentsSchema } from "@/lib/documents/schemas";
+import { listDocuments } from "@/lib/documents/service";
+import { listTemplates, MAX_TEMPLATES } from "@/lib/templates/service";
+
 import { loadBookPage } from "../data";
 
-export default async function BookDocumentsPage({ params }: { params: Promise<{ bookId: string }> }) {
-  await loadBookPage((await params).bookId);
+type Props = {
+  params: Promise<{ bookId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function BookDocumentsPage({ params, searchParams }: Props) {
+  const { user, book } = await loadBookPage((await params).bookId);
+  const raw = Object.fromEntries(
+    Object.entries(await searchParams).flatMap(([k, v]) => (typeof v === "string" && v !== "" ? [[k, v]] : [])),
+  );
+  // Unknown or malformed filters are dropped rather than failing the page.
+  const parsed = listDocumentsSchema.omit({ cursor: true }).safeParse(raw);
+  const filters = parsed.success ? parsed.data : listDocumentsSchema.omit({ cursor: true }).parse({});
+  const [templates, page] = await Promise.all([
+    listTemplates(user.id, book.id, { limit: MAX_TEMPLATES }),
+    listDocuments(user.id, book.id, filters),
+  ]);
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-16 text-center">
-      <p className="font-medium">No documents yet</p>
-      <p className="text-muted-foreground max-w-md text-sm">
-        Documents are the photos of your paper forms, grouped so that each document is one record. You&apos;ll upload
-        them to a template once templates are available.
-      </p>
-    </div>
+    <DocumentsView
+      key={JSON.stringify(filters)}
+      bookId={book.id}
+      templates={templates.items.map((t) => ({ id: t.id, name: t.name, kind: t.kind }))}
+      filters={{
+        templateId: filters.templateId ?? null,
+        runState: filters.runState ?? null,
+        needsReview: filters.needsReview ?? null,
+        hasEdits: filters.hasEdits ?? null,
+        q: filters.q ?? "",
+      }}
+      initialPage={page}
+    />
   );
 }

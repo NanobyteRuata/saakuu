@@ -12,6 +12,9 @@ import { z } from "zod";
 
 export const MAX_DESKEW_DEGREES = 15;
 
+/** Long edge of the working copy, the image sent to the model (docs/03 §6). */
+export const WORKING_MAX_EDGE = 2048;
+
 const unit = z.number().min(0).max(1);
 
 export const cropSchema = z

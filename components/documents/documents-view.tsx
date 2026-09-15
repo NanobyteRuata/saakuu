@@ -1,12 +1,13 @@
 "use client";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowRightLeft, Trash2, Upload } from "lucide-react";
+import { ArrowRightLeft, Sparkles, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
+import { ExtractDialog } from "@/components/extraction/extract-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,6 +18,8 @@ import type { Page } from "@/lib/db/pagination";
 import { CONTENT_STATE_LABELS, RUN_STATE_LABELS } from "@/lib/documents/labels";
 import { RUN_STATES, type RunState } from "@/lib/documents/schemas";
 import type { DocumentSummary } from "@/lib/documents/service";
+import { MISMATCH_THRESHOLD } from "@/lib/extraction/schemas";
+import type { ExtractionStatus } from "@/lib/extraction/service";
 import { formatCount, isoDate, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +47,11 @@ type Props = {
 
 const ROW_HEIGHT = 64;
 const ANY = "any";
-const MISMATCH_THRESHOLD = 0.5;
+const POLL_MS = 2000;
+
+function isActive(state: RunState): boolean {
+  return state === "QUEUED" || state === "RUNNING";
+}
 const COLUMNS =
   "grid-cols-[2rem_3.5rem_minmax(12rem,2fr)_minmax(8rem,1fr)_4rem_7rem_8rem_4rem_6rem_4rem_6rem_8rem]";
 
@@ -77,7 +84,33 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [extract, setExtract] = useState<{ verb: string; documentIds: string[] } | null>(null);
+  const [progress, setProgress] = useState<Record<string, ExtractionStatus["pages"]>>({});
+  const [pollTick, setPollTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Poll run state every 2 s while any loaded document is queued or running (docs/03 §7 → Progress).
+  const activeKey = items.filter((d) => isActive(d.runState)).slice(0, 200).map((d) => d.id).join(",");
+  useEffect(() => {
+    if (!activeKey) return;
+    const t = window.setTimeout(async () => {
+      const result = await getJson<ExtractionStatus[]>(`/api/extractions/status?documentIds=${activeKey}`);
+      if (result.ok) {
+        const byId = new Map(result.data.map((s) => [s.id, s]));
+        setItems((prev) =>
+          prev.map((d) => {
+            const s = byId.get(d.id);
+            return s
+              ? { ...d, runState: s.runState, contentState: s.contentState, needsReview: s.needsReview, templateMatchScore: s.templateMatchScore, lastRunAt: s.lastRunAt, lastModel: s.lastModel }
+              : d;
+          }),
+        );
+        setProgress((prev) => ({ ...prev, ...Object.fromEntries(result.data.map((s) => [s.id, s.pages])) }));
+      }
+      setPollTick((n) => n + 1);
+    }, POLL_MS);
+    return () => window.clearTimeout(t);
+  }, [activeKey, pollTick]);
 
   const setFilters = useCallback(
     (patch: Partial<DocumentFilters>) => {
@@ -226,16 +259,13 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
               Clear selection
             </Button>
-            <span title="Extraction arrives in the next update.">
-              <Button variant="outline" size="sm" disabled>
-                Extract
-              </Button>
-            </span>
-            <span title="Extraction arrives in the next update.">
-              <Button variant="outline" size="sm" disabled>
-                Re-extract
-              </Button>
-            </span>
+            <Button variant="outline" size="sm" onClick={() => setExtract({ verb: "Extract", documentIds: [...selected] })}>
+              <Sparkles />
+              Extract
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setExtract({ verb: "Re-extract", documentIds: [...selected] })}>
+              Re-extract
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setMoveOpen(true)} disabled={templates.length < 2}>
               <ArrowRightLeft />
               Move to template
@@ -294,6 +324,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                 {virtualItems.map((v) => {
                   const d = items[v.index];
                   if (!d) return null;
+                  const pages = progress[d.id];
                   return (
                     <div
                       key={d.id}
@@ -343,7 +374,10 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                       </div>
                       <span className="truncate">{d.templateName}</span>
                       <span className="text-right tabular-nums">{formatCount(d.pageCount)}</span>
-                      <span>{RUN_STATE_LABELS[d.runState]}</span>
+                      <span className="tabular-nums">
+                        {RUN_STATE_LABELS[d.runState]}
+                        {isActive(d.runState) && pages && pages.total > 1 ? ` ${pages.done}/${pages.total}` : ""}
+                      </span>
                       <span>{CONTENT_STATE_LABELS[d.contentState]}</span>
                       <span className="text-right tabular-nums">{formatCount(d.rowCount)}</span>
                       <span className="text-right tabular-nums">{formatCount(d.unreviewedCells)}</span>
@@ -393,6 +427,15 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
           router.refresh();
         }}
       />
+      <ExtractDialog
+        target={extract ? { documentIds: extract.documentIds } : null}
+        verb={extract?.verb}
+        onOpenChange={(open) => !open && setExtract(null)}
+        onStarted={() => {
+          setSelected(new Set());
+          void reloadList();
+        }}
+      />
       <DeleteDocumentsDialog open={deleteOpen} onOpenChange={setDeleteOpen} documentIds={[...selected]} onDeleted={removeItems} />
       <MoveDocumentsDialog
         open={moveOpen}
@@ -429,6 +472,7 @@ function DocumentFlags({ d }: { d: DocumentSummary }) {
   if (d.processingPages > 0) flags.push({ text: `${plural(d.processingPages, "page")} processing`, tone: "info" });
   if (d.failedPages > 0) flags.push({ text: `${plural(d.failedPages, "page")} failed`, tone: "error" });
   if (d.templateMatchScore !== null && d.templateMatchScore < MISMATCH_THRESHOLD) flags.push({ text: "possible template mismatch", tone: "warn" });
+  if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in details", tone: "error" });
   if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });
   if (d.hasDisagreements) flags.push({ text: "has disagreements", tone: "warn" });
   if (d.needsReview) flags.push({ text: "needs review", tone: "warn" });

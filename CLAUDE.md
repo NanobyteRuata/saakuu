@@ -35,7 +35,7 @@ Two rules follow from this and must never be violated:
 - dnd-kit for row reordering
 - Zod for all input validation, shared between client and server
 - Vitest for unit tests, Playwright for a small number of E2E flows
-- Gemini via `@google/genai` (Gemini 2.5 Flash default, Pro as the second option)
+- Gemini via `@google/genai` (Gemini 3.5 Flash default, Gemini 3.7 Flash as the second option; 2.5 models are closed to new keys)
 
 ## Architecture rules
 

@@ -11,11 +11,12 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, horizontalListSortingStrategy, SortableContext, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Crop, GripVertical, Split, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Crop, GripVertical, RotateCcw, Sparkles, Split, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { FormMessage } from "@/components/auth/form-message";
+import { ExtractDialog } from "@/components/extraction/extract-dialog";
 import { PhotoEditor } from "@/components/photo/photo-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,9 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { getJson, patchJson, postJson } from "@/lib/api-client";
 import { CONTENT_STATE_LABELS, formatBytes, PHOTO_STATUS_LABELS, RUN_STATE_LABELS } from "@/lib/documents/labels";
+import { modelLabel } from "@/lib/ai/models";
 import type { DocumentDetail } from "@/lib/documents/service";
+import type { StartResult } from "@/lib/extraction/service";
 import { isoDate, plural } from "@/lib/format";
 import type { PhotoView } from "@/lib/photos/views";
 import { langOf } from "@/lib/templates/labels";
@@ -44,6 +47,31 @@ type Props = {
 
 const POLL_MS = 2000;
 
+const CONTENT_RESULT_COPY: Record<Exclude<DocumentDetail["contentState"], "UNKNOWN">, string> = {
+  HAS_CONTENT: "The AI found content on these pages.",
+  EMPTY: "Blank page: there was nothing to read. That's not a failure, and no rows were made.",
+  NO_ROWS_FOUND:
+    "There is writing on the pages, but none of the template's fields or rows were found. Check that this is the right template and that the photo is readable.",
+};
+
+/** [1,2,3,5] → "pages 1–3, 5". */
+function formatPages(pages: number[]): string {
+  if (pages.length === 0) return "pages removed";
+  const parts: string[] = [];
+  let start = pages[0] ?? 0;
+  let prev = start;
+  for (const p of [...pages.slice(1), Number.NaN]) {
+    if (p === prev + 1) {
+      prev = p;
+      continue;
+    }
+    parts.push(start === prev ? String(start) : `${start}–${prev}`);
+    start = p;
+    prev = p;
+  }
+  return `${pages.length === 1 ? "page" : "pages"} ${parts.join(", ")}`;
+}
+
 /** Processing, or edited and waiting for the new copy. A recorded render error stops the wait. */
 function needsPolling(photos: PhotoView[]): boolean {
   return photos.some(
@@ -59,6 +87,7 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
   const [editing, setEditing] = useState<PhotoView | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState<{ photo: PhotoView; page: number } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [extractOpen, setExtractOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (id: string) => {
@@ -78,12 +107,42 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
     if (documentId) void load(documentId);
   }, [documentId, load]);
 
-  const polling = detail ? needsPolling(detail.photos) : false;
+  const extracting = detail ? detail.runState === "QUEUED" || detail.runState === "RUNNING" : false;
+  const polling = detail ? needsPolling(detail.photos) || extracting : false;
   useEffect(() => {
     if (!polling || !documentId) return;
     const t = window.setTimeout(() => void load(documentId), POLL_MS);
     return () => window.clearTimeout(t);
   }, [polling, documentId, detail, load]);
+
+  // Tell the list when an extraction this drawer was watching finishes. The callback is read from a ref
+  // because the parent passes a new function every render.
+  const onChangedRef = useRef(onChanged);
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  });
+  const wasExtracting = useRef(false);
+  const detailId = detail?.id ?? null;
+  useEffect(() => {
+    if (wasExtracting.current && !extracting && detailId) onChangedRef.current(detailId);
+    wasExtracting.current = extracting;
+  }, [extracting, detailId]);
+
+  async function retryPages(photoIds: string[]) {
+    if (!detail) return;
+    setBusy(true);
+    const result = await postJson<StartResult>("/api/extractions/retry", { photoIds });
+    setBusy(false);
+    if (!result.ok) {
+      toast.error(result.error.message);
+      return;
+    }
+    const skipped = result.data.skipped[0];
+    if (result.data.queued > 0) toast.success("Retrying these pages.");
+    else if (skipped) toast.warning(skipped.reason);
+    await load(detail.id);
+    onChanged(detail.id);
+  }
 
   async function saveLabel(label: string) {
     if (!detail || label.trim() === "" || label === detail.label) return;
@@ -201,16 +260,28 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                 <h3 id="runs-heading" className="text-sm font-semibold">
                   Extraction runs
                 </h3>
+                {detail.runs.length > 0 && !extracting && detail.contentState !== "UNKNOWN" ? (
+                  <p className={cn("text-sm", detail.contentState === "NO_ROWS_FOUND" ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+                    {CONTENT_RESULT_COPY[detail.contentState]}
+                  </p>
+                ) : null}
                 {detail.runs.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">Not extracted yet. Extraction arrives in the next update.</p>
+                  <p className="text-muted-foreground text-sm">Not extracted yet. Press Extract to have the AI read this document.</p>
                 ) : (
-                  <ul className="flex flex-col gap-1 text-sm">
+                  <ul className="flex flex-col gap-2 text-sm">
                     {detail.runs.map((r) => (
-                      <li key={r.id} className="flex flex-wrap gap-2">
+                      <li key={r.id} className="flex flex-wrap items-center gap-2">
                         <span className="tabular-nums">{isoDate(r.createdAt)}</span>
-                        <span>{r.model}</span>
+                        <span>{modelLabel(r.model)}</span>
+                        <span className="text-muted-foreground">{formatPages(r.pages)}</span>
                         <Badge variant={r.state === "FAILED" ? "destructive" : "outline"}>{RUN_STATE_LABELS[r.state]}</Badge>
-                        {r.error ? <span className="text-destructive">{r.error}</span> : null}
+                        {r.retryable ? (
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busy} onClick={() => void retryPages(r.photoIds)}>
+                            <RotateCcw />
+                            Retry these pages
+                          </Button>
+                        ) : null}
+                        {r.error ? <span className="text-destructive basis-full">{r.error}</span> : null}
                       </li>
                     ))}
                   </ul>
@@ -223,9 +294,10 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                 <Trash2 />
                 Delete document
               </Button>
-              <span title="Extraction arrives in the next update.">
-                <Button disabled>Extract</Button>
-              </span>
+              <Button disabled={extracting} onClick={() => setExtractOpen(true)}>
+                <Sparkles />
+                {extracting ? "Extracting…" : detail.runs.length > 0 ? "Re-extract" : "Extract"}
+              </Button>
             </div>
           </>
         )}
@@ -252,6 +324,16 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
               void load(detail.id);
               onChanged(detail.id);
             }
+          }}
+        />
+        <ExtractDialog
+          target={extractOpen && detail ? { documentIds: [detail.id] } : null}
+          verb={detail && detail.runs.length > 0 ? "Re-extract" : "Extract"}
+          onOpenChange={setExtractOpen}
+          onStarted={() => {
+            if (!detail) return;
+            void load(detail.id);
+            onChanged(detail.id);
           }}
         />
         {detail ? (

@@ -82,7 +82,7 @@ model Book {
   id             String        @id @default(cuid(2))
   userId         String
   name           String
-  defaultModel   String        @default("gemini-2.5-flash")
+  defaultModel   String        @default("gemini-3.5-flash")
   numeralSystem  NumeralSystem @default(AUTO)
   dateEra        DateEra       @default(GREGORIAN)
   // export prefs
@@ -423,6 +423,7 @@ model ExtractionRun {
   inputTokens    Int?
   outputTokens   Int?
   rawResponse    Json? // full model response, for debugging
+  photoIds       String[]  @default([]) // Phase 5: pages sent in this model call, in page order
   createdAt      DateTime  @default(now()) @db.Timestamptz(3)
 
   document Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)

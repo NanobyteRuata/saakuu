@@ -3,10 +3,11 @@
 import { Copy, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
 import { UploadDialog } from "@/components/documents/upload-dialog";
+import { ExtractDialog } from "@/components/extraction/extract-dialog";
 import { Button } from "@/components/ui/button";
 import { getJson } from "@/lib/api-client";
 import type { Page } from "@/lib/db/pagination";
@@ -27,6 +28,23 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
   const [toDuplicate, setToDuplicate] = useState<TemplateSummary | null>(null);
   const [toDelete, setToDelete] = useState<TemplateSummary | null>(null);
   const [uploadTo, setUploadTo] = useState<TemplateSummary | null>(null);
+  const [extractFor, setExtractFor] = useState<TemplateSummary | null>(null);
+
+  // A refresh brings new counts and run badges for the first page; keep templates loaded further down.
+  useEffect(() => {
+    const fresh = new Map(initialPage.items.map((t) => [t.id, t]));
+    setTemplates((prev) => {
+      const known = new Set(prev.map((t) => t.id));
+      return [...prev.map((t) => fresh.get(t.id) ?? t), ...initialPage.items.filter((t) => !known.has(t.id))];
+    });
+  }, [initialPage]);
+
+  const running = templates.some((t) => t.run.state === "RUNNING");
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setTimeout(() => router.refresh(), 2000);
+    return () => window.clearTimeout(timer);
+  }, [running, initialPage, router]);
 
   async function loadMore() {
     if (!nextCursor) return;
@@ -80,11 +98,15 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
                   <Button variant="outline" size="sm" onClick={() => setUploadTo(t)}>
                     Upload documents
                   </Button>
-                  <span title="Extraction arrives in the next update.">
-                    <Button variant="outline" size="sm" disabled>
-                      Extract
-                    </Button>
-                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setExtractFor(t)}
+                    disabled={t.documentCount === 0}
+                    title={t.documentCount === 0 ? "Upload documents to this template first." : undefined}
+                  >
+                    Extract
+                  </Button>
                 </div>
                 <div className="flex gap-1 border-l pl-2">
                   <Button asChild variant="ghost" size="icon" aria-label={`Edit ${t.name}`}>
@@ -123,6 +145,11 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
           onClosed={() => router.refresh()}
         />
       ) : null}
+      <ExtractDialog
+        target={extractFor ? { templateId: extractFor.id } : null}
+        onOpenChange={(open) => !open && setExtractFor(null)}
+        onStarted={() => router.refresh()}
+      />
       <DuplicateTemplateDialog
         bookId={bookId}
         template={toDuplicate}

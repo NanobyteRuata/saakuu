@@ -9,13 +9,11 @@ import { getObjectBuffer, putObject } from "@/lib/storage/s3";
 import { baseKey, pdfPageKey, thumbKey, workingKey } from "@/lib/storage/keys";
 
 import { MAX_PDF_PAGES } from "./schemas";
-import { cropPixels, isIdentity, normalizeTransform, totalAngle, transformHash, type PhotoTransform } from "./transform";
+import { cropPixels, isIdentity, normalizeTransform, totalAngle, transformHash, WORKING_MAX_EDGE, type PhotoTransform } from "./transform";
 
 /**
  * Worker-side photo processing. Originals are only ever read here; every write goes to a derived key.
  */
-
-export const WORKING_MAX_EDGE = 2048;
 const THUMB_MAX_EDGE = 320;
 /** Refuse decoding anything larger (≈120 MP); protects the worker from decompression bombs. */
 const MAX_INPUT_PIXELS = 120_000_000;

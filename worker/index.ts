@@ -8,12 +8,21 @@ import { prisma } from "@/lib/db/client";
 import { log } from "@/lib/log";
 import { QUEUES, closeQueues, createRedisConnection } from "@/lib/queue";
 
+import { createExtractionProcessor } from "./processors/extraction";
 import { processMediaJob } from "./processors/media";
 import { processSystemJob } from "./processors/system";
 
 async function main(): Promise<void> {
   const env = getEnv();
   await prisma.$connect();
+
+  // The processor reads the worker lazily (to pause the queue on rate limits), after construction.
+  const extractionWorker: Worker = new Worker(QUEUES.extraction, createExtractionProcessor(() => extractionWorker), {
+    connection: createRedisConnection(),
+    concurrency: env.EXTRACTION_CONCURRENCY,
+    // One job is one document; most documents are one model call. Keeps free-tier RPM in check.
+    limiter: { max: env.EXTRACTION_RPM, duration: 60_000 },
+  });
 
   const workers = [
     new Worker(QUEUES.system, processSystemJob, {
@@ -24,6 +33,7 @@ async function main(): Promise<void> {
       connection: createRedisConnection(),
       concurrency: env.MEDIA_CONCURRENCY,
     }),
+    extractionWorker,
   ];
 
   for (const worker of workers) {

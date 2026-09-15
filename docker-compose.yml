@@ -15,6 +15,11 @@ x-app-env: &app-env
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9002}
   WORKER_CONCURRENCY: "3"
   MEDIA_CONCURRENCY: "2"
+  AI_PROVIDER: ${AI_PROVIDER:-gemini}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  AI_FAKE_BEHAVIOUR: ${AI_FAKE_BEHAVIOUR:-ok}
+  EXTRACTION_CONCURRENCY: ${EXTRACTION_CONCURRENCY:-3}
+  EXTRACTION_RPM: ${EXTRACTION_RPM:-10}
   PRISMA_HIDE_UPDATE_MESSAGE: "1"
   # Auth and email come from the host shell or a root .env; the dev secret is a fallback only.
   AUTH_SECRET: ${AUTH_SECRET:-dev-only-insecure-secret-change-me-0123456789}

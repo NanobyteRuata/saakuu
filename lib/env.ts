@@ -28,6 +28,15 @@ const envSchema = z.object({
   // Photo ingest/render jobs are CPU-heavy (HEIC decode, PDF render, resize); keep this low.
   MEDIA_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
 
+  // Extraction (Phase 5). `fake` is a deterministic stub for local work and CI; it never calls the network.
+  AI_PROVIDER: z.enum(["gemini", "fake"]).default("gemini"),
+  // Optional so the app boots without it; a run without a key fails with a plain message.
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  AI_FAKE_BEHAVIOUR: z.enum(["ok", "error", "rate-limited"]).default("ok"),
+  // Documents extracted at once, and model calls per minute across the worker (free tiers are low).
+  EXTRACTION_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(3),
+  EXTRACTION_RPM: z.coerce.number().int().min(1).max(10_000).default(10),
+
   // Auth.js reads AUTH_SECRET / AUTH_GOOGLE_* itself; they are validated here too so a
   // misconfiguration fails loudly. AUTH_URL is the public origin used in emailed links.
   AUTH_SECRET: z.string().min(32),

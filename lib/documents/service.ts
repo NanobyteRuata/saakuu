@@ -6,6 +6,7 @@ import { requireBookAccess } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import type { Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
+import { currentRuns } from "@/lib/extraction/plan";
 import { impactHash } from "@/lib/impact";
 import { nextDocumentPosition } from "@/lib/photos/service";
 import { photoSelect, toPhotoView, type PhotoView } from "@/lib/photos/views";
@@ -70,6 +71,11 @@ export type RunView = {
   createdAt: string;
   finishedAt: string | null;
   error: string | null;
+  /** 1-based page numbers this run covered (pages deleted since are left out). */
+  pages: number[];
+  photoIds: string[];
+  /** A failed run that is still the latest reading of its pages. */
+  retryable: boolean;
 };
 
 export type DocumentDetail = DocumentSummary & {
@@ -81,7 +87,9 @@ export type DocumentDetail = DocumentSummary & {
   runs: RunView[];
 };
 
+/** Runs listed in the drawer, plus any older run that is still the latest reading of a page. */
 const RUN_HISTORY_LIMIT = 20;
+const RUN_SCAN_LIMIT = 500;
 
 // ---------- reads ----------
 
@@ -258,13 +266,20 @@ async function loadDetail(db: Db, documentId: string): Promise<DocumentDetail> {
       manualValues: true,
       template: { select: { languageHint: true } },
       photos: { orderBy: [{ pageIndex: "asc" }, { id: "asc" }], select: photoSelect, take: MAX_DOCUMENT_PAGES },
-      runs: {
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: RUN_HISTORY_LIMIT,
-        select: { id: true, model: true, state: true, createdAt: true, finishedAt: true, error: true },
-      },
     },
   });
+  // Current runs are worked out over many runs, not just the history shown: a page's latest run can be
+  // older than the most recent ones when other pages were retried often.
+  const allRuns = await db.extractionRun.findMany({
+    where: { documentId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: RUN_SCAN_LIMIT,
+    select: { id: true, model: true, state: true, createdAt: true, finishedAt: true, error: true, photoIds: true },
+  });
+  const pageOf = new Map(doc.photos.map((p) => [p.id, p.pageIndex + 1]));
+  const current = new Set(currentRuns(doc.photos.map((p) => p.id), allRuns).map((r) => r.id));
+  const shownRuns = allRuns.filter((r, i) => i < RUN_HISTORY_LIMIT || current.has(r.id));
+  const active = summary.runState === "QUEUED" || summary.runState === "RUNNING";
   return {
     ...summary,
     bookId: doc.bookId,
@@ -272,13 +287,19 @@ async function loadDetail(db: Db, documentId: string): Promise<DocumentDetail> {
     photos: await Promise.all(doc.photos.map(toPhotoView)),
     manualFields: await loadManualFields(db, summary.templateId),
     manualValues: parseManualValues(doc.manualValues),
-    runs: doc.runs.map((r) => ({
+    runs: shownRuns.map((r) => ({
       id: r.id,
       model: r.model,
       state: r.state,
       createdAt: r.createdAt.toISOString(),
       finishedAt: r.finishedAt?.toISOString() ?? null,
       error: r.error,
+      pages: r.photoIds.flatMap((id) => {
+        const page = pageOf.get(id);
+        return page === undefined ? [] : [page];
+      }),
+      photoIds: r.photoIds,
+      retryable: !active && r.state === "FAILED" && current.has(r.id),
     })),
   };
 }
@@ -516,6 +537,13 @@ async function computeMoveImpact(userId: string, input: MoveImpactInput, db: Db)
   const moving = documents.filter((d) => d.templateId !== target.id).map((d) => d.id).sort();
   if (moving.length === 0) throw new AppError("VALIDATION", "These documents already use that template.");
   const where = { documentId: { in: moving } };
+  const extracting = await db.document.count({ where: { id: { in: moving }, runState: { in: ["QUEUED", "RUNNING"] } } });
+  if (extracting > 0) {
+    throw new AppError(
+      "CONFLICT",
+      `${extracting === 1 ? "1 of these documents is" : `${extracting} of these documents are`} being extracted. Wait for extraction to finish before moving them.`,
+    );
+  }
   const [template, photos, rawValues, rows, cells, editedCells, reviewedCells, manualValueDocuments] = await Promise.all([
     db.template.findUniqueOrThrow({ where: { id: target.id }, select: { name: true } }),
     db.photo.count({ where }),

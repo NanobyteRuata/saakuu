@@ -85,7 +85,7 @@ model Book {
   id            String   @id @default(cuid())
   userId        String
   name          String
-  defaultModel  String   @default("gemini-2.5-flash")
+  defaultModel  String   @default("gemini-3.5-flash")
   numeralSystem NumeralSystem @default(AUTO)
   dateEra       DateEra       @default(GREGORIAN)
   // export prefs
@@ -544,6 +544,24 @@ copy for the current one. The storage helper refuses server writes under `upload
 
 Documents are ordered by `position` compared code-unit (`COLLATE "C"`), ties by id, like field
 positions (invariant 9).
+
+## Extraction runs (Phase 5)
+
+One additive migration: `ExtractionRun.photoIds String[]`, the pages sent in that model call, in page order.
+A document of more than 8 pages is split into several runs (docs/03 §6); a retry creates a new run for the
+failed pages only.
+
+- **Current run of a page** = the newest run whose `photoIds` contain it. The document's `runState` rolls up the
+  current runs: any active → `RUNNING` (`QUEUED` if none has started), all complete → `COMPLETE`, all failed →
+  `FAILED`, otherwise `PARTIAL`.
+- `rawResponse` is `{ summary?: { contentState, anchorsFound, records }, responses: [{ attempt, text, issues }] }`.
+  `summary` is present on completed runs and is what `contentState`, `templateMatchScore` and `needsReview` are
+  rolled up from, once no run of the document is active.
+- A completed run replaces, in the same transaction, the raw records of older runs on the same pages. Older runs
+  stay as history (docs/07 Part C question 4). Records on other pages are kept, so a partial retry loses nothing.
+- `RawRecord.recordIndex` = first page index of the request × 1000 + position in the response, so reading order
+  holds across requests. A FORM has one request, so its record is 0. `RawRecord.bbox` is the union of its values'
+  boxes. Values for `SKIP` fields are never written.
 
 ## Indexing notes
 

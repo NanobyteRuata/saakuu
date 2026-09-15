@@ -10,6 +10,7 @@ import { z } from "zod";
 export const QUEUES = {
   system: "system",
   media: "media",
+  extraction: "extraction",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -36,8 +37,13 @@ export type PhotoIngestJobData = z.infer<typeof photoIngestJobSchema>;
 export const photoRenderJobSchema = z.object({ photoId: z.string().min(1) });
 export type PhotoRenderJobData = z.infer<typeof photoRenderJobSchema>;
 
+/** Extraction: every queued run of one document (docs/03 §7). */
+export const extractionRunJobSchema = z.object({ documentId: z.string().min(1) });
+export type ExtractionRunJobData = z.infer<typeof extractionRunJobSchema>;
+
 export const JOBS = {
   noop: { queue: QUEUES.system, name: "noop", schema: noopJobSchema },
   photoIngest: { queue: QUEUES.media, name: "photo.ingest", schema: photoIngestJobSchema },
   photoRender: { queue: QUEUES.media, name: "photo.render", schema: photoRenderJobSchema },
+  extractionRun: { queue: QUEUES.extraction, name: "extraction.run", schema: extractionRunJobSchema },
 } as const;

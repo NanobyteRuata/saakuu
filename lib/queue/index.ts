@@ -4,6 +4,7 @@ import { createRedisConnection } from "./connection";
 import {
   JOBS,
   QUEUES,
+  type ExtractionRunJobData,
   type NoopJobData,
   type NoopJobResult,
   type PhotoIngestJobData,
@@ -12,7 +13,34 @@ import {
 } from "./jobs";
 
 export { JOBS, QUEUES, createRedisConnection };
-export type { NoopJobData, NoopJobResult, PhotoIngestJobData, PhotoRenderJobData, QueueName };
+export type { ExtractionRunJobData, NoopJobData, NoopJobResult, PhotoIngestJobData, PhotoRenderJobData, QueueName };
+
+/** Retries cover worker restarts, storage hiccups and rate limits the provider retry didn't outlast. */
+export const EXTRACTION_JOB_ATTEMPTS = 4;
+
+/**
+ * Enqueues extraction for a document. There is one job id per document, so enqueueing while its job
+ * is waiting, backing off before a retry, or running does nothing: that job picks up every queued run,
+ * and its attempt count and backoff are kept. A finished job with the id is removed first, so new runs
+ * get a fresh job.
+ */
+export async function enqueueExtraction(data: ExtractionRunJobData): Promise<"added" | "pending"> {
+  const payload = JOBS.extractionRun.schema.parse(data);
+  const queue = getQueue(JOBS.extractionRun.queue);
+  const jobId = `extract-${payload.documentId}`;
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state !== "completed" && state !== "failed" && state !== "unknown") return "pending";
+    await existing.remove();
+  }
+  await queue.add(JOBS.extractionRun.name, payload, {
+    attempts: EXTRACTION_JOB_ATTEMPTS,
+    backoff: { type: "exponential", delay: 15_000 },
+    jobId,
+  });
+  return "added";
+}
 
 const MEDIA_JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential", delay: 2000 } } as const;
 

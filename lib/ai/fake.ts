@@ -1,0 +1,61 @@
+import sharp from "sharp";
+
+import { extractWithRepair } from "./extract";
+import { AI_MODELS } from "./models";
+import { ProviderError, type AIProvider, type ExtractionImage, type ExtractionRequest, type ExtractionResult } from "./provider";
+
+/**
+ * Deterministic stand-in for a real model, for local work without an API key and for CI. It never
+ * touches the network and goes through the same validation as a real response.
+ * - A near-white page reads as EMPTY.
+ * - Otherwise: a form gets one record, a table two rows on its first page, with a sample value for
+ *   every Extract field (ticks for mark fields).
+ * - `AI_FAKE_BEHAVIOUR=error` or `rate-limited` fails every call, to exercise failure handling.
+ */
+
+export type FakeBehaviour = "ok" | "error" | "rate-limited";
+
+async function isBlank(image: ExtractionImage): Promise<boolean> {
+  const stats = await sharp(image.data).greyscale().stats();
+  const channel = stats.channels[0];
+  return channel !== undefined && channel.mean > 235 && channel.stdev < 8;
+}
+
+async function fakeResponse(req: ExtractionRequest): Promise<string> {
+  const blank = await Promise.all(req.images.map(isBlank));
+  const firstWithContent = req.images.find((_, i) => !blank[i]);
+  if (!firstWithContent) return JSON.stringify({ contentState: "EMPTY", anchorsFound: [], records: [] });
+  const fields = req.template.fields.filter((f) => f.mode === "EXTRACT");
+  const rows = req.template.kind === "FORM" ? 1 : 2;
+  const records = Array.from({ length: rows }, (_, r) => ({
+    recordIndex: r,
+    rowType: "DATA",
+    struckThrough: false,
+    pageIndex: firstWithContent.pageIndex,
+    values: fields.map((f, i) => ({
+      fieldId: f.id,
+      valueText: f.dataType === "MARK" ? (i % 2 === 0 ? "✓" : null) : f.isSequence ? String(r + 1) : `${f.path.at(-1)?.label ?? "value"} ${r + 1}`,
+      altValueText: null,
+      state: f.dataType === "MARK" && i % 2 !== 0 ? "EMPTY" : "OK",
+      isDitto: false,
+      confidence: 0.5,
+      bbox: { x: 0.1, y: Math.min(0.9, 0.1 + (r + i) * 0.04), w: 0.3, h: 0.03 },
+    })),
+  }));
+  return JSON.stringify({ contentState: "HAS_CONTENT", anchorsFound: req.template.anchors, records });
+}
+
+export function createFakeProvider(behaviour: FakeBehaviour): AIProvider {
+  return {
+    async listModels() {
+      return AI_MODELS.map((m) => ({ id: m.id, label: m.label, costTier: m.costTier }));
+    },
+    async extract(req: ExtractionRequest): Promise<ExtractionResult> {
+      return extractWithRepair(async () => {
+        if (behaviour === "error") throw new ProviderError("UNAVAILABLE", "Fake provider forced an outage.");
+        if (behaviour === "rate-limited") throw new ProviderError("RATE_LIMITED", "Fake provider forced a rate limit.");
+        return { text: await fakeResponse(req), usage: { inputTokens: 258 * req.images.length, outputTokens: 100 } };
+      }, req);
+    },
+  };
+}

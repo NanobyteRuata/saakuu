@@ -204,6 +204,17 @@ else book default), estimated tokens/time. Warning blocks for: documents contain
 edited cells, templates in Conflicted state, documents flagged as possible mismatch.
 Confirm enqueues and closes; a progress indicator appears on the affected rows.
 
+*As built (Phase 5):*
+- Opened from the Documents selection bar (`Extract`, `Re-extract`), the document drawer footer, and a template
+  card (all of that template's documents). Documents that can't be extracted are listed with the reason and skipped.
+- The dialog makes one nonce when it opens and sends it with every submit, and the confirm button disables while
+  starting, so a double click is one extraction.
+- The Documents list polls every 2 s while a loaded document is queued or running; multi-request documents show
+  `Running 3/12` pages. Failed and partial documents get a chip pointing to the drawer.
+- The drawer lists runs with their pages, error and `Retry these pages` on a failed run that is still the latest
+  reading of its pages. It explains a blank page (not a failure) and "no rows found" (check template or photo).
+- Template cards refresh every 2 s while their run badge is `Running`.
+
 ## 12. Table tab (output table)
 Virtualised grid. Sticky header, sticky first column optional.
 

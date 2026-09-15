@@ -262,6 +262,34 @@ GET    /api/runs/:id                                   run detail incl. rawRespo
 `estimate` also returns warnings: documents with edited cells, documents flagged as
 possible template mismatch, templates in `CONFLICTED` state.
 
+**Phase 5 as built** (supersedes the lines above where they differ):
+```
+GET    /api/models                                     [{ id, label, description, costTier }]
+POST   /api/extractions/estimate    { documentIds[] | templateId, model? }
+                                    -> { documentIds, documents, extractable, pages, requests, estInputTokens, estSeconds,
+                                         model, suggestedModel, warnings[], blockers: [{ documentId, label, reason }] }
+POST   /api/extractions/start       { documentIds[] | templateId, model, nonce } -> { queued, alreadyStarted, skipped[] }
+GET    /api/extractions/status?documentIds=a,b,c       [{ id, runState, contentState, needsReview, templateMatchScore,
+                                                          lastRunAt, lastModel, pages: { total, done, failed } }]
+POST   /api/extractions/retry       { documentIds[] | photoIds[] } -> same shape as start
+GET    /api/runs/:id                run detail incl. rawResponse and record count
+```
+- `templateId` covers the template's live documents (up to 2,000). `suggestedModel` is the template's override
+  when every document shares it, else the book default.
+- Blockers skip a document, never the request: already extracting, no pages, pages still processing or failed,
+  an edited page still rendering, no `EXTRACT` fields, a FORM with more than 8 pages.
+- `start` creates one run per request (≤8 pages) per document with keys from docs/03 §7, locking up to 100
+  document rows per transaction (in id order). If any key already exists the document counts as `alreadyStarted`
+  and nothing is inserted, so a double click starts one run. One job per document, id `extract-{documentId}`:
+  enqueueing while that job is waiting, backing off or running does nothing, and a finished one is replaced.
+- `retry` re-runs pages whose current run failed (all of them, or only the listed `photoIds`). Its key is derived
+  from the failed runs, so a double retry creates one run.
+- `status` re-enqueues a document whose runs have been `QUEUED` for over a minute with nothing running (a lost job).
+  Because enqueueing is a no-op while the document's job exists, polling never cuts a retry backoff short or
+  resets its attempts.
+- Moving documents that are extracting is refused with `CONFLICT`.
+- `cancel` is not built (not in the Phase 5 scope).
+
 ## Output table
 ```
 GET    /api/books/:id/rows                 cursor on position; ?columns=&filter=&needsReview=

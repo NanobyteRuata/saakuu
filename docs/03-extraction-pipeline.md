@@ -27,7 +27,10 @@ export interface AIProvider {
 }
 ```
 
-Models exposed in v1 (Gemini): `gemini-2.5-flash` (default), `gemini-2.5-pro`.
+Models exposed in v1 (Gemini): `gemini-3.5-flash` (default), `gemini-3.7-flash`. The 2.5 models this list started
+with are closed to new API keys; a migration moved stored book and template choices (2.5 Flash → 3.5 Flash,
+2.5 Pro → 3.7 Flash). `gemini-3.1-pro-preview` needs a paid plan and is not listed yet. A retry of a run whose
+model was retired uses the template or book model.
 `ModelInfo` carries id, display name, and a rough relative cost tier so the extract
 modal can show an estimate.
 
@@ -187,6 +190,32 @@ it `PARTIAL` and only the failed pages are retryable.
 
 **Progress:** the client polls a lightweight status endpoint (2s interval while any
 document in view is QUEUED/RUNNING). No websockets in v1.
+
+### As built (Phase 5)
+
+- Code: `lib/ai/` (provider interface, `gemini.ts`, `fake.ts`, `prompts/v1.ts`, `response-schema.ts`, `validate.ts`,
+  `extract.ts` for the shared call → validate → repair loop) and `lib/extraction/` (`plan.ts` pure, `service.ts`
+  for requests, `process.ts` for the worker).
+- `AI_PROVIDER=fake` is a deterministic stub (near-white page → `EMPTY`, otherwise sample values) used without an
+  API key and in CI. `AI_FAKE_BEHAVIOUR=error|rate-limited` forces failures.
+- Gemini gets the JSON schema as `responseJsonSchema`. Validation rejects unknown field ids, a field twice in one
+  record, more than one FORM record, pages that weren't sent, and records alongside `EMPTY`/`NO_ROWS_FOUND`; it
+  drops values for `SKIP` fields and keeps everything else verbatim. One repair request lists the problems.
+- Step 2: `Photo.status` is **not** set to `PROCESSING`. It is the ingest state and the photo editor relies on it.
+- Step 3: the worker uses the working copy already rendered for the page's current transform. A page edited
+  after Extract fails its run with a plain message; extracting again picks up the new copy.
+- Step 5: the provider call retries 3× on rate limits and outages. Beyond that the job retries (4 attempts,
+  exponential backoff from 15 s) with the runs put back in the queue; a rate limit also pauses the whole
+  `extraction` queue for a minute. The last attempt fails the runs.
+- Step 8 (transform) is Phase 6. Phase 5 writes the raw layer only.
+- Runs are claimed with an atomic `UPDATE … RETURNING`, so two jobs for one document never call the model twice
+  for the same run. A run left `RUNNING` for 15 minutes can be claimed again (the Phase 9 reaper still applies).
+- Rate limiting: `EXTRACTION_CONCURRENCY` documents at once, BullMQ limiter of `EXTRACTION_RPM` jobs per minute.
+  A job is one document, which is one model call unless it has more than 8 pages or needs a repair.
+- Anchor score = share of the template's anchors reported (case- and space-insensitive), counted only over
+  requests that weren't blank; null without anchors or when every page was blank.
+  Below 0.5 the document is flagged `needsReview` as a possible template mismatch. `NO_ROWS_FOUND`, or content
+  with no records, also sets `needsReview`.
 
 ## 8. Transform pipeline
 

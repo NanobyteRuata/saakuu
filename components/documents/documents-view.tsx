@@ -53,8 +53,28 @@ const POLL_MS = 2000;
 function isActive(state: RunState): boolean {
   return state === "QUEUED" || state === "RUNNING";
 }
-const COLUMNS =
-  "grid-cols-[2rem_3.5rem_minmax(12rem,2fr)_minmax(8rem,1fr)_4rem_7rem_8rem_4rem_6rem_4rem_6rem_8rem]";
+// Column tracks as [min rem, flexible max]. Header and rows share this, and the table's
+// min-width is derived from it so columns never squeeze below their minimum.
+const TRACKS: readonly (readonly [number, string?])[] = [
+  [2], // select
+  [3.5], // thumbnail
+  [12, "2fr"], // label
+  [8, "1fr"], // template
+  [4], // pages
+  [7], // run state
+  [8], // content
+  [4], // rows
+  [6], // unreviewed
+  [4], // errors
+  [6], // last run
+  [8], // model
+];
+const GAP_REM = 0.75; // gap-3
+const PAD_X_REM = 0.75; // px-3
+const GRID_STYLE = {
+  gridTemplateColumns: TRACKS.map(([min, max]) => (max ? `minmax(${min}rem,${max})` : `${min}rem`)).join(" "),
+};
+const TABLE_MIN_WIDTH = `${TRACKS.reduce((sum, [min]) => sum + min, 0) + GAP_REM * (TRACKS.length - 1) + PAD_X_REM * 2}rem`;
 
 function query(filters: DocumentFilters, cursor?: string): string {
   const params = new URLSearchParams();
@@ -89,6 +109,11 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   const [progress, setProgress] = useState<Record<string, ExtractionStatus["pages"]>>({});
   const [pollTick, setPollTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Rows sit below the sticky header inside the same scroll element; the virtualizer needs that offset.
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const headerRef = useCallback((el: HTMLDivElement | null) => {
+    if (el) setHeaderHeight(el.offsetHeight);
+  }, []);
 
   // Poll run state every 2 s while any loaded document is queued or running (docs/03 §7 → Progress).
   const activeKey = items.filter((d) => isActive(d.runState)).slice(0, 200).map((d) => d.id).join(",");
@@ -132,6 +157,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
+    scrollMargin: headerHeight,
   });
   const virtualItems = virtualizer.getVirtualItems();
   const lastIndex = virtualItems.at(-1)?.index ?? 0;
@@ -300,27 +326,44 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <div className="min-w-[72rem]">
-            <div className={cn("text-muted-foreground grid items-center gap-3 border-b px-3 py-2 text-xs", COLUMNS)} role="row">
-              <Checkbox
-                checked={allSelected ? true : selected.size > 0 ? "indeterminate" : false}
-                onCheckedChange={(c) => setSelected(c === true ? new Set(items.map((d) => d.id)) : new Set())}
-                aria-label="Select all loaded documents"
-              />
-              <span className="sr-only">Thumbnail</span>
-              <span>Label</span>
-              <span>Template</span>
-              <span className="text-right">Pages</span>
-              <span>Run state</span>
-              <span>Content</span>
-              <span className="text-right">Rows</span>
-              <span className="text-right">Unreviewed</span>
-              <span className="text-right">Errors</span>
-              <span>Last run</span>
-              <span>Model</span>
+        <div
+          ref={scrollRef}
+          className="max-h-[calc(100vh-22rem)] min-h-64 overflow-auto rounded-lg border"
+          role="table"
+          aria-label="Documents"
+          aria-rowcount={items.length + 1}
+        >
+          <div style={{ minWidth: TABLE_MIN_WIDTH }}>
+            <div
+              ref={headerRef}
+              className="text-muted-foreground bg-background sticky top-0 z-10 grid items-center gap-3 border-b px-3 py-2 text-xs"
+              style={GRID_STYLE}
+              role="row"
+              aria-rowindex={1}
+            >
+              <span role="columnheader">
+                <Checkbox
+                  checked={allSelected ? true : selected.size > 0 ? "indeterminate" : false}
+                  onCheckedChange={(c) => setSelected(c === true ? new Set(items.map((d) => d.id)) : new Set())}
+                  aria-label="Select all loaded documents"
+                />
+              </span>
+              {/* Wrapped: sr-only is position:absolute, which would drop it out of the grid and shift every header left. */}
+              <span role="columnheader">
+                <span className="sr-only">Thumbnail</span>
+              </span>
+              <span role="columnheader">Label</span>
+              <span role="columnheader">Template</span>
+              <span role="columnheader" className="text-right">Pages</span>
+              <span role="columnheader">Run state</span>
+              <span role="columnheader">Content</span>
+              <span role="columnheader" className="text-right">Rows</span>
+              <span role="columnheader" className="text-right">Unreviewed</span>
+              <span role="columnheader" className="text-right">Errors</span>
+              <span role="columnheader">Last run</span>
+              <span role="columnheader">Model</span>
             </div>
-            <div ref={scrollRef} className="max-h-[calc(100vh-22rem)] min-h-64 overflow-y-auto" aria-label="Documents" role="rowgroup">
+            <div role="rowgroup">
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualItems.map((v) => {
                   const d = items[v.index];
@@ -330,15 +373,15 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                     <div
                       key={d.id}
                       role="row"
+                      aria-rowindex={v.index + 2}
                       className={cn(
                         "hover:bg-muted/40 absolute inset-x-0 grid cursor-pointer items-center gap-3 border-b px-3 text-sm",
-                        COLUMNS,
                         selected.has(d.id) && "bg-primary/5",
                       )}
-                      style={{ height: ROW_HEIGHT, transform: `translateY(${v.start}px)` }}
+                      style={{ ...GRID_STYLE, height: ROW_HEIGHT, transform: `translateY(${v.start - headerHeight}px)` }}
                       onClick={() => setOpenId(d.id)}
                     >
-                      <div onClick={(e) => e.stopPropagation()}>
+                      <div role="cell" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selected.has(d.id)}
                           onCheckedChange={(c) =>
@@ -352,7 +395,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                           aria-label={`Select ${d.label ?? "document"}`}
                         />
                       </div>
-                      <div className="bg-muted flex h-12 w-12 items-center justify-center overflow-hidden rounded border">
+                      <div role="cell" className="bg-muted flex h-12 w-12 items-center justify-center overflow-hidden rounded border">
                         {d.thumbUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element -- presigned storage URL
                           <img src={d.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -360,7 +403,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                           <span className="text-muted-foreground text-[10px]">{d.failedPages > 0 ? "Failed" : "…"}</span>
                         )}
                       </div>
-                      <div className="flex min-w-0 flex-col gap-0.5">
+                      <div role="cell" className="flex min-w-0 flex-col gap-0.5">
                         <button
                           type="button"
                           className="truncate text-left font-medium hover:underline"
@@ -373,20 +416,20 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                         </button>
                         <DocumentFlags d={d} />
                       </div>
-                      <span className="truncate">{d.templateName}</span>
-                      <span className="text-right tabular-nums">{formatCount(d.pageCount)}</span>
-                      <span className="tabular-nums">
+                      <span role="cell" className="truncate">{d.templateName}</span>
+                      <span role="cell" className="text-right tabular-nums">{formatCount(d.pageCount)}</span>
+                      <span role="cell" className="tabular-nums">
                         {RUN_STATE_LABELS[d.runState]}
                         {isActive(d.runState) && pages && pages.total > 1 ? ` ${pages.done}/${pages.total}` : ""}
                       </span>
-                      <span>{CONTENT_STATE_LABELS[d.contentState]}</span>
-                      <span className="text-right tabular-nums">{formatCount(d.rowCount)}</span>
-                      <span className="text-right tabular-nums">{formatCount(d.unreviewedCells)}</span>
-                      <span className={cn("text-right tabular-nums", d.errorCells > 0 && "text-destructive font-medium")}>
+                      <span role="cell">{CONTENT_STATE_LABELS[d.contentState]}</span>
+                      <span role="cell" className="text-right tabular-nums">{formatCount(d.rowCount)}</span>
+                      <span role="cell" className="text-right tabular-nums">{formatCount(d.unreviewedCells)}</span>
+                      <span role="cell" className={cn("text-right tabular-nums", d.errorCells > 0 && "text-destructive font-medium")}>
                         {formatCount(d.errorCells)}
                       </span>
-                      <span className="tabular-nums">{d.lastRunAt ? isoDate(d.lastRunAt) : "—"}</span>
-                      <span className="truncate">{d.lastModel ?? "—"}</span>
+                      <span role="cell" className="tabular-nums">{d.lastRunAt ? isoDate(d.lastRunAt) : "—"}</span>
+                      <span role="cell" className="truncate">{d.lastModel ?? "—"}</span>
                     </div>
                   );
                 })}

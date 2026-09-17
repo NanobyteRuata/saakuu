@@ -16,7 +16,7 @@ export function BookTabs({ bookId }: { bookId: string }) {
   const pathname = usePathname();
   const root = `/books/${bookId}`;
   return (
-    <nav aria-label="Book sections" className="flex gap-1 overflow-x-auto border-b">
+    <nav aria-label="Book sections" className="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--border)]">
       {TABS.map(({ label, segment }) => {
         const href = segment ? `${root}/${segment}` : root;
         const active = segment ? pathname === href || pathname.startsWith(`${href}/`) : pathname === root;
@@ -26,7 +26,7 @@ export function BookTabs({ bookId }: { bookId: string }) {
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
+              "border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
               active ? "border-foreground text-foreground" : "text-muted-foreground hover:text-foreground border-transparent",
             )}
           >

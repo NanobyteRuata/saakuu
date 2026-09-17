@@ -407,6 +407,39 @@ GET    /api/exports/:token                 streams CSV, UTF-8 with BOM
 Export streams rather than buffering. Provenance columns when requested:
 `_document`, `_template`, `_photo`, `_model`, `_reviewed`, `_confidence`.
 
+**Phase 8 as built** (supersedes the lines above where they differ):
+```
+POST   /api/books/:id/export/preview       ExportOptions -> { rows, columns, cells, unreviewedCells, errorCells, warningCells }   writes nothing
+POST   /api/books/:id/export               ExportOptions -> { downloadUrl: "/api/exports/<token>" }   valid 5 minutes
+GET    /api/exports/:token                 text/csv; charset=utf-8, attachment; errors are plain text
+```
+```jsonc
+// ExportOptions
+{ "includeVoid": false, "includeProvenance": false, "columns"?: ["<column id>"],   // absent = all; always book order
+  "blankToken"?: string, "illegibleToken"?: string }                               // default: the book's export settings
+```
+- The token is the options signed with HMAC-SHA256 (AUTH_SECRET), nothing stored (docs/07 decision 44). The download
+  requires the same signed-in user and re-checks the book.
+- File: BOM, header row of column `key`s, then rows in manual order (same order and live-row rules as `GET /rows`), CRLF,
+  RFC 4180 quoting, 500 rows per page. A database error mid-stream aborts the download instead of ending the file early. Values are `currentValue` verbatim; `EMPTY` → blank token, `ILLEGIBLE` → illegible
+  token, `DASH` → `-`, `NOT_APPLICABLE` → `N/A` (decision 43).
+- Provenance: `_document` label, `_template` name, `_photo` page number, `_model` last model, `_reviewed` `yes` when every
+  cell of the row is reviewed, `_confidence` the row's lowest cell confidence. `includeVoid` adds a `_void` column (`yes`/`no`).
+- Preview counts cells of non-void rows over the chosen columns, as the table counts them.
+
+## Review
+Phase 8 as built:
+```
+GET    /api/books/:id/review-queue         ?cursor&limit (≤ 500) -> { items: [{ rowId, documentId, unreviewedCellIds }], nextCursor,
+                                                progress: { cells, reviewedCells, documents, reviewedDocuments } }
+GET    /api/rows/:id/sources               -> { rowId, photoId, bbox, cells: { columnId: { photoId, bbox, paths[] } } }
+POST   /api/cells/review                   (Phase 7) marks cells or whole rows; row review batches rows marked quickly
+```
+- Review covers live, non-void rows and cells of live columns. A document counts once it has such a cell and is complete when
+  all of them are reviewed; the Documents list shows `reviewed` and filters `?reviewed=true|false` on the same rule.
+- A cell's region is the union of the boxes of the fields its column's working mapping reads (a selection group reads its
+  option fields), on the record's page. `paths` are those fields' header paths.
+
 ## Worker-only internals
 
 Not HTTP. The worker imports the same `lib/` code directly. Keep all business logic in

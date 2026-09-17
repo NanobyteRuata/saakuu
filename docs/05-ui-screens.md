@@ -304,10 +304,31 @@ Keyboard-first:
 
 Header shows position (`Document 12 of 40 · Row 3 of 9`) and a progress bar.
 
+*As built (Phase 8):*
+- `/books/:id/review`, full height outside the book tabs; `?row=` opens at a row (Table toolbar `Review rows` passes the
+  focused row; the row menu has `Review this row`), otherwise at the first row with an unreviewed cell. Void rows are skipped.
+- Header: `← Table`, position, `saving…` / `all changes saved`, progress bar with `1,204 of 1,500 cells reviewed · 31 of 40
+  documents complete` (whole book), `Next unreviewed`, `Export CSV`. Leaving with saves in flight asks first.
+- Photo: working copy zoomed so the row fills the width, row boxed dashed, active cell boxed solid and kept centred; hold
+  Space to zoom to the active cell; `Show whole page`. Photo and regions load once you stop on a row for 120 ms.
+- Cells: label, header paths of the fields read, confidence (`uncertain · 41%` below the book threshold), edited / reviewed,
+  the value with the docs/08 channels, the extracted value when edited or disagreeing, validation messages.
+- Keys, when not typing: Tab / Shift+Tab and ↑/↓ move across row ends; Enter marks the cell reviewed and moves on;
+  ⌘Enter / Ctrl+Enter marks the row reviewed and opens the next; `I` marks unreadable and reviewed, moves on; `R` reverts the
+  cell; `[` `]` first row of the previous / next document; `N` next unreviewed; F2 or typing edits; Delete clears; ⌘Z undoes;
+  Esc returns to the table. While typing: Enter saves, marks reviewed and moves on; Tab saves and moves; ⌘Enter saves and
+  marks the row; Esc cancels (takes back that session's saves). Letter keys act only outside the editor, so a value starting
+  with `i`, `r` or `n` is typed after F2.
+- The end of the book shows `Every cell is reviewed` with Export, or the count still unreviewed with `Next unreviewed`.
+
 ## 14. Export dialog
 Options: include void rows, include provenance columns, column subset, blank token,
 illegible token. Shows the resulting row count. Warns if unreviewed cells or
 validation errors remain, with counts, but never blocks.
+
+*As built (Phase 8):* opened from `Export CSV` in the book header (disabled with no rows) and in row review. Tokens start
+from Settings and apply to this export only. Shows `240 rows × 8 columns` and, when anything is left, `Not finished: 318 of
+1,920 cells not reviewed · 12 cells with errors · 3 cells with warnings. You can still export.` The download starts in place.
 
 ## 15. Empty and error states
 Every list needs a real empty state that explains the next action: no books, no

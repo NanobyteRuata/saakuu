@@ -1,6 +1,6 @@
 import type { ColumnType } from "@/lib/books/schemas";
 
-import type { TableCell, TableRow } from "./types";
+import type { CellValidationUpdate, TableCell, TableRow } from "./types";
 
 /**
  * View-only state for the output table: filters, sorting and counts. Nothing here writes; manual row order
@@ -103,4 +103,31 @@ export function countCells(rows: TableRow[], columnIds: string[]): TableCounts {
     }
   }
   return { cells, unreviewed, errors, byColumn };
+}
+
+/** The rows with one cell replaced. */
+export function withCell(rows: TableRow[], rowId: string, cell: TableCell): TableRow[] {
+  const i = rows.findIndex((r) => r.id === rowId);
+  const row = rows[i];
+  if (!row) return rows;
+  const next = rows.slice();
+  next[i] = { ...row, cells: { ...row.cells, [cell.columnId]: cell } };
+  return next;
+}
+
+/** The rows with validation results of other cells applied (uniqueness, increasing order, cross-column). */
+export function withValidation(rows: TableRow[], updates: CellValidationUpdate[]): TableRow[] {
+  if (updates.length === 0) return rows;
+  const byRow = new Map<string, CellValidationUpdate[]>();
+  for (const u of updates) byRow.set(u.rowId, [...(byRow.get(u.rowId) ?? []), u]);
+  return rows.map((row) => {
+    const list = byRow.get(row.id);
+    if (!list) return row;
+    const cells = { ...row.cells };
+    for (const u of list) {
+      const entry = Object.entries(cells).find(([, c]) => c.id === u.id);
+      if (entry) cells[entry[0]] = { ...entry[1], validationState: u.validationState, validationMsgs: u.validationMsgs };
+    }
+    return { ...row, cells };
+  });
 }

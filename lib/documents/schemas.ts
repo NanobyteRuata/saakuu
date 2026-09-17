@@ -17,6 +17,7 @@ export const listDocumentsSchema = z.object({
   runState: z.enum(RUN_STATES).optional(),
   needsReview: booleanParam.optional(),
   hasEdits: booleanParam.optional(),
+  reviewed: booleanParam.optional(),
   q: z.string().trim().max(200).optional(),
 });
 export type ListDocumentsInput = z.infer<typeof listDocumentsSchema>;

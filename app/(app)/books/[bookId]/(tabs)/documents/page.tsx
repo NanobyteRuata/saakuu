@@ -3,7 +3,7 @@ import { listDocumentsSchema } from "@/lib/documents/schemas";
 import { listDocuments } from "@/lib/documents/service";
 import { listTemplates, MAX_TEMPLATES } from "@/lib/templates/service";
 
-import { loadBookPage } from "../data";
+import { loadBookPage } from "../../data";
 
 type Props = {
   params: Promise<{ bookId: string }>;
@@ -32,6 +32,7 @@ export default async function BookDocumentsPage({ params, searchParams }: Props)
         runState: filters.runState ?? null,
         needsReview: filters.needsReview ?? null,
         hasEdits: filters.hasEdits ?? null,
+        reviewed: filters.reviewed ?? null,
         q: filters.q ?? "",
       }}
       initialPage={page}

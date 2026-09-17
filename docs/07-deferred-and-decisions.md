@@ -204,6 +204,21 @@ every such shape, so patterns go through `re2js` (a pure-JS RE2 port, no native 
 syntax: no backreferences or lookarounds. Mapping split patterns (Phase 6) still use JavaScript regular expressions with the
 nested-repeat check; moving them to RE2 is a follow-up. (Phase 7)
 
+**43. Dash and not-applicable export as literal `-` and `N/A`; blank and illegible use the book's tokens.** docs/01 §11.6
+keeps five meanings apart, and the schema has tokens for only two. Writing the other two as fixed text keeps them distinct in
+the file without new settings. Values are otherwise exported verbatim: no spreadsheet-formula escaping, which would change
+what people typed. (Phase 8)
+
+**44. Export links are signed, not stored.** `POST /export` returns a link carrying the options, signed with AUTH_SECRET and
+valid five minutes, so the browser can download a stream directly without a table of export jobs. The download still needs
+the same session and re-checks the book. Streaming pages are read one after another, not in one snapshot; an edit made
+mid-download may or may not be in the file. (Phase 8)
+
+**45. Review counts what the table counts.** Void rows are skipped in review and left out of progress, document completion
+and export warnings, like the table readout. A document with no such cells is neither reviewed nor unreviewed in progress,
+and is not `reviewed` in the Documents filter. Including void rows in an export adds a `_void` column so they stay
+recognisable. (Phase 8)
+
 ---
 
 ## Part C — Open questions for later

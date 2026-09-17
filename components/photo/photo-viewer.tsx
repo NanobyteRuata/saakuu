@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { getJson } from "@/lib/api-client";
 import type { PhotoView } from "@/lib/photos/views";
 import type { Bbox } from "@/lib/table/types";
+
+import { RegionImage } from "./region-image";
 
 type Props = {
   open: boolean;
@@ -26,15 +28,12 @@ export function PhotoViewer({ open, onOpenChange, photoId, bbox, title, descript
   const [photo, setPhoto] = useState<PhotoView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState(true);
-  const [loaded, setLoaded] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open || !photoId) return;
     let cancelled = false;
     setPhoto(null);
     setError(null);
-    setLoaded(false);
     setZoomed(bbox !== null);
     void getJson<PhotoView[]>(`/api/photos/status?ids=${photoId}`).then((result) => {
       if (cancelled) return;
@@ -46,18 +45,6 @@ export function PhotoViewer({ open, onOpenChange, photoId, bbox, title, descript
       cancelled = true;
     };
   }, [open, photoId, bbox]);
-
-  // Centre the boxed region once the image has its size.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !loaded || !bbox) return;
-    const inner = el.firstElementChild;
-    if (!(inner instanceof HTMLElement)) return;
-    el.scrollTo({
-      left: (bbox.x + bbox.w / 2) * inner.offsetWidth - el.clientWidth / 2,
-      top: (bbox.y + bbox.h / 2) * inner.offsetHeight - el.clientHeight / 2,
-    });
-  }, [loaded, zoomed, bbox]);
 
   const url = photo?.workingUrl ?? photo?.thumbUrl ?? null;
 
@@ -78,19 +65,15 @@ export function PhotoViewer({ open, onOpenChange, photoId, bbox, title, descript
           </div>
         ) : (
           <>
-            <div ref={scrollRef} className="bg-muted/40 h-[65vh] overflow-auto rounded-md border">
-              <div className="relative" style={{ width: zoomed ? `${ZOOM * 100}%` : "100%" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element -- presigned storage URL */}
-                <img src={url} alt={title} className="block w-full" onLoad={() => setLoaded(true)} />
-                {bbox ? (
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute rounded-sm border-2 border-(--cell-accent) bg-(--cell-accent)/10 shadow-[0_0_0_9999px_rgb(0_0_0/0.25)]"
-                    style={{ left: `${bbox.x * 100}%`, top: `${bbox.y * 100}%`, width: `${bbox.w * 100}%`, height: `${bbox.h * 100}%` }}
-                  />
-                ) : null}
-              </div>
-            </div>
+            <RegionImage
+              url={url}
+              alt={title}
+              className="h-[65vh]"
+              boxes={bbox ? [{ bbox, tone: "record" }] : []}
+              zoom={zoomed ? ZOOM : 1}
+              center={bbox}
+              dimOutside
+            />
             <div className="flex items-center justify-between gap-3">
               <p className="text-muted-foreground text-xs">{bbox ? "The boxed region is where this row was read." : "No region was recorded for this row; showing the whole page."}</p>
               {bbox ? (

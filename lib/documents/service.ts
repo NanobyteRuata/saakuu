@@ -52,6 +52,8 @@ export type DocumentSummary = {
   transformFlags: DocumentFlag[];
   rowCount: number;
   unreviewedCells: number;
+  /** Has cells to review and every one is reviewed (docs/01 §6.10). */
+  reviewed: boolean;
   errorCells: number;
   hasEdits: boolean;
   hasDisagreements: boolean;
@@ -97,7 +99,7 @@ const RUN_SCAN_LIMIT = 500;
 
 // ---------- reads ----------
 
-type CellStats = { documentId: string; rows: number; unreviewed: number; errors: number; edited: boolean; disagreements: boolean };
+type CellStats = { documentId: string; rows: number; cells: number; unreviewed: number; errors: number; edited: boolean; disagreements: boolean };
 
 async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> {
   if (ids.length === 0) return [];
@@ -124,11 +126,14 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
     db.$queryRaw<CellStats[]>`
       SELECT r."documentId" AS "documentId",
              count(DISTINCT r.id)::int AS rows,
+             count(c.id)::int AS cells,
              count(c.id) FILTER (WHERE NOT c."isReviewed")::int AS unreviewed,
              count(c.id) FILTER (WHERE c."validationState" = 'ERROR')::int AS errors,
              coalesce(bool_or(c."isEdited"), false) AS edited,
              coalesce(bool_or(c.disagreement), false) AS disagreements
-      FROM "Row" r LEFT JOIN "Cell" c ON c."rowId" = r.id
+      FROM "Row" r
+      LEFT JOIN "OutputColumn" oc ON oc."bookId" = r."bookId" AND oc."deletedAt" IS NULL
+      LEFT JOIN "Cell" c ON c."rowId" = r.id AND c."outputColumnId" = oc.id
       WHERE r."documentId" IN (${Prisma.join(ids)}) AND NOT r."isVoid" AND r."deletedAt" IS NULL
       GROUP BY r."documentId"`,
   ]);
@@ -173,6 +178,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
       transformFlags: parseDocumentFlags(d.transformFlags),
       rowCount: s?.rows ?? 0,
       unreviewedCells: s?.unreviewed ?? 0,
+      reviewed: (s?.cells ?? 0) > 0 && s?.unreviewed === 0,
       errorCells: s?.errors ?? 0,
       hasEdits: s?.edited ?? false,
       hasDisagreements: s?.disagreements ?? false,
@@ -212,6 +218,18 @@ export async function listDocuments(userId: string, bookId: string, input: ListD
   if (input.hasEdits !== undefined) {
     const edited = Prisma.sql`EXISTS (SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND c."isEdited")`;
     conds.push(input.hasEdits ? edited : Prisma.sql`NOT ${edited}`);
+  }
+  if (input.reviewed !== undefined) {
+    // Same rows and cells the table counts: live, non-void rows; cells of live columns.
+    const rowsToReview = Prisma.sql`SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
+      WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND NOT r."isVoid"`;
+    const unreviewed = Prisma.sql`SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
+      WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND NOT r."isVoid" AND NOT c."isReviewed"`;
+    conds.push(
+      input.reviewed
+        ? Prisma.sql`EXISTS (${rowsToReview}) AND NOT EXISTS (${unreviewed})`
+        : Prisma.sql`(NOT EXISTS (${rowsToReview}) OR EXISTS (${unreviewed}))`,
+    );
   }
   if (input.q) {
     const pattern = `%${input.q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;

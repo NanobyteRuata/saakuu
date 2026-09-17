@@ -99,7 +99,7 @@ export async function getBook(userId: string, bookId: string): Promise<BookDetai
     prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: settingsSelect }),
     loadColumns(prisma, bookId),
     prisma.document.count({ where: { bookId, deletedAt: null } }),
-    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null } } }),
+    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
   ]);
   return { ...toSettings(book), columns, documentCount, rowCount };
 }

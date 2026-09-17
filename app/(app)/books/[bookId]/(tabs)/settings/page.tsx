@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { PAGE_LIMIT_DEFAULT } from "@/lib/validation";
 import { listRules } from "@/lib/validation/rules-service";
 
-import { loadBookPage } from "../data";
+import { loadBookPage } from "../../data";
 
 function Section({
   title,

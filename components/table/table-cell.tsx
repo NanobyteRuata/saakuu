@@ -30,7 +30,7 @@ const ATTENTION_LABEL: Record<Exclude<CellVisual["attention"], "none">, string> 
 };
 
 /** The attention bar's tooltip: every message, and a disagreement that a louder error hides (docs/08 §4). */
-function attentionTitle(cell: TableCell, visual: CellVisual): string | undefined {
+export function attentionTitle(cell: TableCell, visual: CellVisual): string | undefined {
   if (visual.attention === "none") return undefined;
   const lines = [...cell.validationMsgs];
   if (cell.disagreement) {
@@ -99,7 +99,7 @@ export const TableCellView = memo(function TableCellView({ rowId, cell, source, 
   );
 });
 
-function CellValue({ cell, visual, numeric }: { cell: TableCell; visual: CellVisual; numeric: boolean }) {
+export function CellValue({ cell, visual, numeric }: { cell: TableCell; visual: CellVisual; numeric: boolean }) {
   switch (visual.semantics) {
     case "empty":
       return <span className="sr-only">Empty</span>;

@@ -25,6 +25,7 @@ import {
 } from "./edits";
 import type { EditCellInput, ListRowsInput, ReorderRowInput, ReviewCellsInput, RowsActionInput } from "./schemas";
 import type { CellChangeResult, CellValidationUpdate, ColumnSource, TableCell, TableDocument, TableMeta, TableRow } from "./types";
+import { decodeCursor, encodeCursor } from "./cursor";
 import { encodeRow, type WirePage } from "./wire";
 
 /**
@@ -38,7 +39,7 @@ const CELL_CHANGE_TIMEOUT = 30_000;
 
 // ---------- access ----------
 
-const liveRow = (userId: string) =>
+export const liveRow = (userId: string) =>
   ({ deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } }, book: { userId, deletedAt: null } }) satisfies Prisma.RowWhereInput;
 
 async function requireCellAccess(userId: string, cellId: string): Promise<{ id: string; rowId: string; bookId: string; outputColumnId: string }> {
@@ -100,21 +101,7 @@ function toTableCell(c: CellRecord): TableCell {
   };
 }
 
-const bboxSchema = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
-
-function encodeCursor(position: string, id: string): string {
-  return `${position}_${id}`;
-}
-
-function decodeCursor(cursor: string): { position: string; id: string } {
-  const at = cursor.indexOf("_");
-  const position = cursor.slice(0, at);
-  const id = cursor.slice(at + 1);
-  if (at <= 0 || !/^[0-9A-Za-z]+$/.test(position) || !/^[a-z0-9]+$/.test(id)) {
-    throw new AppError("VALIDATION", "The table is out of date. Refresh it.");
-  }
-  return { position, id };
-}
+export const bboxSchema = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
 
 type RowRecord = { id: string; documentId: string; position: string; isVoid: boolean; voidReason: string | null; photoId: string | null; bbox: unknown };
 

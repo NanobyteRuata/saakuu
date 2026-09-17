@@ -4,10 +4,10 @@ import type { ReactNode } from "react";
 
 import { BookNameEditor } from "@/components/books/book-name-editor";
 import { BookTabs } from "@/components/books/book-tabs";
-import { Button } from "@/components/ui/button";
+import { ExportButton } from "@/components/export/export-dialog";
 import { plural } from "@/lib/format";
 
-import { loadBookPage } from "./data";
+import { loadBookPage } from "../data";
 
 type Params = { params: Promise<{ bookId: string }> };
 
@@ -31,11 +31,13 @@ export default async function BookLayout({ children, params }: Params & { childr
               {plural(book.rowCount, "row")} · {plural(book.columns.length, "column")} · {plural(book.documentCount, "document")}
             </p>
           </div>
-          <span title="Export becomes available once there are rows to review.">
-            <Button variant="outline" disabled>
-              Export CSV
-            </Button>
-          </span>
+          <ExportButton
+            bookId={book.id}
+            columns={book.columns.map((c) => ({ id: c.id, key: c.key, label: c.label }))}
+            blankToken={book.blankToken}
+            illegibleToken={book.illegibleToken}
+            rowCount={book.rowCount}
+          />
         </div>
         <BookTabs bookId={book.id} />
       </div>

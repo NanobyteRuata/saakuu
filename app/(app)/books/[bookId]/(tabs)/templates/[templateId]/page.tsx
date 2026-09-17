@@ -6,7 +6,7 @@ import { AppError } from "@/lib/errors";
 import { getTemplate, type TemplateDetail } from "@/lib/templates/service";
 import { idSchema } from "@/lib/validation";
 
-import { loadBookPage } from "../../data";
+import { loadBookPage } from "../../../data";
 
 type Params = { params: Promise<{ bookId: string; templateId: string }> };
 

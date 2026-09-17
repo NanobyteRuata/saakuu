@@ -36,6 +36,7 @@ export type DocumentFilters = {
   runState: RunState | null;
   needsReview: boolean | null;
   hasEdits: boolean | null;
+  reviewed: boolean | null;
   q: string;
 };
 
@@ -82,13 +83,14 @@ function query(filters: DocumentFilters, cursor?: string): string {
   if (filters.runState) params.set("runState", filters.runState);
   if (filters.needsReview !== null) params.set("needsReview", String(filters.needsReview));
   if (filters.hasEdits !== null) params.set("hasEdits", String(filters.hasEdits));
+  if (filters.reviewed !== null) params.set("reviewed", String(filters.reviewed));
   if (filters.q) params.set("q", filters.q);
   if (cursor) params.set("cursor", cursor);
   return params.toString();
 }
 
 function isFiltered(f: DocumentFilters): boolean {
-  return f.templateId !== null || f.runState !== null || f.needsReview !== null || f.hasEdits !== null || f.q !== "";
+  return f.templateId !== null || f.runState !== null || f.needsReview !== null || f.hasEdits !== null || f.reviewed !== null || f.q !== "";
 }
 
 /** Documents tab (docs/05 §8): filter bar, virtualised list, selection bar, detail drawer. */
@@ -265,6 +267,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
         </Select>
         <TriState label="Needs review" value={filters.needsReview} onChange={(v) => setFilters({ needsReview: v })} />
         <TriState label="Has edits" value={filters.hasEdits} onChange={(v) => setFilters({ hasEdits: v })} />
+        <TriState label="Reviewed" value={filters.reviewed} onChange={(v) => setFilters({ reviewed: v })} />
         {isFiltered(filters) ? (
           <Button
             variant="ghost"
@@ -523,6 +526,7 @@ function DocumentFlags({ d }: { d: DocumentSummary }) {
     if (f.kind !== "CELLS_FLAGGED") flags.push({ text: DOCUMENT_FLAG_CHIPS[f.kind], tone: "warn" });
   }
   if (d.needsReview) flags.push({ text: "needs review", tone: "warn" });
+  if (d.reviewed) flags.push({ text: "✓ reviewed", tone: "info" });
   if (flags.length === 0) return null;
   return (
     <div className="flex gap-1 overflow-hidden">

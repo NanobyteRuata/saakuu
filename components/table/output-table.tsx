@@ -27,12 +27,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getJson, patchJson, postJson } from "@/lib/api-client";
+import { patchJson, postJson } from "@/lib/api-client";
 import { formatCount, plural } from "@/lib/format";
 import { voidLabel } from "@/lib/table/labels";
-import type { CellChangeResult, CellValidationUpdate, TableCell, TableDocument, TableMeta, TableRow } from "@/lib/table/types";
-import { compareCells, countCells, isToolbarFiltered, matchesColumnFilter, matchesToolbar, NO_TOOLBAR_FILTER, type ColumnFilter, type ToolbarFilter } from "@/lib/table/view";
-import { decodePage, type WirePage } from "@/lib/table/wire";
+import type { CellChangeResult, CellValidationUpdate, TableCell, TableMeta, TableRow } from "@/lib/table/types";
+import { compareCells, countCells, withCell, withValidation, isToolbarFiltered, matchesColumnFilter, matchesToolbar, NO_TOOLBAR_FILTER, type ColumnFilter, type ToolbarFilter } from "@/lib/table/view";
+import type { WirePage } from "@/lib/table/wire";
 import { cn } from "@/lib/utils";
 
 import { ColumnHeader, type SortDirection } from "./column-header";
@@ -40,6 +40,7 @@ import { columnWidth, GridRow, LEAD_WIDTH, type EditingCell, type RowActions } f
 import { TableLegend } from "./legend";
 import { DeleteRowsDialog, RevertRowsDialog, type DeleteRowsResult, type RevertRowsResult } from "./row-dialogs";
 import { cellText } from "./table-cell";
+import { useBookRows } from "./use-book-rows";
 
 const DENSITY = { compact: 28, default: 32, comfortable: 40 } as const;
 type Density = keyof typeof DENSITY;
@@ -67,31 +68,6 @@ type Session = {
 
 const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 
-function withCell(rows: TableRow[], rowId: string, cell: TableCell): TableRow[] {
-  const i = rows.findIndex((r) => r.id === rowId);
-  const row = rows[i];
-  if (!row) return rows;
-  const next = rows.slice();
-  next[i] = { ...row, cells: { ...row.cells, [cell.columnId]: cell } };
-  return next;
-}
-
-function withValidation(rows: TableRow[], updates: CellValidationUpdate[]): TableRow[] {
-  if (updates.length === 0) return rows;
-  const byRow = new Map<string, CellValidationUpdate[]>();
-  for (const u of updates) byRow.set(u.rowId, [...(byRow.get(u.rowId) ?? []), u]);
-  return rows.map((row) => {
-    const list = byRow.get(row.id);
-    if (!list) return row;
-    const cells = { ...row.cells };
-    for (const u of list) {
-      const entry = Object.entries(cells).find(([, c]) => c.id === u.id);
-      if (entry) cells[entry[0]] = { ...entry[1], validationState: u.validationState, validationMsgs: u.validationMsgs };
-    }
-    return { ...row, cells };
-  });
-}
-
 function readDensity(): Density {
   try {
     const v = window.localStorage.getItem(DENSITY_KEY);
@@ -107,12 +83,7 @@ function readDensity(): Density {
  * writes nothing. Edits save as you type (debounced), each editing session is one undo step.
  */
 export function OutputTable({ meta: initialMeta, firstPage }: Props) {
-  const [meta, setMeta] = useState(initialMeta);
-  const [rows, setRows] = useState<TableRow[]>(() => decodePage(firstPage).items);
-  const [documents, setDocuments] = useState<Map<string, TableDocument>>(() => new Map(firstPage.documents.map((d) => [d.id, d])));
-  const [nextCursor, setNextCursor] = useState(firstPage.nextCursor);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const { meta, setMeta, rows, setRows, rowsRef, documents, nextCursor, loadError, refreshing, refresh: reload } = useBookRows(initialMeta, firstPage);
   const [density, setDensity] = useState<Density>("default");
   const [toolbar, setToolbar] = useState<ToolbarFilter>(NO_TOOLBAR_FILTER);
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});
@@ -128,55 +99,16 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const session = useRef<Session | null>(null);
   const undoStack = useRef<{ editId: string; rowId: string }[]>([]);
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
-
   useEffect(() => setDensity(readDensity()), []);
   const rowHeight = DENSITY[density];
 
-  // ---------- loading ----------
-
-  useEffect(() => {
-    if (!nextCursor) return;
-    let cancelled = false;
-    void getJson<WirePage>(`/api/books/${meta.bookId}/rows?cursor=${encodeURIComponent(nextCursor)}`).then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setLoadError(result.error.message);
-        return;
-      }
-      const page = decodePage(result.data);
-      setRows((prev) => {
-        const seen = new Set(prev.map((r) => r.id));
-        return [...prev, ...page.items.filter((r) => !seen.has(r.id))];
-      });
-      setDocuments((prev) => new Map([...prev, ...page.documents.map((d) => [d.id, d] as const)]));
-      setNextCursor(page.nextCursor);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [nextCursor, meta.bookId]);
-
   const refresh = useCallback(async () => {
-    setRefreshing(true);
-    setLoadError(null);
-    const [m, p] = await Promise.all([getJson<TableMeta>(`/api/books/${meta.bookId}/table-meta`), getJson<WirePage>(`/api/books/${meta.bookId}/rows`)]);
-    setRefreshing(false);
-    if (!m.ok || !p.ok) {
-      setLoadError((!m.ok ? m.error.message : !p.ok ? p.error.message : null) ?? "The table couldn't be loaded.");
-      return;
-    }
-    const page = decodePage(p.data);
+    if (!(await reload())) return;
     session.current = null;
     undoStack.current = [];
     setEditing(null);
-    setMeta(m.data);
-    setRows(page.items);
-    setDocuments(new Map(page.documents.map((d) => [d.id, d])));
-    setNextCursor(page.nextCursor);
     // Sort and filters are the person's view and stay; focus is cleared below if its row is gone.
-  }, [meta.bookId]);
+  }, [reload]);
 
   // A focused row that no longer exists (deleted, or gone after a refresh) drops focus once every page is in.
   useEffect(() => {
@@ -238,9 +170,9 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
 
   const applyResult = useCallback((data: CellChangeResult) => {
     setRows((prev) => withValidation(withCell(prev, data.rowId, data.cell), data.affected));
-  }, []);
+  }, [setRows]);
 
-  const findCell = (rowId: string, columnId: string): TableCell | undefined => rowsRef.current.find((r) => r.id === rowId)?.cells[columnId];
+  const findCell = useCallback((rowId: string, columnId: string): TableCell | undefined => rowsRef.current.find((r) => r.id === rowId)?.cells[columnId], [rowsRef]);
 
   const pushUndo = (editId: string | null, rowId: string) => {
     if (!editId) return;
@@ -263,7 +195,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
         }
       });
     },
-    [applyResult],
+    [applyResult, setRows],
   );
 
   const startEditing = useCallback((f: Focus, initial?: string) => {
@@ -276,7 +208,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
       const s = session.current;
       s.timer = setTimeout(() => enqueueSave(s, initial), SAVE_DEBOUNCE_MS);
     }
-  }, [enqueueSave]);
+  }, [enqueueSave, findCell]);
 
   const moveFocus = useCallback(
     (from: Focus, dr: number, dc: number) => {
@@ -292,7 +224,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
         if (cell) document.getElementById(`cell-${cell.id}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
       });
     },
-    [visibleIds, visibleIndex, columnIds, virtualizer],
+    [visibleIds, visibleIndex, columnIds, virtualizer, rowsRef],
   );
 
   const undo = useCallback(async () => {
@@ -666,11 +598,9 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
           <Button variant="ghost" size="icon" onClick={() => void refresh()} disabled={refreshing} aria-label="Refresh the table" title="Refresh the table">
             <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
           </Button>
-          <span title="Row review arrives with review mode">
-            <Button variant="outline" size="sm" disabled>
-              Review rows
-            </Button>
-          </span>
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/books/${meta.bookId}/review${focus ? `?row=${focus.rowId}` : ""}`}>Review rows</Link>
+          </Button>
         </div>
       </div>
 
@@ -805,6 +735,9 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
         </DropdownMenuTrigger>
         {menuRow ? (
           <DropdownMenuContent align="start">
+            <DropdownMenuItem asChild>
+              <Link href={`/books/${meta.bookId}/review?row=${menuRow.id}`}>Review this row</Link>
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void toggleReviewed(menuRow)}>
               {Object.values(menuRow.cells).every((c) => c.isReviewed) ? "Mark row not reviewed" : "Mark row reviewed"}
             </DropdownMenuItem>

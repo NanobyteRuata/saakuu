@@ -7,19 +7,23 @@ import { ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, t
 import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
+import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
 import { normalizeTransform, transformHash } from "@/lib/photos/transform";
 import { workingKey } from "@/lib/storage/keys";
 import { getObjectBuffer } from "@/lib/storage/s3";
 import { MAX_FIELDS, MAX_GROUPS } from "@/lib/templates/schemas";
 import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
+import { flagBuildProblem, transformDocument } from "@/lib/transform/service";
+import { requestDocumentTransform } from "@/lib/transform/triggers";
 
 import { MAX_REQUEST_BYTES, RECORD_INDEX_PAGE_STRIDE, supersededRecordIds, type RunSummary } from "./plan";
 import { recomputeDocumentRun } from "./service";
 
 /**
  * Worker side of extraction (docs/03 §7). Claims the document's queued runs, calls the provider for
- * each, and writes each run's raw layer in one transaction. Rows and cells are Phase 6.
+ * each, and writes each run's raw layer in one transaction. Then the document's rows are rebuilt from
+ * the new raw layer (step 8, `lib/transform`).
  */
 
 /** A run left RUNNING this long belongs to a worker that died; it can be claimed again. */
@@ -202,7 +206,23 @@ export async function processDocumentExtraction(documentId: string, opts: { isLa
     total.completed += outcome.completed;
     total.failed += outcome.failed;
   }
+  if (total.completed > 0) await rebuildRows(documentId);
   return total;
+}
+
+/** Step 8: rows follow the new raw layer. A failure here never fails the extraction; a queued rebuild retries it. */
+async function rebuildRows(documentId: string): Promise<void> {
+  try {
+    await transformDocument(documentId);
+  } catch (err) {
+    log.error("transform after extraction failed", err, { documentId });
+    // A problem with the document itself (too many rows) fails the same way every time: record it, don't retry.
+    if (err instanceof AppError && err.code === "VALIDATION") {
+      await flagBuildProblem(documentId, err);
+      return;
+    }
+    await requestDocumentTransform(documentId);
+  }
 }
 
 async function processClaimRound(documentId: string, opts: { isLastAttempt: boolean }): Promise<ProcessOutcome> {

@@ -1,6 +1,9 @@
 import { Queue, QueueEvents } from "bullmq";
+import type { Redis } from "ioredis";
 
-import { createRedisConnection } from "./connection";
+import { log } from "@/lib/log";
+
+import { createProducerConnection, createRedisConnection } from "./connection";
 import {
   JOBS,
   QUEUES,
@@ -10,10 +13,71 @@ import {
   type PhotoIngestJobData,
   type PhotoRenderJobData,
   type QueueName,
+  type TransformDocumentJobData,
+  type TransformTemplateJobData,
 } from "./jobs";
 
 export { JOBS, QUEUES, createRedisConnection };
-export type { ExtractionRunJobData, NoopJobData, NoopJobResult, PhotoIngestJobData, PhotoRenderJobData, QueueName };
+export type {
+  ExtractionRunJobData,
+  NoopJobData,
+  NoopJobResult,
+  PhotoIngestJobData,
+  PhotoRenderJobData,
+  QueueName,
+  TransformDocumentJobData,
+  TransformTemplateJobData,
+};
+
+const TRANSFORM_JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential", delay: 5000 } } as const;
+
+const templateTransformKey = (templateId: string) => `transform-template-${templateId}`;
+
+/**
+ * Enqueues a rebuild of a template's rows. Deduplicated per template: while one is waiting another
+ * request does nothing (the job reads the latest mappings when it starts); while one is running, one
+ * more is kept to run after it, so a change saved mid-run is never lost.
+ */
+export async function enqueueTemplateTransform(data: TransformTemplateJobData): Promise<void> {
+  const payload = JOBS.transformTemplate.schema.parse(data);
+  await getQueue(JOBS.transformTemplate.queue).add(JOBS.transformTemplate.name, payload, {
+    ...TRANSFORM_JOB_OPTIONS,
+    deduplication: { id: templateTransformKey(payload.templateId), keepLastIfActive: true },
+  });
+}
+
+/** Enqueues a rebuild of one document's rows, deduplicated like a template rebuild. */
+export async function enqueueDocumentTransform(data: TransformDocumentJobData): Promise<void> {
+  const payload = JOBS.transformDocument.schema.parse(data);
+  await getQueue(JOBS.transformDocument.queue).add(JOBS.transformDocument.name, payload, {
+    ...TRANSFORM_JOB_OPTIONS,
+    deduplication: { id: `transform-document-${payload.documentId}`, keepLastIfActive: true },
+  });
+}
+
+export type TransformJobStatus = { running: boolean; progress: { done: number; total: number } | null };
+
+function isProgress(value: unknown): value is { done: number; total: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "done" in value &&
+    "total" in value &&
+    typeof value.done === "number" &&
+    typeof value.total === "number"
+  );
+}
+
+/** The template's pending or running rebuild, or null when there is none. */
+export async function getTemplateTransformStatus(templateId: string): Promise<TransformJobStatus | null> {
+  const queue = getQueue(QUEUES.transform);
+  const jobId = await queue.getDeduplicationJobId(templateTransformKey(templateId));
+  const job = jobId ? await queue.getJob(jobId) : undefined;
+  if (!job) return null;
+  const state = await job.getState();
+  if (state === "completed" || state === "failed" || state === "unknown") return null;
+  return { running: state === "active", progress: isProgress(job.progress) ? job.progress : null };
+}
 
 /** Retries cover worker restarts, storage hiccups and rate limits the provider retry didn't outlast. */
 export const EXTRACTION_JOB_ATTEMPTS = 4;
@@ -72,20 +136,75 @@ const DEFAULT_JOB_OPTIONS = {
   removeOnFail: { age: 7 * 24 * 3600 },
 } as const;
 
-const globalForQueues = globalThis as unknown as { saakuuQueues?: Map<QueueName, Queue> };
-const queues = (globalForQueues.saakuuQueues ??= new Map<QueueName, Queue>());
+type QueueEntry = { queue: Queue; connection: Redis };
 
-/** One Queue instance per name per process. */
+const globalForQueues = globalThis as unknown as { saakuuProducerQueues?: Map<QueueName, QueueEntry> };
+const queues = (globalForQueues.saakuuProducerQueues ??= new Map<QueueName, QueueEntry>());
+
+/**
+ * One Queue instance per name per process, on a fail-fast producer connection. A connection that gave
+ * up reconnecting is replaced, so a Redis restart doesn't leave the process unable to enqueue.
+ */
 export function getQueue(name: QueueName): Queue {
-  let queue = queues.get(name);
-  if (!queue) {
-    queue = new Queue(name, {
-      connection: createRedisConnection(),
-      defaultJobOptions: DEFAULT_JOB_OPTIONS,
-    });
-    queues.set(name, queue);
-  }
+  const entry = queues.get(name);
+  if (entry && entry.connection.status !== "end") return entry.queue;
+  // Deliberately not awaited: `discardQueue` removes the entry before its first await, so the new one below stands.
+  if (entry) void discardQueue(name);
+  const connection = createProducerConnection();
+  const queue = new Queue(name, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS });
+  queue.on("error", (err) => log.warn("queue connection error", { queue: name, error: err.message }));
+  queues.set(name, { queue, connection });
   return queue;
+}
+
+/** Drops a queue and its connection (BullMQ doesn't close connections it was given); the next use reconnects. */
+export async function discardQueue(name: QueueName): Promise<void> {
+  const entry = queues.get(name);
+  if (!entry) return;
+  queues.delete(name);
+  await entry.queue.close().catch(() => undefined);
+  entry.connection.disconnect();
+}
+
+/** The outcome of a template's last finished rebuild, kept for a week so the Mapping tab can report failures. */
+export type TransformRunRecord = { documents: number; failed: number; error: string | null; finishedAt: string };
+
+const lastRunKey = (templateId: string) => `saakuu:transform:last:${templateId}`;
+
+function isRunRecord(value: unknown): value is TransformRunRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "documents" in value &&
+    typeof value.documents === "number" &&
+    "failed" in value &&
+    typeof value.failed === "number" &&
+    "error" in value &&
+    (value.error === null || typeof value.error === "string") &&
+    "finishedAt" in value &&
+    typeof value.finishedAt === "string"
+  );
+}
+
+/** The transform queue's own connection, once ready (BullMQ's client interface doesn't expose expiring sets). */
+async function transformConnection(): Promise<Redis> {
+  await getQueue(QUEUES.transform).client;
+  const entry = queues.get(QUEUES.transform);
+  if (!entry) throw new Error("transform queue connection missing");
+  return entry.connection;
+}
+
+export async function recordTemplateTransformRun(templateId: string, record: TransformRunRecord): Promise<void> {
+  const connection = await transformConnection();
+  await connection.set(lastRunKey(templateId), JSON.stringify(record), "EX", 7 * 24 * 3600);
+}
+
+export async function getLastTemplateTransformRun(templateId: string): Promise<TransformRunRecord | null> {
+  const connection = await transformConnection();
+  const raw = await connection.get(lastRunKey(templateId));
+  if (raw === null) return null;
+  const value: unknown = JSON.parse(raw);
+  return isRunRecord(value) ? value : null;
 }
 
 export async function enqueueNoop(data: NoopJobData): Promise<string> {
@@ -121,6 +240,5 @@ export async function runNoopRoundTrip(
 }
 
 export async function closeQueues(): Promise<void> {
-  await Promise.all([...queues.values()].map((q) => q.close()));
-  queues.clear();
+  await Promise.all([...queues.keys()].map((name) => discardQueue(name)));
 }

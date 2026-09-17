@@ -1,0 +1,63 @@
+{
+  "description": "a form's row through every mapping kind, with Manual and Skip fields, a required unmapped column, a broken mapping and a failing expression",
+  "input": {
+    "kind": "FORM",
+    "manualValues": { "fvillage": "ရွာသစ်" },
+    "fields": [
+      { "id": "fgiven", "labelSource": "အမည်" },
+      { "id": "ffamily", "labelSource": "မိသားစုအမည်" },
+      { "id": "fcode", "labelSource": "Code" },
+      { "id": "fweight", "labelSource": "ကိုယ်အလေးချိန်", "dataType": "NUMBER" },
+      { "id": "fvillage", "labelSource": "ရွာ", "mode": "MANUAL" },
+      { "id": "fremarks", "labelSource": "မှတ်ချက်", "mode": "SKIP" }
+    ],
+    "columns": [
+      { "key": "full_name" },
+      { "key": "prefix" },
+      { "key": "serial" },
+      { "key": "clinic" },
+      { "key": "weight_lb", "dataType": "NUMBER" },
+      { "key": "ratio", "dataType": "NUMBER" },
+      { "key": "village" },
+      { "key": "remarks" },
+      { "key": "district", "isRequired": true },
+      { "key": "broken" }
+    ],
+    "mappings": [
+      { "column": "full_name", "kind": "CONCAT", "inputs": ["fgiven", "ffamily"], "separator": " " },
+      { "column": "prefix", "kind": "SPLIT", "inputs": ["fcode"], "splitBy": "/", "splitIndex": 0 },
+      { "column": "serial", "kind": "SPLIT", "inputs": ["fcode"], "splitRegex": "/(\\d+)$" },
+      { "column": "clinic", "kind": "CONSTANT", "constantValue": "Hlaing Clinic" },
+      { "column": "weight_lb", "kind": "EXPRESSION", "inputs": ["fweight"], "expression": "number({fweight}) * 2.2" },
+      { "column": "ratio", "kind": "EXPRESSION", "inputs": ["fweight"], "expression": "number({fweight}) / 0" },
+      { "column": "village", "inputs": ["fvillage"] },
+      { "column": "remarks", "inputs": ["fremarks"] },
+      { "column": "broken", "inputs": ["fgone"] },
+      { "column": "full_name", "inputs": ["fgiven"] }
+    ],
+    "records": [
+      { "id": "r1", "values": { "fgiven": "Aung", "ffamily": "Kyaw", "fcode": "YGN/2024/017", "fweight": "12.5" } }
+    ]
+  },
+  "expected": {
+    "rows": [
+      {
+        "record": "r1",
+        "key": "form",
+        "cells": {
+          "full_name": "Aung Kyaw",
+          "prefix": "YGN",
+          "serial": "017",
+          "clinic": "Hlaing Clinic",
+          "weight_lb": "27.5",
+          "ratio": { "value": null, "error": ["The expression failed: Division by zero."] },
+          "village": "ရွာသစ်",
+          "remarks": null,
+          "district": { "value": null, "error": ["This column is required."] },
+          "broken": null
+        }
+      }
+    ],
+    "flags": ["CELLS_FLAGGED: 2 cells were flagged while building rows."]
+  }
+}

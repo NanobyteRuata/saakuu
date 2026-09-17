@@ -152,6 +152,28 @@ export const markSymbolsSchema = z
 
 export type MarkSymbols = z.infer<typeof markSymbolsSchema>;
 
+/**
+ * What a two-digit year means for one date field (Phase 6). `REFUSE` (the default) flags it rather than
+ * guessing a century. `CENTURY` reads it in the book's own century; `PIVOT` splits at a year, so years at
+ * or above the pivot belong to the century before.
+ */
+export const TWO_DIGIT_YEAR_RULES = ["REFUSE", "CENTURY", "PIVOT"] as const;
+export type TwoDigitYearRule = (typeof TWO_DIGIT_YEAR_RULES)[number];
+
+export const dateFieldOptionsSchema = z
+  .object({
+    twoDigitYear: z.enum(TWO_DIGIT_YEAR_RULES).default("REFUSE"),
+    pivotYear: z.number().int().min(0).max(99).nullable().default(null),
+  })
+  .refine((o) => o.twoDigitYear !== "PIVOT" || o.pivotYear !== null, { error: "Choose the year two-digit dates split at.", path: ["pivotYear"] });
+
+export type DateFieldOptions = z.infer<typeof dateFieldOptionsSchema>;
+
+/** Settings that belong to a field's type. Cleared when the type changes, like choices and mark symbols. */
+export const fieldTypeOptionsSchema = z.object({ date: dateFieldOptionsSchema.optional() });
+
+export type FieldTypeOptions = z.infer<typeof fieldTypeOptionsSchema>;
+
 export const choicesSchema = z
   .array(z.string().trim().min(1, { error: "Choices can't be blank." }).max(200))
   .max(MAX_CHOICES, { error: `Up to ${MAX_CHOICES} choices.` });
@@ -164,6 +186,7 @@ const fieldProps = {
   note: optionalText(2000),
   choices: choicesSchema,
   markSymbols: markSymbolsSchema.nullable(),
+  typeOptions: fieldTypeOptionsSchema.nullable(),
 };
 
 /** Rules on a field's final shape. Returns a plain-language problem or null. */
@@ -171,7 +194,14 @@ export function fieldShapeProblem(f: {
   dataType: FieldType;
   choices: string[];
   markSymbols: MarkSymbols | null;
+  typeOptions?: FieldTypeOptions | null;
 }): string | null {
+  if (f.typeOptions?.date) {
+    if (f.dataType !== "DATE") return "Only date fields can have date options.";
+    if (f.typeOptions.date.twoDigitYear === "PIVOT" && f.typeOptions.date.pivotYear === null) {
+      return "Choose the year two-digit dates split at.";
+    }
+  }
   if (f.dataType === "CHOICE" && f.choices.length === 0) return "A choice field needs at least one choice.";
   if (f.dataType !== "CHOICE" && f.choices.length > 0) return "Only choice fields can have choices.";
   if (new Set(f.choices).size !== f.choices.length) return "Each choice can only be listed once.";
@@ -193,6 +223,7 @@ export const createFieldSchema = z.object({
   groupId: idSchema.nullable().optional(),
   choices: fieldProps.choices.default([]),
   markSymbols: fieldProps.markSymbols.optional(),
+  typeOptions: fieldProps.typeOptions.optional(),
 });
 
 export type CreateFieldInput = z.infer<typeof createFieldSchema>;
@@ -206,6 +237,7 @@ export const updateFieldSchema = z
     note: fieldProps.note.optional(),
     choices: fieldProps.choices.optional(),
     markSymbols: fieldProps.markSymbols.optional(),
+    typeOptions: fieldProps.typeOptions.optional(),
     /** Move: new parent group (null = top level) and the sibling of either kind to place after (null = first). */
     move: z.object({ groupId: idSchema.nullable(), after: siblingRefSchema.nullable() }).optional(),
   })

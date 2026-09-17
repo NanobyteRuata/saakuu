@@ -11,6 +11,10 @@ import { QUEUES, closeQueues, createRedisConnection } from "@/lib/queue";
 import { createExtractionProcessor } from "./processors/extraction";
 import { processMediaJob } from "./processors/media";
 import { processSystemJob } from "./processors/system";
+import { processTransformJob } from "./processors/transform";
+
+/** Rebuilds are cheap database work; two at once, and the book lock serialises them within a book. */
+const TRANSFORM_CONCURRENCY = 2;
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -34,6 +38,10 @@ async function main(): Promise<void> {
       concurrency: env.MEDIA_CONCURRENCY,
     }),
     extractionWorker,
+    new Worker(QUEUES.transform, processTransformJob, {
+      connection: createRedisConnection(),
+      concurrency: TRANSFORM_CONCURRENCY,
+    }),
   ];
 
   for (const worker of workers) {

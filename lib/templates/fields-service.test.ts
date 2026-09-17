@@ -16,6 +16,7 @@ const { db } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma: db }));
+vi.mock("@/lib/transform/triggers", () => ({ requestTemplateTransform: vi.fn() }));
 vi.mock("./access", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./access")>()),
   requireFieldAccess: vi.fn().mockResolvedValue({ id: "f_seq", templateId: "t1" }),
@@ -74,9 +75,31 @@ describe("field soft delete and restore", () => {
   it("soft-deletes without touching raw values, breaks mappings, and remembers the sequence field", async () => {
     const impact = await fieldsDeleteImpact("u1", ["f_seq"]);
     expect(impact).toMatchObject({ rawValues: 7, clearsSequence: true, clearedColumns: ["c_no"], severity: "DESTRUCTIVE" });
+    // Impact inside the transaction (breaking, survivors), then the mapping state recompute.
     db.mapping.findMany
       .mockResolvedValueOnce([{ outputColumnId: "c_no", outputColumn: { label: "Row no.", deletedAt: null } }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "m1",
+          outputColumnId: "c_no",
+          kind: "COPY",
+          state: "OK",
+          separator: null,
+          splitBy: null,
+          splitIndex: null,
+          splitRegex: null,
+          constantValue: null,
+          expression: null,
+          fillDown: true,
+          position: "a0",
+          inputs: [{ fieldId: "f_seq", groupId: null, position: 0, optionValues: null, noneValue: null }],
+          outputColumn: { deletedAt: null },
+        },
+      ]);
+    // The impact reads the field again; the recompute sees it deleted (no live fields).
+    db.field.findMany.mockResolvedValueOnce([{ id: "f_seq", templateId: "t1", labelSource: "စဉ်" }]).mockResolvedValueOnce([]);
+    db.fieldGroup.findMany.mockResolvedValue([]);
 
     await deleteFields("u1", { ids: ["f_seq"], impactHash: impact.impactHash, confirm: true });
 
@@ -87,10 +110,7 @@ describe("field soft delete and restore", () => {
     expect(db.field.delete).not.toHaveBeenCalled();
     expect(db.rawValue.deleteMany).not.toHaveBeenCalled();
     expect(db.mappingInput.deleteMany).not.toHaveBeenCalled();
-    expect(db.mapping.updateMany).toHaveBeenCalledWith({
-      where: { templateId: "t1", inputs: { some: { fieldId: { in: ["f_seq"] } } } },
-      data: { state: "BROKEN" },
-    });
+    expect(db.mapping.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["m1"] } }, data: { state: "BROKEN" } });
     expect(db.template.update).toHaveBeenCalledWith({ where: { id: "t1" }, data: { sequenceFieldId: null } });
   });
 
@@ -99,12 +119,29 @@ describe("field soft delete and restore", () => {
     db.fieldGroup.findMany.mockResolvedValue([
       { id: "g1", parentGroupId: null, labelSource: "Child", labelMeaning: null, position: "a1", selection: "NONE" },
     ]);
-    db.field.findMany.mockReset().mockResolvedValue([{ ...seqField, id: "f_other", isSequence: false, position: "a1" }]);
+    const other = { ...seqField, id: "f_other", isSequence: false, position: "a1" };
+    // Live fields before the restore, then after it (read again by the mapping state recompute).
+    db.field.findMany.mockReset().mockResolvedValueOnce([other]).mockResolvedValue([other, seqField]);
     db.template.findUniqueOrThrow.mockResolvedValue({ kind: "TABLE", sequenceFieldId: null });
     db.field.update.mockResolvedValue({ ...seqField });
-    db.mapping.findMany
-      .mockReset()
-      .mockResolvedValue([{ id: "m1", outputColumn: { deletedAt: null }, inputs: [{ field: { deletedAt: null } }] }]);
+    db.mapping.findMany.mockReset().mockResolvedValue([
+      {
+        id: "m1",
+        outputColumnId: "c_no",
+        kind: "COPY",
+        state: "BROKEN",
+        separator: null,
+        splitBy: null,
+        splitIndex: null,
+        splitRegex: null,
+        constantValue: null,
+        expression: null,
+        fillDown: true,
+        position: "a0",
+        inputs: [{ fieldId: "f_seq", groupId: null, position: 0, optionValues: null, noneValue: null }],
+        outputColumn: { deletedAt: null },
+      },
+    ]);
 
     const result = await restoreField("u1", "f_seq");
 

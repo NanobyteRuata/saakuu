@@ -1,0 +1,79 @@
+{
+  "description": "ditto marks fill down across a page boundary, stay unfilled when fill-down is off, and are flagged with nothing above",
+  "input": {
+    "kind": "TABLE",
+    "sequenceFieldId": "fno",
+    "fields": [
+      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fvillage", "labelSource": "ရွာ", "dataType": "TEXT" },
+      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" },
+      { "id": "fnote", "labelSource": "မှတ်ချက်", "dataType": "TEXT" }
+    ],
+    "columns": [
+      { "key": "no", "dataType": "INTEGER" },
+      { "key": "village" },
+      { "key": "village_raw" },
+      { "key": "age", "dataType": "INTEGER" },
+      { "key": "note" }
+    ],
+    "mappings": [
+      { "column": "no", "inputs": ["fno"] },
+      { "column": "village", "inputs": ["fvillage"] },
+      { "column": "village_raw", "inputs": ["fvillage"], "fillDown": false },
+      { "column": "age", "inputs": ["fage"] },
+      { "column": "note", "inputs": ["fnote"] }
+    ],
+    "records": [
+      { "id": "r1", "page": 0, "values": { "fno": "1", "fvillage": "ရွာသစ်", "fage": "2", "fnote": { "text": "〃", "ditto": true } } },
+      { "id": "r2", "page": 0, "values": { "fno": "2", "fvillage": { "text": "〃", "ditto": true }, "fage": "1 1/2" } },
+      { "id": "r3", "page": 1, "values": { "fno": "3", "fvillage": "\"", "fage": "4/12" } },
+      { "id": "r4", "page": 1, "values": { "fno": "၄", "fvillage": "ကျေးရွာ", "fage": "၂" } }
+    ]
+  },
+  "expected": {
+    "rows": [
+      {
+        "record": "r1",
+        "key": "seq:1",
+        "cells": {
+          "no": "1",
+          "village": "ရွာသစ်",
+          "village_raw": "ရွာသစ်",
+          "age": "24",
+          "note": { "value": null, "warning": ["A ditto mark has no value above it to copy."] }
+        }
+      },
+      {
+        "record": "r2",
+        "key": "seq:2",
+        "cells": {
+          "no": "2",
+          "village": { "value": "ရွာသစ်", "inherited": true },
+          "village_raw": { "value": null, "warning": ["A ditto mark isn't filled in because fill-down is off for this column."] },
+          "age": "18",
+          "note": null
+        }
+      },
+      {
+        "record": "r3",
+        "key": "seq:3",
+        "cells": {
+          "no": "3",
+          "village": { "value": "ရွာသစ်", "inherited": true },
+          "village_raw": { "value": null, "warning": ["A ditto mark isn't filled in because fill-down is off for this column."] },
+          "age": "4",
+          "note": null
+        }
+      },
+      {
+        "record": "r4",
+        "key": "seq:4",
+        "cells": { "no": "4", "village": "ကျေးရွာ", "village_raw": "ကျေးရွာ", "age": "24", "note": null }
+      }
+    ],
+    "flags": [
+      "UNRESOLVED_DITTO: 1 ditto mark has no value above to copy.",
+      "CELLS_FLAGGED: 3 cells were flagged while building rows."
+    ]
+  }
+}

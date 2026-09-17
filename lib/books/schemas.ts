@@ -18,7 +18,10 @@ export const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
 };
 
 export const NUMERAL_SYSTEMS = ["AUTO", "LATIN", "MYANMAR"] as const;
+export type NumeralSystem = (typeof NUMERAL_SYSTEMS)[number];
+
 export const DATE_ERAS = ["GREGORIAN", "BUDDHIST", "MYANMAR"] as const;
+export type DateEra = (typeof DATE_ERAS)[number];
 
 export const MAX_COLUMNS = 200;
 

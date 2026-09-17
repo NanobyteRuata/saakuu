@@ -1,0 +1,79 @@
+{
+  "description": "tick groups resolve to one answer: option output values, nothing ticked, several ticked, unreadable ticks, nested headers, Any of",
+  "input": {
+    "kind": "TABLE",
+    "sequenceFieldId": "fno",
+    "groups": [
+      { "id": "gsex", "labelSource": "လိင်", "labelMeaning": "Sex", "selection": "ONE_OF", "noneMarked": "REVIEW", "multipleMarked": "ERROR" },
+      { "id": "grdt", "labelSource": "RDT Test", "selection": "ONE_OF", "noneMarked": "BLANK" },
+      { "id": "gpos", "labelSource": "Positive", "parentGroupId": "grdt" },
+      { "id": "gsym", "labelSource": "Symptoms", "selection": "ANY_OF", "noneMarked": "BLANK" }
+    ],
+    "fields": [
+      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fm", "labelSource": "ကျား", "labelMeaning": "M", "groupId": "gsex", "dataType": "MARK" },
+      { "id": "ff", "labelSource": "မ", "labelMeaning": "F", "groupId": "gsex", "dataType": "MARK" },
+      { "id": "fa", "labelSource": "A", "groupId": "gpos", "dataType": "MARK" },
+      { "id": "fb", "labelSource": "B", "groupId": "gpos", "dataType": "MARK" },
+      { "id": "fc", "labelSource": "C", "groupId": "gpos", "dataType": "MARK" },
+      { "id": "fneg", "labelSource": "Neg.", "groupId": "grdt", "dataType": "MARK" },
+      { "id": "ffever", "labelSource": "Fever", "groupId": "gsym", "dataType": "MARK" },
+      { "id": "fcough", "labelSource": "Cough", "groupId": "gsym", "dataType": "MARK" }
+    ],
+    "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "sex" }, { "key": "rdt" }, { "key": "symptoms" }],
+    "mappings": [
+      { "column": "no", "inputs": ["fno"] },
+      { "column": "sex", "inputs": [{ "group": "gsex", "optionValues": { "fm": "1", "ff": "2" } }] },
+      { "column": "rdt", "inputs": [{ "group": "grdt", "noneValue": "Not tested" }] },
+      { "column": "symptoms", "inputs": [{ "group": "gsym" }] }
+    ],
+    "records": [
+      { "id": "r1", "values": { "fno": "1", "fm": "✓", "ff": null, "fa": "✓", "ffever": "✓", "fcough": "✓" } },
+      { "id": "r2", "values": { "fno": "2", "fm": "✓", "ff": "✓", "fneg": "✓" } },
+      { "id": "r3", "values": { "fno": "3" } },
+      { "id": "r4", "values": { "fno": "4", "ff": "✓", "fb": { "state": "ILLEGIBLE" } } },
+      { "id": "r5", "values": { "fno": "5", "fm": { "text": "〃", "ditto": true }, "fc": "✓" } }
+    ]
+  },
+  "expected": {
+    "rows": [
+      { "record": "r1", "key": "seq:1", "cells": { "no": "1", "sex": "1", "rdt": "Positive › A", "symptoms": "Fever, Cough" } },
+      {
+        "record": "r2",
+        "key": "seq:2",
+        "cells": {
+          "no": "2",
+          "sex": { "value": null, "error": ["Several options are ticked in “လိင်” (M, F), so none was picked."] },
+          "rdt": "Neg.",
+          "symptoms": null
+        }
+      },
+      {
+        "record": "r3",
+        "key": "seq:3",
+        "cells": {
+          "no": "3",
+          "sex": { "value": null, "warning": ["Nothing is ticked in “လိင်”."] },
+          "rdt": "Not tested",
+          "symptoms": null
+        }
+      },
+      {
+        "record": "r4",
+        "key": "seq:4",
+        "cells": {
+          "no": "4",
+          "sex": "2",
+          "rdt": { "value": null, "state": "ILLEGIBLE", "warning": ["A tick in “RDT Test” couldn't be read, so the answer needs checking."] },
+          "symptoms": null
+        }
+      },
+      {
+        "record": "r5",
+        "key": "seq:5",
+        "cells": { "no": "5", "sex": { "value": "1", "inherited": true }, "rdt": "Positive › C", "symptoms": null }
+      }
+    ],
+    "flags": ["CELLS_FLAGGED: 3 cells were flagged while building rows."]
+  }
+}

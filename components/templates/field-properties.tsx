@@ -13,8 +13,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { patchJson } from "@/lib/api-client";
 import { pickOption } from "@/lib/books/labels";
-import { FIELD_GUIDANCE, FIELD_MODE_HINTS, FIELD_MODE_LABELS, FIELD_TYPE_LABELS } from "@/lib/templates/labels";
-import { FIELD_MODES, FIELD_TYPES, fieldShapeProblem, type FieldMode, type FieldType, type MarkSymbols } from "@/lib/templates/schemas";
+import type { DateEra } from "@/lib/books/schemas";
+import { FIELD_GUIDANCE, FIELD_MODE_HINTS, FIELD_MODE_LABELS, FIELD_TYPE_LABELS, TWO_DIGIT_YEAR_LABELS, twoDigitYearHint } from "@/lib/templates/labels";
+import {
+  FIELD_MODES,
+  FIELD_TYPES,
+  fieldShapeProblem,
+  TWO_DIGIT_YEAR_RULES,
+  type FieldMode,
+  type FieldType,
+  type MarkSymbols,
+  type TwoDigitYearRule,
+} from "@/lib/templates/schemas";
 import type { TemplateDetail } from "@/lib/templates/service";
 import { childrenOf, formatPath, headerPath, moveProblem, nearestSelectionGroup, type Tree } from "@/lib/templates/tree";
 import type { FieldView, GroupView } from "@/lib/templates/views";
@@ -38,6 +48,8 @@ type Draft = {
   note: string;
   choices: string[];
   marks: { symbol: string; meaning: MarkMeaning }[];
+  twoDigitYear: TwoDigitYearRule;
+  pivotYear: string;
 };
 
 function toDraft(f: FieldView): Draft {
@@ -49,7 +61,14 @@ function toDraft(f: FieldView): Draft {
     note: f.note ?? "",
     choices: f.choices,
     marks: Object.entries(f.markSymbols ?? {}).map(([symbol, v]) => ({ symbol, meaning: v === "count" ? "count" : v ? "true" : "false" })),
+    twoDigitYear: f.typeOptions?.date?.twoDigitYear ?? "REFUSE",
+    pivotYear: f.typeOptions?.date?.pivotYear === undefined || f.typeOptions.date.pivotYear === null ? "" : String(f.typeOptions.date.pivotYear),
   };
+}
+
+function pivotNumber(value: string): number | null {
+  const n = Number(value.trim());
+  return value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
 }
 
 function toPayload(d: Draft) {
@@ -65,6 +84,10 @@ function toPayload(d: Draft) {
     note: d.note.trim() || null,
     choices: d.dataType === "CHOICE" ? d.choices : [],
     markSymbols,
+    typeOptions:
+      d.dataType === "DATE"
+        ? { date: { twoDigitYear: d.twoDigitYear, pivotYear: d.twoDigitYear === "PIVOT" ? pivotNumber(d.pivotYear) : null } }
+        : null,
   };
 }
 
@@ -83,13 +106,15 @@ type Props = {
   template: TemplateDetail;
   tree: Tree<GroupView, FieldView>;
   lang: string | undefined;
+  /** The book's date era: two-digit years are read in that era's century. */
+  bookDateEra: DateEra;
   onDirtyChange: (dirty: boolean) => void;
   onSaved: (field: FieldView) => void;
   onTemplate: (template: TemplateDetail) => void;
   onDelete: () => void;
 };
 
-export function FieldProperties({ field, template, tree, lang, onDirtyChange, onSaved, onTemplate, onDelete }: Props) {
+export function FieldProperties({ field, template, tree, lang, bookDateEra, onDirtyChange, onSaved, onTemplate, onDelete }: Props) {
   const [draft, setDraft] = useState(() => toDraft(field));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -264,6 +289,49 @@ export function FieldProperties({ field, template, tree, lang, onDirtyChange, on
             onChange={(choices) => set({ choices })}
             lang={lang}
           />
+        </div>
+      ) : null}
+
+      {draft.dataType === "DATE" ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="field-two-digit-year">Dates written with a two-digit year</Label>
+          <Select
+            value={draft.twoDigitYear}
+            onValueChange={(v) => {
+              const twoDigitYear = pickOption(TWO_DIGIT_YEAR_RULES, v) ?? draft.twoDigitYear;
+              set({ twoDigitYear, pivotYear: twoDigitYear === "PIVOT" && draft.pivotYear.trim() === "" ? "50" : draft.pivotYear });
+            }}
+          >
+            <SelectTrigger id="field-two-digit-year" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TWO_DIGIT_YEAR_RULES.map((rule) => (
+                <SelectItem key={rule} value={rule}>
+                  {TWO_DIGIT_YEAR_LABELS[rule]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {draft.twoDigitYear === "PIVOT" ? (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="field-pivot-year" className="font-normal">
+                Split at
+              </Label>
+              <Input
+                id="field-pivot-year"
+                className="w-20"
+                inputMode="numeric"
+                placeholder="50"
+                value={draft.pivotYear}
+                onChange={(e) => set({ pivotYear: e.target.value })}
+              />
+            </div>
+          ) : null}
+          <p className="text-muted-foreground text-xs">
+            {twoDigitYearHint(draft.twoDigitYear, bookDateEra, pivotNumber(draft.pivotYear))} The AI always copies the date as
+            written; this decides how it is read afterwards.
+          </p>
         </div>
       ) : null}
 

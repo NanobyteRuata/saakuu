@@ -7,6 +7,8 @@ import { prisma } from "@/lib/db/client";
 import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
+import { recomputeMappingStates } from "@/lib/mappings/state";
+import { expressionFromDisplay } from "@/lib/transform/expression";
 import type { PaginationInput } from "@/lib/validation";
 
 import { lockTemplate, recomputeConfigState, requireTemplateAccess, type Db } from "./access";
@@ -375,6 +377,7 @@ export async function duplicateTemplate(
             note: f.note,
             choices: f.choices,
             markSymbols: f.markSymbols === null ? Prisma.DbNull : f.markSymbols,
+            typeOptions: f.typeOptions === null ? Prisma.DbNull : f.typeOptions,
             isSequence: id === sequenceFieldId,
             position: f.position,
           };
@@ -385,12 +388,31 @@ export async function duplicateTemplate(
       if (input.includeMappings) {
         const mappings = await tx.mapping.findMany({
           where: { templateId },
-          include: { inputs: { select: { fieldId: true, position: true } }, outputColumn: { select: { deletedAt: true } } },
+          include: {
+            inputs: { select: { fieldId: true, groupId: true, position: true, optionValues: true, noneValue: true } },
+            outputColumn: { select: { deletedAt: true } },
+          },
           take: 1000,
         });
         for (const m of mappings) {
-          const inputs = m.inputs.map((i) => ({ fieldId: fieldIds.get(i.fieldId), position: i.position }));
-          if (m.outputColumn.deletedAt !== null || inputs.some((i) => i.fieldId === undefined)) {
+          // Inputs point at the copies: fields, tick groups and the option fields their values are keyed by.
+          const inputs = m.inputs.map((i) => ({
+            fieldId: i.fieldId === null ? null : fieldIds.get(i.fieldId),
+            groupId: i.groupId === null ? null : groupIds.get(i.groupId),
+            position: i.position,
+            noneValue: i.noneValue,
+            optionValues:
+              i.optionValues !== null && typeof i.optionValues === "object" && !Array.isArray(i.optionValues)
+                ? Object.fromEntries(
+                    Object.entries(i.optionValues).flatMap(([id, v]) => {
+                      const copy = fieldIds.get(id);
+                      return copy && typeof v === "string" ? [[copy, v]] : [];
+                    }),
+                  )
+                : null,
+          }));
+          const gone = inputs.some((i) => i.fieldId === undefined || i.groupId === undefined || (i.fieldId === null && i.groupId === null));
+          if (m.outputColumn.deletedAt !== null || gone) {
             skippedMappings++;
             continue;
           }
@@ -407,17 +429,26 @@ export async function duplicateTemplate(
               splitIndex: m.splitIndex,
               splitRegex: m.splitRegex,
               constantValue: m.constantValue,
-              expression: m.expression,
+              expression: m.expression === null ? null : expressionFromDisplay(m.expression, (ref) => fieldIds.get(ref) ?? groupIds.get(ref) ?? null),
               fillDown: m.fillDown,
               position: m.position,
             },
           });
           await tx.mappingInput.createMany({
-            data: inputs.flatMap((i) => (i.fieldId ? [{ mappingId, fieldId: i.fieldId, position: i.position }] : [])),
+            data: inputs.map((i) => ({
+              mappingId,
+              fieldId: i.fieldId ?? null,
+              groupId: i.groupId ?? null,
+              position: i.position,
+              noneValue: i.noneValue,
+              optionValues: i.optionValues ?? Prisma.DbNull,
+            })),
           });
         }
       }
 
+      // A copy as the other kind can change what works (e.g. no sequence field); check every mapping.
+      await recomputeMappingStates(tx, newTemplateId);
       await recomputeConfigState(tx, newTemplateId);
       return { id: newTemplateId, skippedMappings };
     },

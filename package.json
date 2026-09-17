@@ -48,6 +48,7 @@
     "fractional-indexing": "^4.0.0",
     "heic-convert": "^2.1.0",
     "ioredis": "^5.11.1",
+    "jsep": "1.4.0",
     "lucide-react": "^1.45.0",
     "next": "~15.5.25",
     "next-auth": "5.0.0-beta.32",

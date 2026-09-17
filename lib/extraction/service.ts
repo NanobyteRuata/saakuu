@@ -11,12 +11,14 @@ import { log } from "@/lib/log";
 import { normalizeTransform, outputSize, transformHash, WORKING_MAX_EDGE } from "@/lib/photos/transform";
 import { enqueueExtraction } from "@/lib/queue";
 import { requireTemplateAccess } from "@/lib/templates/access";
+import { parseDocumentFlags } from "@/lib/transform/flags";
 
 import {
   anchorScore,
   chunkPages,
   currentRuns,
   extractionKey,
+  extractionNeedsReview,
   imageTokens,
   MAX_IMAGES_PER_REQUEST,
   parseRunSummary,
@@ -209,7 +211,11 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
 export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<void> {
   const doc = await tx.document.findUnique({
     where: { id: documentId },
-    select: { template: { select: { anchors: true } }, photos: { select: { id: true }, orderBy: { pageIndex: "asc" }, take: MAX_DOCUMENT_PAGES } },
+    select: {
+      transformFlags: true,
+      template: { select: { anchors: true } },
+      photos: { select: { id: true }, orderBy: { pageIndex: "asc" }, take: MAX_DOCUMENT_PAGES },
+    },
   });
   if (!doc) return;
   const runs = await tx.extractionRun.findMany({
@@ -234,7 +240,7 @@ export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<
     const finished = current.flatMap((r) => (r.finishedAt ? [r.finishedAt.getTime()] : []));
     data.contentState = contentState;
     data.templateMatchScore = score;
-    data.needsReview = contentState === "NO_ROWS_FOUND" || (score !== null && score < MISMATCH_THRESHOLD);
+    data.needsReview = extractionNeedsReview(contentState, score) || parseDocumentFlags(doc.transformFlags).length > 0;
     data.lastRunAt = finished.length > 0 ? new Date(Math.max(...finished)) : null;
     data.lastModel = current[0]?.model ?? null;
   }

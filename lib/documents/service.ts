@@ -12,6 +12,8 @@ import { nextDocumentPosition } from "@/lib/photos/service";
 import { photoSelect, toPhotoView, type PhotoView } from "@/lib/photos/views";
 import { presignGet } from "@/lib/storage/s3";
 import { requireTemplateAccess } from "@/lib/templates/access";
+import { parseDocumentFlags, type DocumentFlag } from "@/lib/transform/flags";
+import { requestDocumentTransform } from "@/lib/transform/triggers";
 import type { FieldType, TemplateKind } from "@/lib/templates/schemas";
 import { buildTree, flattenTree, formatPath, headerPath } from "@/lib/templates/tree";
 import { fieldSelect, groupSelect } from "@/lib/templates/views";
@@ -46,6 +48,8 @@ export type DocumentSummary = {
   contentState: ContentState;
   needsReview: boolean;
   templateMatchScore: number | null;
+  /** Review flags from building rows: sequence gaps, duplicates, flagged cells. */
+  transformFlags: DocumentFlag[];
   rowCount: number;
   unreviewedCells: number;
   errorCells: number;
@@ -109,6 +113,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
         contentState: true,
         needsReview: true,
         templateMatchScore: true,
+        transformFlags: true,
         lastRunAt: true,
         lastModel: true,
         createdAt: true,
@@ -165,6 +170,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
       contentState: d.contentState,
       needsReview: d.needsReview,
       templateMatchScore: d.templateMatchScore,
+      transformFlags: parseDocumentFlags(d.transformFlags),
       rowCount: s?.rows ?? 0,
       unreviewedCells: s?.unreviewed ?? 0,
       errorCells: s?.errors ?? 0,
@@ -317,7 +323,7 @@ export async function getDocument(userId: string, documentId: string): Promise<D
  */
 export async function updateDocument(userId: string, documentId: string, input: UpdateDocumentInput): Promise<DocumentDetail> {
   const { templateId } = await requireDocumentAccess(userId, documentId);
-  return prisma.$transaction(async (tx) => {
+  const detail = await prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ manualValues: Prisma.JsonValue | null }[]>`
       SELECT "manualValues" FROM "Document" WHERE id = ${documentId} AND "deletedAt" IS NULL FOR UPDATE`;
     const row = locked[0];
@@ -345,6 +351,9 @@ export async function updateDocument(userId: string, documentId: string, input: 
     await tx.document.update({ where: { id: documentId }, data });
     return loadDetail(tx, documentId);
   });
+  // Manual values fill cells of every row of the document.
+  if (input.manualValues !== undefined) await requestDocumentTransform(documentId);
+  return detail;
 }
 
 async function applyPlan(tx: Db, plan: RestructurePlan): Promise<void> {
@@ -599,6 +608,7 @@ export async function moveDocuments(userId: string, input: MoveDocumentsInput): 
         contentState: "UNKNOWN",
         templateMatchScore: null,
         needsReview: false,
+        transformFlags: Prisma.DbNull,
         lastRunAt: null,
         lastModel: null,
         manualValues: Prisma.DbNull,

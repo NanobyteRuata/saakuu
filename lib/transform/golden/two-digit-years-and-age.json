@@ -1,0 +1,187 @@
+{
+  "description": "a date field reads two-digit years by its own rule (century, pivot at its boundary, or flagged), and floor() turns an age in months into whole years",
+  "input": {
+    "kind": "TABLE",
+    "fields": [
+      {
+        "id": "fdate",
+        "labelSource": "Collected",
+        "dataType": "DATE",
+        "typeOptions": {
+          "date": {
+            "twoDigitYear": "CENTURY",
+            "pivotYear": null
+          }
+        }
+      },
+      {
+        "id": "fold",
+        "labelSource": "Older register",
+        "dataType": "DATE",
+        "typeOptions": {
+          "date": {
+            "twoDigitYear": "PIVOT",
+            "pivotYear": 50
+          }
+        }
+      },
+      {
+        "id": "fplain",
+        "labelSource": "Unset",
+        "dataType": "DATE"
+      },
+      {
+        "id": "fage",
+        "labelSource": "အသက်",
+        "dataType": "AGE"
+      },
+      {
+        "id": "fnopivot",
+        "labelSource": "Pivot without a year",
+        "dataType": "DATE",
+        "typeOptions": {
+          "date": {
+            "twoDigitYear": "PIVOT",
+            "pivotYear": null
+          }
+        }
+      }
+    ],
+    "columns": [
+      {
+        "key": "collected",
+        "dataType": "DATE"
+      },
+      {
+        "key": "older",
+        "dataType": "DATE"
+      },
+      {
+        "key": "unset",
+        "dataType": "DATE"
+      },
+      {
+        "key": "age_years",
+        "dataType": "INTEGER"
+      },
+      {
+        "key": "no_pivot",
+        "dataType": "DATE"
+      }
+    ],
+    "mappings": [
+      {
+        "column": "collected",
+        "inputs": [
+          "fdate"
+        ]
+      },
+      {
+        "column": "older",
+        "inputs": [
+          "fold"
+        ]
+      },
+      {
+        "column": "unset",
+        "inputs": [
+          "fplain"
+        ]
+      },
+      {
+        "column": "age_years",
+        "kind": "EXPRESSION",
+        "inputs": [
+          "fage"
+        ],
+        "expression": "floor(number({fage}) / 12)"
+      },
+      {
+        "column": "no_pivot",
+        "inputs": [
+          "fnopivot"
+        ]
+      }
+    ],
+    "records": [
+      {
+        "id": "r1",
+        "values": {
+          "fdate": "30.8.20",
+          "fold": "30.8.99",
+          "fplain": "30.8.20",
+          "fage": "1 1/2"
+        }
+      },
+      {
+        "id": "r2",
+        "values": {
+          "fdate": "31.8.20",
+          "fold": "1.2.20",
+          "fage": "9/12"
+        }
+      },
+      {
+        "id": "r3",
+        "values": {
+          "fdate": "15/6/2021",
+          "fage": "3 1/2",
+          "fold": "15.6.50",
+          "fnopivot": "15.6.50"
+        }
+      }
+    ]
+  },
+  "expected": {
+    "rows": [
+      {
+        "record": "r1",
+        "key": "row:1",
+        "cells": {
+          "collected": "2020-08-30",
+          "older": "1999-08-30",
+          "unset": {
+            "value": "30.8.20",
+            "error": [
+              "“30.8.20” isn't a date. Dates are read as day/month/year.",
+              "“30.8.20” has a two-digit year, so the century isn't known."
+            ]
+          },
+          "age_years": "1",
+          "no_pivot": null
+        }
+      },
+      {
+        "record": "r2",
+        "key": "row:2",
+        "cells": {
+          "collected": "2020-08-31",
+          "older": "2020-02-01",
+          "unset": null,
+          "age_years": "0",
+          "no_pivot": null
+        }
+      },
+      {
+        "record": "r3",
+        "key": "row:3",
+        "cells": {
+          "collected": "2021-06-15",
+          "older": "1950-06-15",
+          "unset": null,
+          "age_years": "3",
+          "no_pivot": {
+            "value": "15.6.50",
+            "error": [
+              "“15.6.50” isn't a date. Dates are read as day/month/year.",
+              "“15.6.50” has a two-digit year, so the century isn't known."
+            ]
+          }
+        }
+      }
+    ],
+    "flags": [
+      "CELLS_FLAGGED: 2 cells were flagged while building rows."
+    ]
+  }
+}

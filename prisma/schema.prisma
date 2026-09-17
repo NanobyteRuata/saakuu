@@ -220,6 +220,7 @@ model FieldGroup {
   parent         FieldGroup?    @relation("GroupNesting", fields: [parentGroupId], references: [id], onDelete: Restrict)
   children       FieldGroup[]   @relation("GroupNesting")
   fields         Field[]
+  mappingInputs  MappingInput[]
 
   @@index([templateId])
   @@index([parentGroupId])
@@ -253,6 +254,7 @@ model Field {
   note         String? // human-language hint to the AI
   choices      String[]  @default([]) // CHOICE
   markSymbols  Json? // MARK: { "✓": true, "✗": false, "tally": "count" }
+  typeOptions  Json? // Phase 6: settings for this field's type, e.g. DATE: { twoDigitYear, pivotYear }
   isSequence   Boolean   @default(false)
   position     String
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
@@ -304,16 +306,23 @@ model Mapping {
   @@index([outputColumnId])
 }
 
+// Exactly one of fieldId / groupId is set. A group input is a selection group resolved to its answer
+// (Phase 6); both null means its group was deleted, and the mapping is BROKEN.
 model MappingInput {
-  id        String  @id @default(cuid(2))
-  mappingId String
-  fieldId   String
-  position  Int
-  mapping   Mapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
-  field     Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  id           String      @id @default(cuid(2))
+  mappingId    String
+  fieldId      String?
+  groupId      String? // Phase 6
+  position     Int
+  optionValues Json? // Phase 6, group inputs: { optionFieldId: output value }
+  noneValue    String? // Phase 6, group inputs: exported when nothing is ticked
+  mapping      Mapping     @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  field        Field?      @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  group        FieldGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@unique([mappingId, fieldId, position])
   @@index([fieldId])
+  @@index([groupId])
 }
 
 // ---------- Documents & photos ----------
@@ -369,6 +378,7 @@ model Document {
   lastRunAt          DateTime?    @db.Timestamptz(3)
   lastModel          String?
   manualValues       Json? // MANUAL-mode field values: { fieldId: value }
+  transformFlags     Json? // Phase 6: document review flags from the last transform: [{ kind, message }]
   createdAt          DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime     @updatedAt @db.Timestamptz(3)
   deletedAt          DateTime?    @db.Timestamptz(3)
@@ -508,6 +518,8 @@ model Row {
   rawRecordId String?
   position    String // fractional index; canonical manual order
   isVoid      Boolean  @default(false)
+  voidReason  String? // Phase 6: SUBTOTAL | TOTAL | NOTE | STRUCK_THROUGH | ORPHANED when void by rule
+  recordKey   String? // Phase 6: stable identity within the document ("form", "seq:12", "row:3")
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
   book      Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)

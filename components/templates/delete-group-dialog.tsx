@@ -94,6 +94,13 @@ export function DeleteGroupDialog({ group, lang, open, onOpenChange, onDeleted }
               {impact ? (
                 <>
                   <p>{groupDeleteSummary(impact)}</p>
+                  {impact.brokenMappings > 0 ? (
+                    <p>
+                      {plural(impact.brokenMappings, "mapping")} {impact.brokenMappings === 1 ? "reads" : "read"} this group&apos;s
+                      ticks and will break. {impact.brokenMappings === 1 ? "Its column empties" : "Their columns empty"} when rows
+                      are rebuilt; cells you edited keep your values.
+                    </p>
+                  ) : null}
                   {impact.deletedFields > 0 ? (
                     <p>
                       {plural(impact.deletedFields, "deleted field")} from this group{" "}

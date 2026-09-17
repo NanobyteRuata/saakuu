@@ -21,6 +21,7 @@ import type { DocumentSummary } from "@/lib/documents/service";
 import { MISMATCH_THRESHOLD } from "@/lib/extraction/schemas";
 import type { ExtractionStatus } from "@/lib/extraction/service";
 import { formatCount, isoDate, plural } from "@/lib/format";
+import { DOCUMENT_FLAG_CHIPS } from "@/lib/transform/flags";
 import { cn } from "@/lib/utils";
 
 import { DeleteDocumentsDialog } from "./delete-documents-dialog";
@@ -475,6 +476,9 @@ function DocumentFlags({ d }: { d: DocumentSummary }) {
   if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in details", tone: "error" });
   if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });
   if (d.hasDisagreements) flags.push({ text: "has disagreements", tone: "warn" });
+  for (const f of d.transformFlags) {
+    if (f.kind !== "CELLS_FLAGGED") flags.push({ text: DOCUMENT_FLAG_CHIPS[f.kind], tone: "warn" });
+  }
   if (d.needsReview) flags.push({ text: "needs review", tone: "warn" });
   if (flags.length === 0) return null;
   return (

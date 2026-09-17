@@ -1,0 +1,34 @@
+{
+  "description": "a Buddhist-era ISO date converts once and a converted date never twice; a row with only its number isn't deduped away",
+  "input": {
+    "kind": "TABLE",
+    "sequenceFieldId": "fno",
+    "book": { "numeralSystem": "AUTO", "dateEra": "BUDDHIST" },
+    "fields": [
+      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fvisit", "labelSource": "ရက်စွဲ", "dataType": "DATE" },
+      { "id": "fnoted", "labelSource": "Noted" },
+      { "id": "fname", "labelSource": "အမည်" }
+    ],
+    "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "visit", "dataType": "DATE" }, { "key": "noted", "dataType": "DATE" }, { "key": "name" }],
+    "mappings": [
+      { "column": "no", "inputs": ["fno"] },
+      { "column": "visit", "inputs": ["fvisit"] },
+      { "column": "noted", "inputs": ["fnoted"] },
+      { "column": "name", "inputs": ["fname"] }
+    ],
+    "records": [
+      { "id": "r1", "page": 0, "values": { "fno": "1", "fvisit": "12/3/2567", "fnoted": "2567-03-12", "fname": "Aye" } },
+      { "id": "r2", "page": 1, "values": { "fno": "1" } },
+      { "id": "r3", "page": 1, "values": { "fno": "2", "fname": "Ba" } }
+    ]
+  },
+  "expected": {
+    "rows": [
+      { "record": "r1", "key": "seq:1", "cells": { "no": "1", "visit": "2024-03-12", "noted": "2024-03-12", "name": "Aye" } },
+      { "record": "r2", "key": "seq:1#2", "cells": { "no": "1", "visit": null, "noted": null, "name": null } },
+      { "record": "r3", "key": "seq:2", "cells": { "no": "2", "visit": null, "noted": null, "name": "Ba" } }
+    ],
+    "flags": ["SEQUENCE_REPEAT: The numbers in “No.” repeat: 1. Check for duplicate rows."]
+  }
+}

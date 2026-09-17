@@ -563,6 +563,40 @@ failed pages only.
   holds across requests. A FORM has one request, so its record is 0. `RawRecord.bbox` is the union of its values'
   boxes. Values for `SKIP` fields are never written.
 
+## Mapping and transform (Phase 6)
+
+One additive migration:
+- `MappingInput.fieldId` becomes nullable; `MappingInput.groupId` (→ `FieldGroup`, `onDelete: SetNull`), `optionValues Json?`
+  and `noneValue String?` are added. An input reads a field or a selection group, never both (CHECK constraint). A group
+  input resolves to the group's answer: `optionValues` maps option field ids to the value exported for that option, and
+  `noneValue` is exported when nothing is ticked. Both ids null means the group was deleted, and the mapping is `BROKEN`.
+  This answers docs/07 Part C question 7.
+- `Field.typeOptions Json?`: settings that belong to the field's type, cleared when the type changes (like choices and
+  mark symbols). `DATE`: `{ date: { twoDigitYear: "REFUSE" | "CENTURY" | "PIVOT", pivotYear } }`.
+- `Row.recordKey String?` and `Row.voidReason String?`.
+- `Document.transformFlags Json?`: `[{ kind, message }]` from the last transform (sequence gaps, repeats, suspected
+  duplicates, unresolved ditto marks, flagged cells, unmatched edited rows, and a build that couldn't run).
+
+Rules:
+- One mapping per (template, column); a second is refused. The transform uses the first working mapping by position.
+- A mapping's state is worked out from the source layer and recomputed in the same transaction as every change that can
+  break or repair it: field create, update, delete and restore; group update and delete; mapping writes. It is `BROKEN`
+  when a field, group or column it reads is deleted, a group it reads is not a valid selection group, or its own settings
+  are invalid. `configState` follows (invariant 8).
+- A build matches rows to the previous build by `rawRecordId`, then by `recordKey`: `form` for a form; `seq:<number>`
+  (`#2`, `#3` for repeats) for a table with a sequence field; otherwise `row:<n>` in reading order. A re-extraction
+  creates new raw records, so the key is what finds the rows (and their edits) it replaces.
+- `voidReason` is the rule that voided a row: `SUBTOTAL`, `TOTAL`, `NOTE`, `STRUCK_THROUGH`, or `ORPHANED`. A row whose
+  `isVoid` agrees with its reason follows the rule on the next build; a row whose `isVoid` was changed by hand keeps it.
+- A row a build no longer produces is deleted, unless it has edited cells: then it is kept, void, `ORPHANED`, and the
+  document is flagged. If a later build produces its key again, the row is matched and follows the rule again. A row
+  edited after the build planned its delete is kept the same way (the delete is guarded on `isEdited`).
+- New rows are positioned next to their document's existing rows, or after the last row of the documents placed before
+  theirs (code-unit order). Existing rows never move, so manual order is kept.
+- `Document.needsReview` = extraction's reasons (no rows found, possible template mismatch) or any transform flag.
+- `RawRecord.duplicateOf` is written by the overlap dedupe and cleared when a record stops being a duplicate. It is the
+  only raw-layer column the transform writes.
+
 ## Indexing notes
 
 - The output table query is `Row where bookId, order by position` with cells joined.

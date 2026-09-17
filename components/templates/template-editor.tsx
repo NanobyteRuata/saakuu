@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { getJson, postJson } from "@/lib/api-client";
 import { isoDate } from "@/lib/format";
+import type { DateEra } from "@/lib/books/schemas";
 import { langOf } from "@/lib/templates/labels";
 import type { TemplateDetail } from "@/lib/templates/service";
 import { buildTree, formatPath, headerPath, sameRef, type SiblingRef } from "@/lib/templates/tree";
@@ -28,6 +29,7 @@ import { DuplicateTemplateDialog } from "./duplicate-template-dialog";
 import { FieldProperties } from "./field-properties";
 import { FieldTree } from "./field-tree";
 import { GroupProperties } from "./group-properties";
+import { MappingTab } from "./mapping-tab";
 import { TemplateHeaderForm } from "./template-header-form";
 
 const TABS = [
@@ -38,7 +40,15 @@ const TABS = [
 
 type Tab = (typeof TABS)[number]["id"];
 
-export function TemplateEditor({ initial, bookDefaultModel }: { initial: TemplateDetail; bookDefaultModel: string }) {
+export function TemplateEditor({
+  initial,
+  bookDefaultModel,
+  bookDateEra,
+}: {
+  initial: TemplateDetail;
+  bookDefaultModel: string;
+  bookDateEra: DateEra;
+}) {
   const [template, setTemplate] = useState(initial);
   const [tab, setTab] = useState<Tab>("fields");
   const [selected, setSelected] = useState<SiblingRef | null>(null);
@@ -189,6 +199,7 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
                 template={template}
                 tree={tree}
                 lang={lang}
+                bookDateEra={bookDateEra}
                 onDirtyChange={setDirty}
                 onSaved={(field) => setTemplate((t) => ({ ...t, fields: t.fields.map((f) => (f.id === field.id ? field : f)) }))}
                 onTemplate={setTemplate}
@@ -217,6 +228,10 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
             )}
           </section>
         </div>
+      ) : tab === "mapping" ? (
+        <div role="tabpanel" id="panel-mapping" aria-labelledby="tab-mapping">
+          <MappingTab template={template} tree={tree} lang={lang} onChanged={reload} />
+        </div>
       ) : (
         <div
           role="tabpanel"
@@ -224,11 +239,9 @@ export function TemplateEditor({ initial, bookDefaultModel }: { initial: Templat
           aria-labelledby={`tab-${tab}`}
           className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-16 text-center"
         >
-          <p className="font-medium">{tab === "mapping" ? "Mapping arrives in a later update" : "Validation arrives in a later update"}</p>
+          <p className="font-medium">Validation arrives in a later update</p>
           <p className="text-muted-foreground max-w-md text-sm">
-            {tab === "mapping"
-              ? "Here you'll connect each field to an output column, and preview the result on a real document before running anything."
-              : "Here you'll override the book's validation rules for documents read with this template."}
+            Here you&apos;ll override the book&apos;s validation rules for documents read with this template.
           </p>
         </div>
       )}

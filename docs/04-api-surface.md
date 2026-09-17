@@ -131,6 +131,7 @@ PATCH  /api/groups/:id                      any of the above except parentGroupI
 GET    /api/groups/:id/delete-impact        -> { impactHash, groupLabel, fields, groups, deletedFields, parentLabel }   counts for the confirmation
 DELETE /api/groups/:id                      { impactHash, confirm } -> { movedFields, movedGroups }   children move up into the group's slot
 POST   /api/templates/:id/fields            groupId is the parent group (any depth); appended at the end of that parent
+                                           + typeOptions?: { date: { twoDigitYear, pivotYear } }   DATE fields only (Phase 6)
 PATCH  /api/fields/:id                      move: { groupId | null, after: { kind: "field" | "group", id } | null }   replaces afterId
 POST   /api/fields/:id/restore              -> { ..., placedOutside }
 ```
@@ -165,6 +166,44 @@ POST   /api/templates/:id/retransform         re-runs transform for all document
 
 `retransform` is the cheap path used after any mapping or normalisation change. It is
 queued (it can touch thousands of rows) and reports progress like an extraction job.
+
+**Phase 6 as built** (supersedes the lines above where they differ):
+```
+GET    /api/templates/:id/mappings              -> { mappings: MappingView[], columns[], extractedDocuments }
+POST   /api/templates/:id/mappings              MappingDraft -> MappingView   201
+PATCH  /api/mappings/:id                        MappingDraft (the full shape again) -> MappingView
+GET    /api/mappings/:id/delete-impact          -> { impactHash, columnLabel, documents, clearedCells, editedCells }
+DELETE /api/mappings/:id                        { impactHash, confirm } -> { configState }
+POST   /api/templates/:id/mappings/validate     -> { mappings: [{ id, state, problem }], configState }
+POST   /api/templates/:id/mappings/preview      { documentId?, draft?: MappingDraft & { id? } }
+                                                -> { documents, document, rows (≤ 50), totalRows, flags, draftProblem }
+POST   /api/templates/:id/retransform           -> { state, done, total }   202
+GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | "running", done, total,
+                                                     lastRun: { documents, failed, error, finishedAt } | null }
+```
+```jsonc
+// MappingDraft
+{ "outputColumnId", "kind": "COPY" | "CONCAT" | "SPLIT" | "CONSTANT" | "EXPRESSION",
+  "inputs": [{ "kind": "field", "id" } | { "kind": "group", "id", "optionValues": { "<optionFieldId>": "1" }, "noneValue": "Not tested" | null }],
+  "separator", "splitBy", "splitIndex", "splitRegex", "constantValue", "expression", "fillDown" }
+```
+- Options that don't belong to the kind are cleared. For `EXPRESSION` the inputs are the `{id}` references in the
+  expression (a group input sent with the same id keeps its option values).
+- `VALIDATION`, each with a plain message: a column that already has a mapping in this template; a deleted column, field
+  or group; a group that is header only or breaks its selection rules; wrong input count for the kind; a tick group as
+  a Split input; a separator split without a part, or a pattern without a capture group or with a repeated repeating
+  group; an expression that doesn't parse or uses anything outside the
+  allow-list (docs/03 §9).
+- `MappingView.problem` is worked out on read, so a mapping broken by a later change says why.
+- Every create, update and delete queues a rebuild of the template's rows. The delete impact counts the cells that
+  empty (values nobody edited) and the edited cells that keep their value; `CONFLICT` when the counts changed.
+- `preview` writes nothing: the saved mappings, with the draft in place of the mapping it edits, applied to the chosen
+  document's raw values (default: the most recently extracted). A draft that can't be saved comes back as
+  `draftProblem` and the preview uses the saved mappings.
+- `retransform` status is the template's pending or running job; when `idle`, `lastRun` is the last finished rebuild
+  (kept a week): how many documents failed, or why it failed.
+- `GET /api/groups/:id/delete-impact` also returns `brokenMappings` (mappings that read the group as a tick group).
+- Document list items and details carry `transformFlags`; moving documents clears them.
 
 ## Documents & photos
 ```

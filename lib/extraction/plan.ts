@@ -6,6 +6,8 @@ import { CONTENT_STATES, type ExtractedContentState } from "@/lib/ai/provider";
 import type { ContentState, RunState } from "@/lib/documents/schemas";
 import { stableStringify } from "@/lib/impact";
 
+import { MISMATCH_THRESHOLD } from "./schemas";
+
 /**
  * Pure extraction planning: request chunks, idempotency keys, which run is current for each page,
  * which raw records a new run replaces, and how runs roll up into the document's states.
@@ -104,6 +106,14 @@ export function rollupContent(summaries: RunSummary[]): ContentState {
   if (states.includes("HAS_CONTENT")) return "HAS_CONTENT";
   if (states.includes("NO_ROWS_FOUND")) return "NO_ROWS_FOUND";
   return "EMPTY";
+}
+
+/**
+ * Extraction's own reasons to review a document: content but no rows, or a possible template mismatch.
+ * The document's `needsReview` is this or any transform flag.
+ */
+export function extractionNeedsReview(contentState: ContentState, templateMatchScore: number | null): boolean {
+  return contentState === "NO_ROWS_FOUND" || (templateMatchScore !== null && templateMatchScore < MISMATCH_THRESHOLD);
 }
 
 /** Share of the template's anchors seen on the page, or null when the template declares none. */

@@ -156,6 +156,25 @@ always flagged and never read as blank, and raw ticks are kept. The value export
 ticked" and per-option output codes belong to the mapping, because they depend on the output
 table. (Phase 3.1)
 
+**33. A mapping reads a selection group through a group reference on `MappingInput`.** A new mapping kind would
+duplicate Copy and Join, and an expression helper would hide the option values inside a formula. A group input works
+with every kind, and its per-option output values and nothing-ticked value live on the input, next to the reference
+they belong to. The schema change is additive. (Phase 6)
+
+**34. Rows are matched between builds by a record key, and edited rows are never deleted.** Re-extraction replaces raw
+records, so raw record ids can't carry rows (and their edits) across. The key is the sequence number when the table
+has one, else the row's place in reading order. A row that no longer matches and holds edits is kept void as
+`ORPHANED` rather than lost. (Phase 6)
+
+**35. Disagreement is raised by a new reading, not by every re-run.** Comparing only the extracted value with the
+edited value would flag the same cell on every rebuild after the operator had already chosen their value. (Phase 6)
+
+**36. What a two-digit year means is a field setting, not a book setting.** One column's dates can be recent while an
+older column in the same book is not, so the century belongs to the column written that way. It lives in
+`Field.typeOptions`, a per-type settings bag, so later type settings need no migration. The century is a fixed constant
+per era (2000 / 2500 / 1300), never "this century today", so a rebuild is reproducible. The default stays `REFUSE`: an
+unconfigured field flags the date rather than guessing. (Phase 6)
+
 ---
 
 ## Part C — Open questions for later
@@ -180,10 +199,11 @@ Not blocking v1, but worth revisiting once real data exists.
    ~20 real photos through both template variants and comparing per-cell error rates, especially
    on narrow tick columns.
 7. How does a mapping reference a selection group? Options: a new mapping kind, an `EXPRESSION`
-   helper such as `oneOf(...)`, or a group reference on `MappingInput`. Current answer: decide in
-   Phase 6; the last two avoid or minimise a schema change.
+   helper such as `oneOf(...)`, or a group reference on `MappingInput`. Answered in Phase 6: a group
+   reference on `MappingInput` (decision 33).
 8. Is a nesting depth of 3 enough? Current answer: yes for the forms seen so far; raise
    `MAX_GROUP_DEPTH` when a real form needs more (decision 31).
 9. Should selection-group resolution failures (nothing / several ticked) surface as cell-level
-   validation or as a document-level review flag? Current answer: cell-level on the mapped cell,
-   plus the document's `needsReview`; confirm when building the Phase 6 transform.
+   validation or as a document-level review flag? Confirmed in Phase 6: cell-level on the mapped
+   cell (warning or error per the group's setting), and the document's `needsReview` through its
+   `CELLS_FLAGGED` flag.

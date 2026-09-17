@@ -286,11 +286,86 @@ Tiny and safe. Parse with `jsep`, evaluate with a hand-written walker. No `eval`
 Allowed: field references `{fieldId}`, string literals, number literals,
 `+ - * /`, `concat(a, b, …)`, `substring(s, start, len)`, `replace(s, find, repl)`,
 `trim(s)`, `upper(s)`, `lower(s)`, `if(cond, a, b)`, comparisons, `and`/`or`/`not`,
-`number(s)`, `text(n)`, `default(a, b)`.
+`number(s)`, `text(n)`, `default(a, b)`, `floor(n)`, `ceil(n)`, `round(n)`.
 
 Forbidden: property access, function definitions, loops, anything not in the list.
 Evaluation is time-boxed and any error yields an empty value plus a cell-level
 validation error. Validate expressions at save time, not at run time.
+
+### As built (Phase 6)
+
+Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pure), `normalise.ts`, `numerals.ts`,
+`decimal.ts`, `coerce.ts`, `expression.ts`, `mappings.ts` (save-time checks and broken detection), `service.ts`
+(load, lock, write), `triggers.ts`. Golden files: `lib/transform/golden/*.json`, run by `golden.test.ts`.
+
+- **When it runs.** The extraction worker transforms the document right after its runs complete (§7 step 8); a failure
+  there is logged and queued as a rebuild, never an extraction failure. Everything else goes through the `transform`
+  queue: `transform.template` (every document of the template with raw records or rows, with progress) and
+  `transform.document`. Both are deduplicated per target with BullMQ `keepLastIfActive`: one waiting job absorbs repeat
+  requests, and a change saved during a run gets one more run after it. Rebuilds are requested after mapping writes;
+  field update, delete and restore; group update and delete; Manual value edits (that document); and a book numeral
+  system or date era change (every template). Saving only a field's or group's note (AI-only text) doesn't rebuild.
+  Jobs are added on fail-fast Redis connections (a few reconnect attempts, no offline queue), and a request gives up
+  after 5 s, so an unreachable Redis never hangs a save or fails the change that caused the rebuild.
+- **Outcome.** A template rebuild counts documents that failed (logged, skipped) and records the result for a week; the
+  retransform status reports it when idle. A rebuild in which every document failed is retried, then recorded as failed.
+  The template context is read once per run: a change saved mid-run is picked up by the follow-up run.
+- **Limits.** A document with more than 5,000 raw records or rows is refused with a plain message rather than built
+  from a partial list (which would delete or duplicate the rows left out). A document whose rows can't be built keeps
+  the rows it has and is flagged `rows not rebuilt` with the reason; the extraction worker records such a problem
+  instead of queueing a rebuild that would fail the same way.
+- **Locks.** One transaction per document: book row, then document row (the order document restructuring uses).
+- **Step 1.** `HEADER` records are dropped. `SUBTOTAL`/`TOTAL`/`NOTE` and struck-through rows become void rows.
+- **Step 2.** A ditto is `isDitto` or a literal token (`"`, `〃`, `do.`, …). It copies the last non-blank reading of that
+  field in a non-void data row above, across pages, and is marked inherited. With nothing above it, the cell is empty
+  with a warning and the document is flagged. A mapping with `fillDown` off leaves ditto cells empty with a warning.
+- **Step 3.** Only data rows that aren't struck through, on different known pages, with equal sequence numbers are
+  compared; the sequence field itself is left out of the comparison, and a row with no other reading is never deduped
+  (it is left to the repeat flag). Without a sequence field nothing is deduped; rows
+  identical to a row on the page before are counted in a `SUSPECTED_DUPLICATES` flag.
+- **Step 4.** Document flags `SEQUENCE_GAP`, `SEQUENCE_REPEAT`, `SEQUENCE_ORDER`, `SEQUENCE_UNREADABLE` (Part C
+  question 3: a document flag in v1).
+- **Step 5.** Digits always come out Latin. The book's numeral system decides which look-alikes are read as digits when
+  that makes the value a number: Myanmar `ဝ` → 0 (identical glyphs, no note); Latin `O` → 0 and `l`/`I` → 1 (with a
+  warning); Auto uses the script of the digits already in the value. Numbers stay text (no floats).
+  - `DATE`: day/month/year or year-month-day. Buddhist era: CE = BE − 543. Myanmar era: CE = ME + 638, with a warning
+    (dates before Thingyan belong to the next year; day and month aren't converted). A Gregorian year ≥ 2400 is kept
+    with a warning to check the era setting.
+  - **Two-digit years** are refused with a warning unless the field says otherwise (`Field.typeOptions.date`, docs/07
+    decision 36): `CENTURY` reads them in the book era's own century, `PIVOT` splits at a year so those at or above it
+    belong to the century before. The century is a fixed constant per era (2000 / 2500 / 1300), never today's date, so
+    rebuilding the same document years later gives the same date. A `TEXT` field mapped to a `DATE` column has no
+    field options, so its two-digit years stay refused.
+  - `AGE`: total months. Numbers are years (`1 1/2` → 18, `4/12` → 4, `2` → 24); `1y 6m` and `1 နှစ် 6 လ` are read by
+    their units. Not driven by the glossary or field notes: the transform is deterministic, so those stay prompt text.
+  - `FRACTION`: exact decimal (`1 1/2` → `1.5`), or the tidy fraction when it doesn't terminate (`1/3`).
+  - `CHOICE`: exact match ignoring case, spaces and numeral script; a single-character difference matches with a
+    warning; otherwise the text is kept with a warning.
+  - `MARK`: the field's symbols; without symbols anything written is ticked. `count` symbols count repeats; the symbol
+    `tally` counts strokes. An undeclared mark is kept as text with a warning and counts as an unreadable tick.
+- **Step 5a.** As specified. An unreadable tick makes the answer `ILLEGIBLE` with a warning, never "nothing ticked".
+  `ANY_OF` options are joined with `, `. Option values and the nothing-ticked value come from the mapping input.
+- **Step 6.** `CONCAT` leaves empty inputs out. `SPLIT` reads a field (not a tick group) and keeps a 0-based part after
+  splitting on a separator (the editor shows it 1-based), or the first capture group of a pattern. Patterns that repeat
+  an already-repeating group (`(\d+)+`) are refused at save; patterns are compiled once per build and values over
+  2,000 characters aren't matched (a cell of a form or table is far shorter). A mapped cell is `OK` when it has text; otherwise
+  `ILLEGIBLE` if any input was, `DASH`/`NOT_APPLICABLE` when every input agrees, else `EMPTY`. Confidence is the lowest
+  of its inputs; inherited if any input was.
+- **Step 7.** `BOOLEAN` becomes `true`/`false`; `ENUM` takes the declared value's spelling; `INTEGER` drops `.0`. A
+  `DATE` column passes an ISO date through unless its year is still in the book's era (≥ 2400 for Buddhist era, < 1800
+  for Myanmar era): then it is converted once. A `DATE` field has already converted its year, so nothing converts twice.
+- **Step 8.** Phase 6 validates what the transform knows: its own warnings and errors, and `OutputColumn.isRequired`.
+  `ValidationRule` kinds arrive with their CRUD and the revalidate job in Phase 7. Void rows carry no flags.
+- **Step 9.** If an edit is saved to a row the plan was about to delete, the delete skips it and the row is kept as
+  `ORPHANED`, like any edited row that no longer matches (keeping a void state someone set by hand). One refinement: an edited cell's `disagreement` is raised only when the new reading differs from the
+  previous reading *and* from your value, and cleared when the reading equals your value. Re-running with an unchanged
+  reading doesn't raise it again after you chose to keep yours. An unedited cell stays reviewed only if its value and
+  state are unchanged. The SQL updates repeat the rule as guards (`NOT "isEdited"` / `"isEdited"`), so an edit saved
+  while a build runs is never overwritten.
+- **Expressions (§9).** `+` adds only when both sides are numbers (number literals or `number()`); field text
+  concatenates, so two digit fields never sum by accident. Arithmetic is exact decimal; division rounds to 12 places.
+  Evaluation has a step and length budget. `?:`, property access and unknown names are refused at save time. The editor
+  shows `{Label}`; the API stores `{id}`.
 
 ## 10. Cost and estimation
 

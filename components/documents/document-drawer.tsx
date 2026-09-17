@@ -287,6 +287,19 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                   </ul>
                 )}
               </section>
+
+              {detail.transformFlags.length > 0 ? (
+                <section aria-labelledby="row-checks-heading" className="flex flex-col gap-2">
+                  <h3 id="row-checks-heading" className="text-sm font-semibold">
+                    Row checks
+                  </h3>
+                  <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+                    {detail.transformFlags.map((f) => (
+                      <li key={f.kind}>{f.message}</li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-6 py-3">

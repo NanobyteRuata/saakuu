@@ -1,0 +1,96 @@
+{
+  "description": "numerals, ages, Buddhist-era dates, fractions, choices and marks normalise; a TOTAL row and a struck-through row are void",
+  "input": {
+    "kind": "TABLE",
+    "book": { "numeralSystem": "AUTO", "dateEra": "BUDDHIST" },
+    "fields": [
+      { "id": "fcount", "labelSource": "အရေအတွက်", "dataType": "INTEGER" },
+      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" },
+      { "id": "fdate", "labelSource": "ရက်စွဲ", "dataType": "DATE" },
+      { "id": "fdose", "labelSource": "Dose", "dataType": "FRACTION" },
+      { "id": "fstatus", "labelSource": "Status", "dataType": "CHOICE", "choices": ["Positive", "Negative"] },
+      { "id": "ftick", "labelSource": "ကာကွယ်ဆေး", "dataType": "MARK", "markSymbols": { "✓": true, "✗": false } }
+    ],
+    "columns": [
+      { "key": "count", "dataType": "INTEGER" },
+      { "key": "age_months", "dataType": "INTEGER" },
+      { "key": "visit", "dataType": "DATE" },
+      { "key": "dose", "dataType": "NUMBER" },
+      { "key": "status", "dataType": "ENUM", "enumValues": ["Positive", "Negative"] },
+      { "key": "vaccinated", "dataType": "BOOLEAN" }
+    ],
+    "mappings": [
+      { "column": "count", "inputs": ["fcount"] },
+      { "column": "age_months", "inputs": ["fage"] },
+      { "column": "visit", "inputs": ["fdate"] },
+      { "column": "dose", "inputs": ["fdose"] },
+      { "column": "status", "inputs": ["fstatus"] },
+      { "column": "vaccinated", "inputs": ["ftick"] }
+    ],
+    "records": [
+      {
+        "id": "r1",
+        "values": { "fcount": "၇", "fage": "1 1/2", "fdate": "၁၂/၃/၂၅၆၇", "fdose": "1 1/2", "fstatus": "Positive", "ftick": "✓" }
+      },
+      {
+        "id": "r2",
+        "values": { "fcount": "1O", "fage": "4/12", "fdate": "30/2/2567", "fdose": "3/4", "fstatus": "Negativ", "ftick": "✗" }
+      },
+      { "id": "r3", "type": "TOTAL", "values": { "fcount": "8" } },
+      {
+        "id": "r4",
+        "values": { "fcount": { "state": "ILLEGIBLE" }, "fage": "abc", "fdose": "1/3", "fstatus": "Maybe", "ftick": "?" }
+      },
+      { "id": "r5", "struck": true, "values": { "fcount": "5" } }
+    ]
+  },
+  "expected": {
+    "rows": [
+      {
+        "record": "r1",
+        "key": "row:1",
+        "cells": { "count": "7", "age_months": "18", "visit": "2024-03-12", "dose": "1.5", "status": "Positive", "vaccinated": "true" }
+      },
+      {
+        "record": "r2",
+        "key": "row:2",
+        "cells": {
+          "count": { "value": "10", "warning": ["Read the letter “O” as 0."] },
+          "age_months": "4",
+          "visit": { "value": "30/2/2567", "error": ["“30/2/2567” isn't a date. Dates are read as day/month/year."] },
+          "dose": "0.75",
+          "status": { "value": "Negative", "warning": ["Read as “Negativ” and matched to the choice “Negative”."] },
+          "vaccinated": "false"
+        }
+      },
+      {
+        "record": "r3",
+        "key": "row:3",
+        "void": "TOTAL",
+        "cells": { "count": "8", "age_months": null, "visit": null, "dose": null, "status": null, "vaccinated": null }
+      },
+      {
+        "record": "r4",
+        "key": "row:4",
+        "cells": {
+          "count": { "value": null, "state": "ILLEGIBLE" },
+          "age_months": {
+            "value": "abc",
+            "error": ["“abc” isn't a whole number.", "“abc” isn't an age we can read, such as 1 1/2, 4/12 or 2."]
+          },
+          "visit": null,
+          "dose": { "value": "1/3", "error": ["“1/3” isn't a number."] },
+          "status": { "value": "Maybe", "error": ["“Maybe” isn't one of: Positive, Negative.", "“Maybe” isn't one of the choices."] },
+          "vaccinated": { "value": "?", "error": ["“?” isn't yes or no.", "“?” isn't one of the mark symbols set for this field."] }
+        }
+      },
+      {
+        "record": "r5",
+        "key": "row:5",
+        "void": "STRUCK_THROUGH",
+        "cells": { "count": "5", "age_months": null, "visit": null, "dose": null, "status": null, "vaccinated": null }
+      }
+    ],
+    "flags": ["CELLS_FLAGGED: 7 cells were flagged while building rows."]
+  }
+}

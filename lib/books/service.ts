@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/client";
 import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
 import { impactHash, type BooksDeleteImpact } from "@/lib/impact";
+import { requestBookTransform } from "@/lib/transform/triggers";
 import type { PaginationInput } from "@/lib/validation";
 
 import type { ColumnState } from "./column-ops";
@@ -124,11 +125,15 @@ export async function createBook(userId: string, input: CreateBookInput): Promis
 export async function updateBook(userId: string, bookId: string, input: UpdateBookInput): Promise<BookSettings> {
   await requireBookAccess(userId, bookId);
   const { exportPrefs, ...rest } = input;
-  const book = await prisma.book.update({
-    where: { id: bookId },
-    data: { ...rest, ...exportPrefs },
-    select: settingsSelect,
+  const { book, rebuild } = await prisma.$transaction(async (tx) => {
+    // Locked, so two settings saves can't both read the old values and both skip the rebuild.
+    const [before] = await tx.$queryRaw<{ numeralSystem: string; dateEra: string }[]>`
+      SELECT "numeralSystem"::text AS "numeralSystem", "dateEra"::text AS "dateEra" FROM "Book" WHERE id = ${bookId} FOR UPDATE`;
+    const updated = await tx.book.update({ where: { id: bookId }, data: { ...rest, ...exportPrefs }, select: settingsSelect });
+    return { book: updated, rebuild: !before || updated.numeralSystem !== before.numeralSystem || updated.dateEra !== before.dateEra };
   });
+  // Numerals and dates are converted in the transform, so every template's rows are rebuilt.
+  if (rebuild) await requestBookTransform(bookId);
   return toSettings(book);
 }
 

@@ -115,6 +115,8 @@ smaller), type chip, mode chip. Mode chips are colour-coded and immediately legi
 Field properties panel: source label, meaning label, data type, mode, note (multiline,
 with a hint explaining it is an instruction to the AI and an example), choices editor
 for CHOICE, symbol map for MARK, `use as sequence` toggle for table templates.
+For DATE (Phase 6): **Dates written with a two-digit year** — flag them (default), read them in the
+book era's century, or split at a year — with a one-line example of what `30.8.20` becomes.
 
 Group properties panel (Phase 3.1): label on the paper, meaning, parent group, selection
 (`Header only` / `One of` / `Any of`), when nothing is ticked (`Normal blank` /
@@ -138,6 +140,23 @@ A **preview** panel shows the mapping applied to the most recent document's raw
 values, so the user sees real output before running anything. This is the single
 highest-value affordance in the editor — it turns mapping from guesswork into
 feedback.
+
+*As built (Phase 6):*
+- Two panes. Left: a rebuild bar, then **Filled by this template** (one row per mapped column: kind chip, what it reads,
+  and a `Broken` chip with the reason), **Not filled by this template** (each with `Map`), and a collapsible list of
+  fields no mapping uses. Right (sticky): the preview.
+- One editor opens in place at a time: how the column is filled (Copy / Join / Split / Fixed value / Expression, each
+  with a one-line hint), field pickers in paper order with header paths (tick groups listed as `Tick group · One of`),
+  up/down reordering for Join, and "Fill in ditto marks from the row above" on table templates. A tick group source
+  shows its options with a value box each (blank = the option's label) and "When nothing is ticked, export". Expressions
+  are written with `{Label}` references and an "Insert a field" picker. Escape cancels.
+- The preview follows the unsaved editor (debounced 400 ms): it shows the mapped columns plus the one being edited
+  (highlighted), up to 50 rows, void rows labelled (`Total, void`), ditto-filled values with `⇡`, flagged cells with a
+  bar, a flag glyph and every message listed in words below, and the document checks (sequence gaps and so on). A draft
+  that can't be saved shows why. Empty state when nothing is extracted yet.
+- Saving or deleting a mapping rebuilds rows automatically; the bar shows `Rebuilding rows… 12 of 40 documents` and
+  `Rebuild rows` runs it on demand. Deleting a mapping is a counted confirmation: cells that empty, edited cells kept.
+- Documents list chips and the document drawer's `Row checks` show the transform's document flags.
 
 ### Validation tab
 Per-column rule list with add/edit/remove, severity selector, and a live count of how

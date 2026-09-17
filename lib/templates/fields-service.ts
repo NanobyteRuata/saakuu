@@ -4,6 +4,8 @@ import { requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { impactHash, type BrokenMapping, type ImpactReport } from "@/lib/impact";
+import { recomputeMappingStates } from "@/lib/mappings/state";
+import { requestTemplateTransform } from "@/lib/transform/triggers";
 
 import { lockTemplate, recomputeConfigState, requireFieldAccess, type Db } from "./access";
 import { positionAfter } from "./positions";
@@ -124,7 +126,7 @@ export async function deleteFields(
   if (first === undefined) throw new AppError("VALIDATION", "Choose at least one field.");
   const { templateId } = await requireFieldAccess(uid, first, false);
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const impact = await fieldsDeleteImpact(uid, input.ids, tx);
     if (impact.impactHash !== input.impactHash) {
@@ -132,16 +134,16 @@ export async function deleteFields(
     }
     const ids = [...new Set(input.ids)];
     const { count } = await tx.field.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: { deletedAt: new Date() } });
-    await tx.mapping.updateMany({
-      where: { templateId, inputs: { some: { fieldId: { in: ids } } } },
-      data: { state: "BROKEN" },
-    });
     if (impact.clearsSequence) {
       await tx.template.update({ where: { id: templateId }, data: { sequenceFieldId: null } });
     }
+    // Breaks mappings that read these fields, and tick-group mappings left with too few options.
+    await recomputeMappingStates(tx, templateId);
     const configState = await recomputeConfigState(tx, templateId);
     return { deleted: count, templateId, configState };
   });
+  await requestTemplateTransform(templateId);
+  return result;
 }
 
 export async function restoreField(
@@ -157,7 +159,7 @@ export async function restoreField(
 }> {
   const { templateId } = await requireFieldAccess(userId, fieldId, true);
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const field = await tx.field.findFirst({ where: { id: fieldId, deletedAt: { not: null } }, select: fieldSelect });
     if (!field) throw new AppError("NOT_FOUND", "That field isn't in the deleted list any more. Reload the page.");
@@ -201,24 +203,12 @@ export async function restoreField(
       select: fieldSelect,
     });
 
-    // Repair mappings this field broke: every input live again and the column still live.
-    const broken = await tx.mapping.findMany({
-      where: { templateId, state: "BROKEN", inputs: { some: { fieldId } } },
-      select: {
-        id: true,
-        outputColumn: { select: { deletedAt: true } },
-        inputs: { select: { field: { select: { deletedAt: true } } } },
-      },
-      take: MAPPING_LIMIT,
-    });
-    const repairable = broken
-      .filter((m) => m.outputColumn.deletedAt === null && m.inputs.every((i) => i.field.deletedAt === null))
-      .map((m) => m.id);
-    if (repairable.length > 0) {
-      await tx.mapping.updateMany({ where: { id: { in: repairable } }, data: { state: "OK" } });
-    }
+    // Repair the mappings that work again: every input and the column live, tick groups valid.
+    const { repaired } = await recomputeMappingStates(tx, templateId);
 
     const configState = await recomputeConfigState(tx, templateId);
-    return { field: toFieldView(restored), sequenceRestored, mappingsRepaired: repairable.length, configState, placedOutside };
+    return { field: toFieldView(restored), sequenceRestored, mappingsRepaired: repaired, configState, placedOutside };
   });
+  await requestTemplateTransform(templateId);
+  return result;
 }

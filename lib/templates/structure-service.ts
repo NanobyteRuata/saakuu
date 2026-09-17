@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 
 import { impactHash } from "@/lib/impact";
+import { recomputeMappingStates } from "@/lib/mappings/state";
+import { requestTemplateTransform } from "@/lib/transform/triggers";
 
 import { lockTemplate, recomputeConfigState, requireFieldAccess, requireGroupAccess, requireTemplateAccess, type Db } from "./access";
 import { appendPosition, positionAfter } from "./positions";
@@ -15,6 +17,7 @@ import {
   type CreateFieldInput,
   type CreateGroupInput,
   type DeleteGroupInput,
+  type FieldTypeOptions,
   type MarkSymbols,
   type UpdateFieldInput,
   type UpdateGroupInput,
@@ -39,7 +42,7 @@ import { fieldSelect, groupSelect, toFieldView, type FieldView, type GroupView }
 
 const GROUP_GONE = "That group was deleted. Reload and try again.";
 
-function jsonOrNull(value: MarkSymbols | null): Prisma.InputJsonValue | typeof Prisma.DbNull {
+function jsonOrNull(value: MarkSymbols | FieldTypeOptions | null): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return value === null ? Prisma.DbNull : value;
 }
 
@@ -81,10 +84,38 @@ export async function createGroup(userId: string, templateId: string, input: Cre
   });
 }
 
+/** What about a group reaches rows. Its position counts only inside a tick group, where it orders the options. */
+function groupOutputKey(g: GroupView, withPosition: boolean): string {
+  return JSON.stringify([
+    g.labelSource,
+    g.labelMeaning,
+    g.selection,
+    g.noneMarked,
+    g.multipleMarked,
+    g.parentGroupId,
+    withPosition ? g.position : null,
+  ]);
+}
+
+/** What about a field reaches rows: everything but its note, and its position only as a tick-group option. */
+function fieldOutputKey(f: FieldView, withPosition: boolean): string {
+  return JSON.stringify([
+    f.labelSource,
+    f.labelMeaning,
+    f.dataType,
+    f.mode,
+    f.choices,
+    f.markSymbols,
+    f.typeOptions,
+    f.groupId,
+    withPosition ? f.position : null,
+  ]);
+}
+
 /** Edits a group's properties and/or moves it (`move`: new parent + sibling to follow). A move writes one row. */
 export async function updateGroup(userId: string, groupId: string, input: UpdateGroupInput): Promise<GroupView> {
   const { templateId } = await requireGroupAccess(userId, groupId);
-  return prisma.$transaction(async (tx) => {
+  const group = await prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const { groups, fields, tree } = await loadSourceTree(tx, templateId);
     const current = tree.groups.get(groupId);
@@ -132,8 +163,18 @@ export async function updateGroup(userId: string, groupId: string, input: Update
       select: groupSelect,
     });
     await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
-    return updated;
+    const ordered = [tree, afterTree].some((t) => nearestSelectionGroup(t, next.parentGroupId) !== undefined);
+    const affectsRows = groupOutputKey(next, ordered) !== groupOutputKey(current.group, ordered);
+    if (affectsRows) {
+      // Selection settings, labels and nesting change tick-group answers and whether mappings work.
+      await recomputeMappingStates(tx, templateId);
+      await recomputeConfigState(tx, templateId);
+    }
+    return { updated, affectsRows };
   });
+  // A note is only for the AI: saving one doesn't rebuild rows.
+  if (group.affectsRows) await requestTemplateTransform(templateId);
+  return group.updated;
 }
 
 export type GroupDeleteImpact = {
@@ -148,12 +189,15 @@ export type GroupDeleteImpact = {
   deletedFields: number;
   /** Where the children go; null = the top level of the template. */
   parentLabel: string | null;
+  /** Mappings that read this group as a tick group; they break. */
+  brokenMappings: number;
 };
 
 async function computeGroupDeleteImpact(db: Db, tree: SourceTree, templateId: string, groupId: string): Promise<GroupDeleteImpact> {
   const node = tree.groups.get(groupId);
   if (!node) throw new AppError("NOT_FOUND", "That group doesn't exist or was already deleted.");
   const deletedFields = await db.field.count({ where: { templateId, groupId, deletedAt: { not: null } } });
+  const brokenMappings = await db.mapping.count({ where: { templateId, inputs: { some: { groupId } } } });
   const parent = node.parentId === null ? undefined : tree.groups.get(node.parentId);
   const body = {
     groupLabel: node.group.labelSource,
@@ -161,6 +205,7 @@ async function computeGroupDeleteImpact(db: Db, tree: SourceTree, templateId: st
     groups: node.children.filter((c) => c.kind === "group").length,
     deletedFields,
     parentLabel: parent?.group.labelSource ?? null,
+    brokenMappings,
   };
   const children = node.children.map((c) => `${c.kind}:${c.id}`);
   return { impactHash: impactHash({ action: "groups.delete", groupId, parentId: node.parentId, children, ...body }), ...body };
@@ -182,7 +227,7 @@ export async function deleteGroup(
   input: DeleteGroupInput,
 ): Promise<{ movedFields: number; movedGroups: number }> {
   const { templateId } = await requireGroupAccess(userId, groupId);
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const { tree } = await loadSourceTree(tx, templateId);
     const impact = await computeGroupDeleteImpact(tx, tree, templateId, groupId);
@@ -200,15 +245,20 @@ export async function deleteGroup(
     // parentGroupId is ON DELETE RESTRICT: this fails rather than lose a sub-group that wasn't moved.
     await tx.fieldGroup.delete({ where: { id: groupId } });
     await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
+    // Mapping inputs on the group were set to null by the delete: those mappings are now broken.
+    await recomputeMappingStates(tx, templateId);
+    await recomputeConfigState(tx, templateId);
     return { movedFields: plan.movedFields, movedGroups: plan.movedGroups };
   });
+  await requestTemplateTransform(templateId);
+  return result;
 }
 
 // ---------- Fields ----------
 
 export async function createField(userId: string, templateId: string, input: CreateFieldInput): Promise<FieldView> {
   await requireTemplateAccess(userId, templateId);
-  return prisma.$transaction(async (tx) => {
+  const { field, repaired } = await prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const { groups, fields, tree } = await loadSourceTree(tx, templateId);
     if (fields.length >= MAX_FIELDS) throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields.`);
@@ -217,7 +267,8 @@ export async function createField(userId: string, templateId: string, input: Cre
 
     const dataType = input.dataType ?? (nearestSelectionGroup(tree, groupId) ? "MARK" : "TEXT");
     const markSymbols = input.markSymbols ?? null;
-    const shape = fieldShapeProblem({ dataType, choices: input.choices, markSymbols });
+    const typeOptions = input.typeOptions ?? null;
+    const shape = fieldShapeProblem({ dataType, choices: input.choices, markSymbols, typeOptions });
     if (shape) throw new AppError("VALIDATION", shape);
 
     const draft: FieldView = {
@@ -230,6 +281,7 @@ export async function createField(userId: string, templateId: string, input: Cre
       note: input.note ?? null,
       choices: input.choices,
       markSymbols,
+      typeOptions,
       isSequence: false,
       position: appendPosition(siblingsUnder(tree, groupId)),
     };
@@ -237,17 +289,21 @@ export async function createField(userId: string, templateId: string, input: Cre
     if (problem) throw new AppError("VALIDATION", problem);
 
     const field = await tx.field.create({
-      data: { ...draft, templateId, markSymbols: jsonOrNull(markSymbols) },
+      data: { ...draft, templateId, markSymbols: jsonOrNull(markSymbols), typeOptions: jsonOrNull(typeOptions) },
       select: fieldSelect,
     });
+    // A new option can repair a tick group's mapping.
+    const { repaired } = await recomputeMappingStates(tx, templateId);
     await recomputeConfigState(tx, templateId);
-    return toFieldView(field);
+    return { field: toFieldView(field), repaired };
   });
+  if (repaired > 0) await requestTemplateTransform(templateId);
+  return field;
 }
 
 export async function updateField(userId: string, fieldId: string, input: UpdateFieldInput): Promise<FieldView> {
   const { templateId } = await requireFieldAccess(userId, fieldId, false);
-  return prisma.$transaction(async (tx) => {
+  const field = await prisma.$transaction(async (tx) => {
     await lockTemplate(tx, templateId);
     const { groups, fields, tree } = await loadSourceTree(tx, templateId);
     const current = tree.fields.get(fieldId)?.field;
@@ -259,7 +315,8 @@ export async function updateField(userId: string, fieldId: string, input: Update
     // A type change drops properties that no longer apply rather than failing on them.
     const choices = input.choices ?? (dataType === "CHOICE" ? current.choices : []);
     const markSymbols = input.markSymbols !== undefined ? input.markSymbols : dataType === "MARK" ? current.markSymbols : null;
-    const shape = fieldShapeProblem({ dataType, choices, markSymbols });
+    const typeOptions = input.typeOptions !== undefined ? input.typeOptions : dataType === "DATE" ? current.typeOptions : null;
+    const shape = fieldShapeProblem({ dataType, choices, markSymbols, typeOptions });
     if (shape) throw new AppError("VALIDATION", shape);
     if (template.sequenceFieldId === fieldId && mode !== "EXTRACT") {
       throw new AppError(
@@ -268,7 +325,7 @@ export async function updateField(userId: string, fieldId: string, input: Update
       );
     }
 
-    const next: FieldView = { ...current, dataType, mode, choices, markSymbols };
+    const next: FieldView = { ...current, dataType, mode, choices, markSymbols, typeOptions };
     if (input.labelSource !== undefined) next.labelSource = input.labelSource;
     if (input.labelMeaning !== undefined) next.labelMeaning = input.labelMeaning;
     if (input.note !== undefined) next.note = input.note;
@@ -301,12 +358,25 @@ export async function updateField(userId: string, fieldId: string, input: Update
         mode,
         choices,
         markSymbols: jsonOrNull(markSymbols),
+        typeOptions: jsonOrNull(typeOptions),
         groupId: next.groupId,
         position: next.position,
       },
       select: fieldSelect,
     });
     await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
-    return toFieldView(updated);
+    const ordered =
+      (current.dataType === "MARK" && nearestSelectionGroup(tree, current.groupId) !== undefined) ||
+      (next.dataType === "MARK" && nearestSelectionGroup(afterTree, next.groupId) !== undefined);
+    const affectsRows = fieldOutputKey(next, ordered) !== fieldOutputKey(current, ordered);
+    if (affectsRows) {
+      // Type, mode, symbols, choices, labels and placement change how values normalise, map and resolve.
+      await recomputeMappingStates(tx, templateId);
+      await recomputeConfigState(tx, templateId);
+    }
+    return { updated: toFieldView(updated), affectsRows };
   });
+  // A note is only for the AI: saving one doesn't rebuild rows.
+  if (field.affectsRows) await requestTemplateTransform(templateId);
+  return field.updated;
 }

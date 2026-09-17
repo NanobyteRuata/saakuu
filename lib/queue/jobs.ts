@@ -11,6 +11,7 @@ export const QUEUES = {
   system: "system",
   media: "media",
   extraction: "extraction",
+  transform: "transform",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -41,9 +42,19 @@ export type PhotoRenderJobData = z.infer<typeof photoRenderJobSchema>;
 export const extractionRunJobSchema = z.object({ documentId: z.string().min(1) });
 export type ExtractionRunJobData = z.infer<typeof extractionRunJobSchema>;
 
+/** Transform (docs/03 §8): rebuild rows from the raw layer for every extracted document of a template, at no AI cost. */
+export const transformTemplateJobSchema = z.object({ templateId: z.string().min(1) });
+export type TransformTemplateJobData = z.infer<typeof transformTemplateJobSchema>;
+
+/** Transform one document, e.g. after its Manual values change. */
+export const transformDocumentJobSchema = z.object({ documentId: z.string().min(1) });
+export type TransformDocumentJobData = z.infer<typeof transformDocumentJobSchema>;
+
 export const JOBS = {
   noop: { queue: QUEUES.system, name: "noop", schema: noopJobSchema },
   photoIngest: { queue: QUEUES.media, name: "photo.ingest", schema: photoIngestJobSchema },
   photoRender: { queue: QUEUES.media, name: "photo.render", schema: photoRenderJobSchema },
   extractionRun: { queue: QUEUES.extraction, name: "extraction.run", schema: extractionRunJobSchema },
+  transformTemplate: { queue: QUEUES.transform, name: "transform.template", schema: transformTemplateJobSchema },
+  transformDocument: { queue: QUEUES.transform, name: "transform.document", schema: transformDocumentJobSchema },
 } as const;

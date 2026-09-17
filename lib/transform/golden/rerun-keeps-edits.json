@@ -1,0 +1,92 @@
+{
+  "description": "a re-extraction never overwrites an edited cell: it moves the extracted value, raises disagreement only for a new differing reading, and keeps edited rows it can't match",
+  "input": {
+    "kind": "TABLE",
+    "sequenceFieldId": "fno",
+    "fields": [
+      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fname", "labelSource": "အမည်" },
+      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" }
+    ],
+    "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "age", "dataType": "INTEGER" }, { "key": "name" }],
+    "mappings": [
+      { "column": "no", "inputs": ["fno"] },
+      { "column": "age", "inputs": ["fage"] },
+      { "column": "name", "inputs": ["fname"] }
+    ],
+    "records": [
+      { "id": "n1", "values": { "fno": "1", "fname": "Aye Aye", "fage": "1 1/2" } },
+      { "id": "n2", "values": { "fno": "2", "fname": "Ba", "fage": "3" } },
+      { "id": "n3", "values": { "fno": "3", "fname": "Chit", "fage": "2 1/2" } },
+      { "id": "n4", "values": { "fno": "6", "fname": "Daw", "fage": "1" } }
+    ]
+  },
+  "existing": [
+    {
+      "id": "row1",
+      "recordKey": "seq:1",
+      "cells": {
+        "no": { "id": "c1", "extractedValue": "1", "isReviewed": true },
+        "age": { "id": "c2", "extractedValue": "12", "currentValue": "18", "isEdited": true, "isReviewed": true },
+        "name": { "id": "c3", "extractedValue": "Aye", "isReviewed": true }
+      }
+    },
+    {
+      "id": "row2",
+      "recordKey": "seq:2",
+      "cells": {
+        "no": { "id": "c4", "extractedValue": "2" },
+        "age": { "id": "c5", "extractedValue": "36", "currentValue": "30", "isEdited": true, "isReviewed": true },
+        "name": { "id": "c6", "extractedValue": "Baa", "currentValue": "Ba", "isEdited": true, "isReviewed": true }
+      }
+    },
+    {
+      "id": "row3",
+      "recordKey": "seq:3",
+      "cells": {
+        "no": { "id": "c7", "extractedValue": "3" },
+        "age": { "id": "c8", "extractedValue": "24", "currentValue": "20", "isEdited": true, "isReviewed": true },
+        "name": { "id": "c9", "extractedValue": "Chit", "isReviewed": true }
+      }
+    },
+    {
+      "id": "row4",
+      "recordKey": "seq:4",
+      "cells": { "no": { "id": "c10", "extractedValue": "4" }, "name": { "id": "c11", "extractedValue": "Ei" } }
+    },
+    {
+      "id": "row5",
+      "recordKey": "seq:5",
+      "cells": { "no": { "id": "c12", "extractedValue": "5" }, "name": { "id": "c13", "extractedValue": "Hla", "currentValue": "Hla Hla", "isEdited": true } }
+    }
+  ],
+  "expected": {
+    "rows": [
+      { "record": "n1", "key": "seq:1", "cells": { "no": "1", "age": "18", "name": "Aye Aye" } },
+      { "record": "n2", "key": "seq:2", "cells": { "no": "2", "age": "36", "name": "Ba" } },
+      { "record": "n3", "key": "seq:3", "cells": { "no": "3", "age": "30", "name": "Chit" } },
+      { "record": "n4", "key": "seq:6", "cells": { "no": "6", "age": "12", "name": "Daw" } }
+    ],
+    "flags": ["SEQUENCE_GAP: The numbers in “No.” skip 4–5. Rows may be missing."],
+    "merge": {
+      "newRowGroups": [
+        { "anchor": { "after": "row3" }, "rows": [{ "id": "new1", "rawRecordId": "n4", "recordKey": "seq:6", "isVoid": false, "voidReason": null }] }
+      ],
+      "rowUpdates": [
+        { "id": "row1", "rawRecordId": "n1", "recordKey": "seq:1", "isVoid": false, "voidReason": null },
+        { "id": "row2", "rawRecordId": "n2", "recordKey": "seq:2", "isVoid": false, "voidReason": null },
+        { "id": "row3", "rawRecordId": "n3", "recordKey": "seq:3", "isVoid": false, "voidReason": null },
+        { "id": "row5", "rawRecordId": null, "recordKey": "seq:5", "isVoid": true, "voidReason": "ORPHANED" }
+      ],
+      "cellCreates": 3,
+      "autoCellUpdates": [{ "id": "c3", "extractedValue": "Aye Aye", "currentValue": "Aye Aye", "isReviewed": false }],
+      "editedCellUpdates": [
+        { "id": "c2", "extractedValue": "18", "disagreement": false, "isReviewed": true },
+        { "id": "c6", "extractedValue": "Ba", "disagreement": false, "isReviewed": true },
+        { "id": "c8", "extractedValue": "30", "disagreement": true, "isReviewed": false }
+      ],
+      "rowDeletes": ["row4"],
+      "orphanedRows": ["row5"]
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "description": "rows repeated by overlapping photos are deduped via the sequence field, repeated headers dropped, gaps flagged",
+  "input": {
+    "kind": "TABLE",
+    "sequenceFieldId": "fno",
+    "fields": [
+      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fname", "labelSource": "အမည်" },
+      { "id": "fresult", "labelSource": "Result" }
+    ],
+    "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "name" }, { "key": "result" }],
+    "mappings": [
+      { "column": "no", "inputs": ["fno"] },
+      { "column": "name", "inputs": ["fname"] },
+      { "column": "result", "inputs": ["fresult"] }
+    ],
+    "records": [
+      { "id": "r1", "page": 0, "values": { "fno": "1", "fname": "Aye", "fresult": "pos" } },
+      { "id": "r2", "page": 0, "values": { "fno": "2", "fname": "Ba", "fresult": "neg" } },
+      { "id": "r3", "page": 0, "values": { "fno": "3", "fname": "Chit", "fresult": null } },
+      { "id": "r4", "page": 1, "type": "HEADER", "values": { "fno": "No.", "fname": "အမည်", "fresult": "Result" } },
+      { "id": "r5", "page": 1, "values": { "fno": "2", "fname": "Ba", "fresult": "neg" } },
+      { "id": "r6", "page": 1, "values": { "fno": "3", "fname": "Chit", "fresult": "pos" } },
+      { "id": "r7", "page": 1, "values": { "fno": "4", "fname": "Daw", "fresult": "neg" } },
+      { "id": "r8", "page": 1, "values": { "fno": "6", "fname": "Ei", "fresult": "pos" } }
+    ]
+  },
+  "expected": {
+    "rows": [
+      { "record": "r1", "key": "seq:1", "cells": { "no": "1", "name": "Aye", "result": "pos" } },
+      { "record": "r2", "key": "seq:2", "cells": { "no": "2", "name": "Ba", "result": "neg" } },
+      { "record": "r6", "key": "seq:3", "cells": { "no": "3", "name": "Chit", "result": "pos" } },
+      { "record": "r7", "key": "seq:4", "cells": { "no": "4", "name": "Daw", "result": "neg" } },
+      { "record": "r8", "key": "seq:6", "cells": { "no": "6", "name": "Ei", "result": "pos" } }
+    ],
+    "duplicates": { "r5": "r2", "r3": "r6" },
+    "flags": ["SEQUENCE_GAP: The numbers in “No.” skip 5. Rows may be missing."]
+  }
+}

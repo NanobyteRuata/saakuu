@@ -29,7 +29,7 @@ export default async function TemplateEditorPage({ params }: Params) {
       <Link href={`/books/${book.id}/templates`} className="text-muted-foreground hover:text-foreground self-start text-sm">
         ← All templates
       </Link>
-      <TemplateEditor initial={template} bookDefaultModel={book.defaultModel} />
+      <TemplateEditor initial={template} bookDefaultModel={book.defaultModel} bookDateEra={book.dateEra} />
     </div>
   );
 }

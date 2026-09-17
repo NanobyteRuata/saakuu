@@ -154,7 +154,7 @@ Maps fields to output columns. Supported mapping kinds:
 One-to-many is expressed as multiple `SPLIT` mappings from the same field to
 different columns. Unmapped columns are legal and stay empty.
 
-**c. Validation & review hints** — per-template overrides of book validation rules.
+**c. Validation & review hints** — per-template overrides of book validation rules. *Post-v1* (docs/06, decision 40).
 
 ### 6.6 Documents tab
 A virtualised, filterable table of every document in the book.

@@ -1,7 +1,9 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   NotFound,
   PutObjectCommand,
   S3Client,
@@ -98,4 +100,35 @@ export async function getObjectBuffer(key: string): Promise<Buffer> {
 export async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
   if (key.includes("/uploads/")) throw new Error(`refusing to overwrite an original upload: ${key}`);
   await getS3().send(new PutObjectCommand({ Bucket: getBucket(), Key: key, Body: body, ContentType: contentType }));
+}
+
+export type StoredObject = { key: string; lastModified: Date };
+
+/** One page (up to 1,000 keys) of objects under `prefix`. */
+export async function listObjects(
+  prefix: string,
+  continuationToken?: string,
+): Promise<{ objects: StoredObject[]; nextToken: string | null }> {
+  const res = await getS3().send(
+    new ListObjectsV2Command({ Bucket: getBucket(), Prefix: prefix, ContinuationToken: continuationToken }),
+  );
+  const objects = (res.Contents ?? []).flatMap((o) => (o.Key ? [{ key: o.Key, lastModified: o.LastModified ?? new Date(0) }] : []));
+  return { objects, nextToken: res.IsTruncated ? (res.NextContinuationToken ?? null) : null };
+}
+
+/**
+ * Permanently deletes objects. Only the storage lifecycle calls this, after checking no row references
+ * them (lib/storage/lifecycle.ts). Throws if storage reports any key it couldn't delete.
+ */
+export async function deleteObjects(keys: string[]): Promise<void> {
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    const res = await getS3().send(
+      new DeleteObjectsCommand({ Bucket: getBucket(), Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }),
+    );
+    const failed = res.Errors ?? [];
+    if (failed.length > 0) {
+      throw new Error(`storage refused to delete ${failed.length} objects, e.g. ${failed[0]?.Key ?? "?"}: ${failed[0]?.Message ?? ""}`);
+    }
+  }
 }

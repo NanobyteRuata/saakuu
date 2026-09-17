@@ -63,10 +63,34 @@ pnpm test:e2e          # Playwright; reuses a running app on :3000 or starts `pn
 
 First Playwright run: `pnpm exec playwright install chromium`.
 
-The auth and books E2E tests need the app running with `EMAIL_TRANSPORT=test` (each test
-registers a fresh account through the outbox), e.g.:
+The E2E tests need the app running with `EMAIL_TRANSPORT=test` (each test registers a fresh
+account through the outbox) and a worker with `AI_PROVIDER=fake`. The full flow
+(`e2e/full-flow.spec.ts`: sign in → book → template → upload → extract → review → export) never
+calls Gemini. E.g.:
 
 ```sh
+AI_PROVIDER=fake pnpm worker
 EMAIL_TRANSPORT=test AUTH_URL=http://localhost:3001 pnpm dev --port 3001
 E2E_BASE_URL=http://localhost:3001 pnpm test:e2e
+```
+
+Stop any other `pnpm dev` and `pnpm worker` for this checkout first: two dev servers share `.next`,
+and a worker using Gemini on the same Redis would take the test's extraction jobs.
+
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, unit tests and every E2E spec the same way.
+
+## Demo data
+
+```sh
+pnpm db:seed-demo      # demo@example.com / demo-password-123: a Burmese clinic register and vaccination cards
+pnpm db:seed-table     # table-demo@example.com: 3,000 rows for checking table performance
+```
+
+## Operations
+
+Backups, restore, scheduled jobs (stale-run reaper, storage cleanup), rate limits and log fields:
+[docs/09-operations.md](docs/09-operations.md). Storage cleanup by hand:
+
+```sh
+pnpm storage:cleanup --dry-run
 ```

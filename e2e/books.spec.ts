@@ -26,7 +26,8 @@ test("create a book with 5 columns, rename a column, delete a column through the
   await page.getByRole("button", { name: "Create book" }).click();
   await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}$/);
   const bookId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
-  await expect(page.getByRole("columnheader")).toHaveCount(5);
+  // A new book has no rows, so the table shows its empty state; the columns are checked through the API.
+  await expect(page.getByText("No rows yet")).toBeVisible();
   const created = await columnsOf(page, bookId);
   expect(created.map((c) => c.key)).toEqual(["full_name", "date_of_birth", "village", "weight_kg", "doses_given"]);
 

@@ -2,6 +2,7 @@ import { Queue, QueueEvents } from "bullmq";
 import type { Redis } from "ioredis";
 
 import { log } from "@/lib/log";
+import { currentCorrelationId } from "@/lib/log-context";
 
 import { createProducerConnection, createRedisConnection } from "./connection";
 import {
@@ -31,6 +32,12 @@ export type {
   TransformTemplateJobData,
 };
 
+/** Stamps the enqueuing request's (or job's) id on the payload so the job's log lines can be traced back. */
+function correlated<T extends { correlationId?: string }>(payload: T): T {
+  const correlationId = payload.correlationId ?? currentCorrelationId();
+  return correlationId ? { ...payload, correlationId } : payload;
+}
+
 const TRANSFORM_JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential", delay: 5000 } } as const;
 
 const templateTransformKey = (templateId: string) => `transform-template-${templateId}`;
@@ -41,7 +48,7 @@ const templateTransformKey = (templateId: string) => `transform-template-${templ
  * more is kept to run after it, so a change saved mid-run is never lost.
  */
 export async function enqueueTemplateTransform(data: TransformTemplateJobData): Promise<void> {
-  const payload = JOBS.transformTemplate.schema.parse(data);
+  const payload = correlated(JOBS.transformTemplate.schema.parse(data));
   await getQueue(JOBS.transformTemplate.queue).add(JOBS.transformTemplate.name, payload, {
     ...TRANSFORM_JOB_OPTIONS,
     deduplication: { id: templateTransformKey(payload.templateId), keepLastIfActive: true },
@@ -50,7 +57,7 @@ export async function enqueueTemplateTransform(data: TransformTemplateJobData): 
 
 /** Enqueues a rebuild of one document's rows, deduplicated like a template rebuild. */
 export async function enqueueDocumentTransform(data: TransformDocumentJobData): Promise<void> {
-  const payload = JOBS.transformDocument.schema.parse(data);
+  const payload = correlated(JOBS.transformDocument.schema.parse(data));
   await getQueue(JOBS.transformDocument.queue).add(JOBS.transformDocument.name, payload, {
     ...TRANSFORM_JOB_OPTIONS,
     deduplication: { id: `transform-document-${payload.documentId}`, keepLastIfActive: true },
@@ -61,7 +68,7 @@ const revalidateKey = (bookId: string) => `revalidate-book-${bookId}`;
 
 /** Enqueues a re-check of a book's cells, deduplicated like a rebuild. */
 export async function enqueueBookRevalidation(data: RevalidateBookJobData): Promise<void> {
-  const payload = JOBS.revalidateBook.schema.parse(data);
+  const payload = correlated(JOBS.revalidateBook.schema.parse(data));
   await getQueue(JOBS.revalidateBook.queue).add(JOBS.revalidateBook.name, payload, {
     ...TRANSFORM_JOB_OPTIONS,
     deduplication: { id: revalidateKey(payload.bookId), keepLastIfActive: true },
@@ -112,9 +119,9 @@ export const EXTRACTION_JOB_ATTEMPTS = 4;
  * get a fresh job.
  */
 export async function enqueueExtraction(data: ExtractionRunJobData): Promise<"added" | "pending"> {
-  const payload = JOBS.extractionRun.schema.parse(data);
+  const payload = correlated(JOBS.extractionRun.schema.parse(data));
   const queue = getQueue(JOBS.extractionRun.queue);
-  const jobId = `extract-${payload.documentId}`;
+  const jobId = extractionJobId(payload.documentId);
   const existing = await queue.getJob(jobId);
   if (existing) {
     const state = await existing.getState();
@@ -131,9 +138,39 @@ export async function enqueueExtraction(data: ExtractionRunJobData): Promise<"ad
 
 const MEDIA_JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential", delay: 2000 } } as const;
 
+export type JobPresence = "active" | "pending" | "none";
+
+/**
+ * Whether a job with this id is running (`active`), waiting to run (`pending`: waiting, delayed,
+ * prioritised, or backing off before a retry), or absent/finished (`none`).
+ */
+export async function jobPresence(queueName: QueueName, jobId: string): Promise<JobPresence> {
+  const job = await getQueue(queueName).getJob(jobId);
+  if (!job) return "none";
+  const state = await job.getState();
+  if (state === "active") return "active";
+  return state === "completed" || state === "failed" || state === "unknown" ? "none" : "pending";
+}
+
+export const extractionJobId = (documentId: string) => `extract-${documentId}`;
+
+/** Re-queues ingest for a photo whose earlier job finished without finishing the photo (e.g. the worker died). */
+export async function requeuePhotoIngest(data: PhotoIngestJobData): Promise<void> {
+  const payload = correlated(JOBS.photoIngest.schema.parse(data));
+  const queue = getQueue(JOBS.photoIngest.queue);
+  const jobId = `ingest-${payload.photoId}`;
+  const previous = await queue.getJob(jobId);
+  if (previous) {
+    const state = await previous.getState();
+    if (state !== "completed" && state !== "failed" && state !== "unknown") return;
+    await previous.remove();
+  }
+  await queue.add(JOBS.photoIngest.name, payload, { ...MEDIA_JOB_OPTIONS, jobId });
+}
+
 /** Enqueues ingest once per photo: the job id is the photo id, so a repeated complete is a no-op. */
 export async function enqueuePhotoIngest(data: PhotoIngestJobData): Promise<void> {
-  const payload = JOBS.photoIngest.schema.parse(data);
+  const payload = correlated(JOBS.photoIngest.schema.parse(data));
   await getQueue(JOBS.photoIngest.queue).add(JOBS.photoIngest.name, payload, {
     ...MEDIA_JOB_OPTIONS,
     jobId: `ingest-${payload.photoId}`,
@@ -145,7 +182,7 @@ export async function enqueuePhotoIngest(data: PhotoIngestJobData): Promise<void
  * once. The processor re-reads the current transform and drops stale results.
  */
 export async function enqueuePhotoRender(data: PhotoRenderJobData, transformHash: string): Promise<void> {
-  const payload = JOBS.photoRender.schema.parse(data);
+  const payload = correlated(JOBS.photoRender.schema.parse(data));
   const queue = getQueue(JOBS.photoRender.queue);
   const jobId = `render-${payload.photoId}-${transformHash}`;
   // A failed job keeps its id for a week and would swallow the retry; clear it so the render runs again.
@@ -209,21 +246,24 @@ function isRunRecord(value: unknown): value is TransformRunRecord {
   );
 }
 
-/** The transform queue's own connection, once ready (BullMQ's client interface doesn't expose expiring sets). */
-async function transformConnection(): Promise<Redis> {
-  await getQueue(QUEUES.transform).client;
-  const entry = queues.get(QUEUES.transform);
-  if (!entry) throw new Error("transform queue connection missing");
+/**
+ * A queue's own producer connection, once ready, for small bookkeeping keys next to its jobs (BullMQ's client
+ * interface doesn't expose plain commands like expiring sets or counters).
+ */
+export async function queueConnection(name: QueueName): Promise<Redis> {
+  await getQueue(name).client;
+  const entry = queues.get(name);
+  if (!entry) throw new Error(`${name} queue connection missing`);
   return entry.connection;
 }
 
 export async function recordTemplateTransformRun(templateId: string, record: TransformRunRecord): Promise<void> {
-  const connection = await transformConnection();
+  const connection = await queueConnection(QUEUES.transform);
   await connection.set(lastRunKey(templateId), JSON.stringify(record), "EX", 7 * 24 * 3600);
 }
 
 export async function getLastTemplateTransformRun(templateId: string): Promise<TransformRunRecord | null> {
-  const connection = await transformConnection();
+  const connection = await queueConnection(QUEUES.transform);
   const raw = await connection.get(lastRunKey(templateId));
   if (raw === null) return null;
   const value: unknown = JSON.parse(raw);
@@ -231,7 +271,7 @@ export async function getLastTemplateTransformRun(templateId: string): Promise<T
 }
 
 export async function enqueueNoop(data: NoopJobData): Promise<string> {
-  const payload = JOBS.noop.schema.parse(data);
+  const payload = correlated(JOBS.noop.schema.parse(data));
   const job = await getQueue(JOBS.noop.queue).add(JOBS.noop.name, payload);
   if (!job.id) {
     throw new Error("BullMQ did not assign a job id");
@@ -260,6 +300,20 @@ export async function runNoopRoundTrip(
   } finally {
     await events.close();
   }
+}
+
+/** How often the reaper runs, and when the daily storage cleanup runs (03:30 UTC, away from working hours in Myanmar). */
+export const REAP_EVERY_MS = 60_000;
+export const STORAGE_CLEANUP_CRON = "30 3 * * *";
+
+/**
+ * Registers the maintenance schedules. Idempotent: every worker calls it at start, and a scheduler id
+ * holds one schedule however many workers upsert it.
+ */
+export async function scheduleMaintenance(): Promise<void> {
+  const queue = getQueue(QUEUES.system);
+  await queue.upsertJobScheduler("reap-stale", { every: REAP_EVERY_MS }, { name: JOBS.reapStale.name, data: {} });
+  await queue.upsertJobScheduler("storage-cleanup", { pattern: STORAGE_CLEANUP_CRON, tz: "UTC" }, { name: JOBS.storageCleanup.name, data: {} });
 }
 
 export async function closeQueues(): Promise<void> {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { log } from "@/lib/log";
+import { resolveRequestId, withLogContext } from "@/lib/log-context";
 
 /** Stable error codes. See docs/04-api-surface.md → Conventions. */
 export const ERROR_CODES = [
@@ -84,18 +85,27 @@ export function toErrorResult(err: unknown): Result<never> {
 
 /**
  * Runs a Server Action / Route Handler body and always returns a `Result`.
- * Business logic throws `AppError`; this is the single place it is caught.
+ * Business logic throws `AppError`; this is the single place it is caught. Log lines written
+ * inside carry the request id, and jobs enqueued inside carry it as their correlation id.
  */
 export async function runAction<T>(fn: () => Promise<T>): Promise<Result<T>> {
-  try {
-    return ok(await fn());
-  } catch (err) {
-    return toErrorResult(err);
-  }
+  return withLogContext({ requestId: await resolveRequestId() }, async () => {
+    try {
+      return ok(await fn());
+    } catch (err) {
+      return toErrorResult(err);
+    }
+  });
+}
+
+function retryAfter(details: unknown): number | null {
+  if (typeof details !== "object" || details === null || !("retryAfterSeconds" in details)) return null;
+  return typeof details.retryAfterSeconds === "number" ? details.retryAfterSeconds : null;
 }
 
 /** Serialises a `Result` for a Route Handler with the matching HTTP status. */
 export function resultResponse<T>(result: Result<T>, successStatus = 200): Response {
   const status = result.ok ? successStatus : httpStatusFor(result.error.code);
-  return Response.json(result, { status });
+  const wait = result.ok ? null : retryAfter(result.error.details);
+  return Response.json(result, { status, headers: wait === null ? undefined : { "Retry-After": String(wait) } });
 }

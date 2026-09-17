@@ -330,6 +330,25 @@ model Photo {
   @@index([documentId, pageIndex])
 }
 
+// Phase 9 adds to Photo: @@index([originalKey]) @@index([workingKey]) @@index([thumbKey])
+
+// ---------- Storage lifecycle (Phase 9) ----------
+
+enum StorageDeletionReason { PHOTO_DELETED DOCUMENT_PURGED }
+
+// Files of a deleted photo, kept until deleteAfter; no relations (the photo row is gone).
+model StorageDeletion {
+  id          String                @id @default(cuid(2))
+  bookId      String
+  photoId     String                @unique
+  originalKey String
+  reason      StorageDeletionReason
+  deleteAfter DateTime
+  createdAt   DateTime              @default(now())
+  @@index([deleteAfter])
+  @@index([originalKey])
+}
+
 // ---------- Extraction runs ----------
 
 model ExtractionRun {
@@ -636,6 +655,22 @@ Rules:
 - **Reordering** takes the book lock and writes the one row: its key goes between the row it now follows and the next
   key after that among all the book's rows (code-unit order, the moved row excluded).
 - A hand-set void (`isVoid` that disagrees with `voidReason`) is kept by rebuilds, as before.
+
+## Storage lifecycle (Phase 9)
+
+One additive migration: `StorageDeletion` (above). Photos are the one hard-deleted entity (CLAUDE.md), and their files
+outlive the row by a grace period so a restored backup still finds its images (docs/09 §2).
+
+- Deleting a page writes a tombstone in the same transaction: `deleteAfter = now + PHOTO_DELETE_GRACE_DAYS` (default 30).
+- Photos of documents, or of books, soft-deleted longer ago than the grace period are purged by the daily cleanup:
+  tombstoned (due at once) and their `Photo` rows deleted. `RawValue.photoId`, `RawRecord.photoId` and
+  `ExtractionRun.photoIds` are plain strings, so rows, raw values and runs are untouched; review of such a document
+  simply has no image. A soft-deleted document can't be restored in v1, so nothing reads those photos.
+- A tombstone's files are the original key plus everything under `books/{bookId}/photos/{photoId}/`. Any key a
+  `Photo` row still references is skipped, so a tombstone can never delete a live file.
+- Objects with no row and no tombstone are swept after a day (docs/09 §5).
+- A second additive migration indexes `Photo.originalKey`, `workingKey` and `thumbKey`: the sweep asks, for each page
+  of listed objects, whether any photo references a key.
 
 ## Indexing notes
 

@@ -73,7 +73,8 @@ Expanding shows that template's documents inline, capped at 20 with a link to th
 Documents tab filtered to this template.
 
 ## 7. Template editor
-Full-page, three tabs: **Fields** · **Mapping** · **Validation**.
+Full-page, two tabs: **Fields** · **Mapping**. (A third **Validation** tab for per-template rule overrides is
+post-v1, see docs/06; book rules live in Settings.)
 
 ### Fields tab
 Two-pane. Left: the field tree (groups → fields), drag-reorderable, with an add bar above it.
@@ -158,9 +159,9 @@ feedback.
   `Rebuild rows` runs it on demand. Deleting a mapping is a counted confirmation: cells that empty, edited cells kept.
 - Documents list chips and the document drawer's `Row checks` show the transform's document flags.
 
-### Validation tab
-Per-column rule list with add/edit/remove, severity selector, and a live count of how
-many existing cells would fail each rule.
+### Validation tab (post-v1)
+Per-template overrides of the book's rules. Not built in v1: the tab is not shown. The per-column rule list with
+add/edit/remove, severity selector and live failing-cell count is built at book level, in Settings (Phase 7).
 
 ## 8. Documents tab
 Virtualised table. Columns: checkbox, thumbnail, label, template, pages, run state,
@@ -334,6 +335,15 @@ from Settings and apply to this export only. Shows `240 rows × 8 columns` and, 
 Every list needs a real empty state that explains the next action: no books, no
 templates, no fields, no documents, no rows, all reviewed, extraction failed,
 provider unavailable. Write these as real copy, not "No data".
+
+*As built (Phase 9):* every route segment has an error boundary: the root (`global-error`, which replaces the root
+layout), `(app)`, `(auth)`, books, the book tabs and review. Each says the data is safe, offers `Try again`, and shows
+the error's `Reference` so a report can be matched to the server log. Unknown URLs get `Page not found` with a link to
+the books list. Loads that can fail in place offer `Try again` rather than only a message: the Mapping tab, the mapping
+preview, the document drawer and the Extract dialog's estimate. The document drawer keeps polling through a failed
+refresh (backing off to 30 s) and says what it shows may be out of date. `No documents match these filters` has
+`Clear filters`. The Extract dialog says up front when AI reading isn't set up on the server and disables Extract.
+Every empty state listed above was already written as real copy in Phases 2–8.
 
 ## 16. Accessibility & performance notes
 - Never signal state by colour alone.

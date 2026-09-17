@@ -20,6 +20,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:respace": "tsx scripts/respace-template-positions.ts",
     "db:seed-table": "tsx scripts/seed-table.ts",
+    "db:seed-demo": "tsx scripts/seed-demo.ts",
+    "storage:cleanup": "tsx scripts/storage-cleanup.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Everything runs against the docker compose Postgres, Redis and MinIO on their default host ports.
+# AI_PROVIDER=fake: nothing here touches Gemini, and no API key is configured.
+env:
+  CI: "true"
+  DATABASE_URL: postgresql://saakuu:saakuu@localhost:5433/saakuu
+  REDIS_URL: redis://localhost:6380
+  S3_ENDPOINT: http://localhost:9002
+  S3_PUBLIC_ENDPOINT: http://localhost:9002
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY_ID: saakuu
+  S3_SECRET_ACCESS_KEY: saakuu-secret
+  S3_BUCKET: saakuu
+  S3_FORCE_PATH_STYLE: "true"
+  AI_PROVIDER: fake
+  AI_FAKE_BEHAVIOUR: ok
+  EXTRACTION_RPM: "600"
+  AUTH_SECRET: ci-only-secret-not-for-production-0123456789
+  AUTH_URL: http://localhost:3000
+  EMAIL_TRANSPORT: test
+  NEXT_TELEMETRY_DISABLED: "1"
+  PRISMA_HIDE_UPDATE_MESSAGE: "1"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Start Postgres, Redis and MinIO
+        run: docker compose up -d --wait postgres redis minio && docker compose run --rm minio-init
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client and migrate
+        run: pnpm db:generate && pnpm db:deploy
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start worker
+        run: nohup pnpm worker > worker.log 2>&1 &
+
+      # Playwright starts `pnpm dev` itself (playwright.config.ts). `next start` would run in production mode,
+      # where the in-memory test email transport the specs read is refused.
+      - name: End-to-end tests
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report and logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+            worker.log
+          retention-days: 7

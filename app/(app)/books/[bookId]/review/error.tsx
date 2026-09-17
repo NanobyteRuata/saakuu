@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
+import { ErrorReference } from "@/components/shell/error-reference";
 import { Button } from "@/components/ui/button";
 
-export default function ReviewError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function ReviewError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const { bookId } = useParams<{ bookId: string }>();
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-2 px-6 py-16 text-center">
@@ -17,6 +18,7 @@ export default function ReviewError({ reset }: { error: Error & { digest?: strin
           <Link href={`/books/${bookId}`}>Back to the table</Link>
         </Button>
       </div>
+      <ErrorReference digest={error.digest} />
     </div>
   );
 }

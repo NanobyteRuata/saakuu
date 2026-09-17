@@ -42,19 +42,24 @@ export class RetryLater extends Error {
   }
 }
 
-type ClaimedRun = { id: string; model: string; photoIds: string[]; createdAt: Date };
+/**
+ * A run this job claimed. `startedAt` is the claim's fencing token: every later write requires it
+ * unchanged, so a job that lost its claim (the reaper re-queued the run and another job took it)
+ * can't write over the newer attempt.
+ */
+type ClaimedRun = { id: string; model: string; photoIds: string[]; createdAt: Date; startedAt: Date };
 
 function responsesJson(responses: ResponseLog[]): Prisma.InputJsonValue {
   return responses.map((r) => ({ attempt: r.attempt, text: r.text, issues: r.issues }));
 }
 
 async function failRun(
-  runId: string,
+  run: ClaimedRun,
   message: string,
   extra: { usage?: { inputTokens: number; outputTokens: number }; responses?: ResponseLog[] } = {},
 ): Promise<void> {
   await prisma.extractionRun.updateMany({
-    where: { id: runId, state: "RUNNING" },
+    where: { id: run.id, state: "RUNNING", startedAt: run.startedAt },
     data: {
       state: "FAILED",
       finishedAt: new Date(),
@@ -120,8 +125,10 @@ async function writeRun(
 
   return prisma.$transaction(
     async (tx) => {
-      const locked = await tx.$queryRaw<{ state: string }[]>`SELECT state::text FROM "ExtractionRun" WHERE id = ${run.id} FOR UPDATE`;
-      if (locked[0]?.state !== "RUNNING") return false;
+      const locked = await tx.$queryRaw<{ state: string; startedAt: Date | null }[]>`
+        SELECT state::text, "startedAt" FROM "ExtractionRun" WHERE id = ${run.id} FOR UPDATE`;
+      const current = locked[0];
+      if (current?.state !== "RUNNING" || current.startedAt?.getTime() !== run.startedAt.getTime()) return false;
 
       const existing = await tx.rawRecord.findMany({
         where: { documentId, runId: { not: run.id } },
@@ -242,11 +249,13 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
     return { status: "gone", completed: 0, failed: 0 };
   }
 
+  // Millisecond precision, matching the column, so the fencing token compares equal when read back.
+  const claimedAt = new Date();
   const claimed = await prisma.$queryRaw<ClaimedRun[]>`
-    UPDATE "ExtractionRun" SET state = 'RUNNING'::"RunState", "startedAt" = now()
+    UPDATE "ExtractionRun" SET state = 'RUNNING'::"RunState", "startedAt" = ${claimedAt}
     WHERE "documentId" = ${documentId}
       AND (state = 'QUEUED'::"RunState" OR (state = 'RUNNING'::"RunState" AND "startedAt" < ${new Date(Date.now() - STALE_RUNNING_MS)}))
-    RETURNING id, model, "photoIds", "createdAt"`;
+    RETURNING id, model, "photoIds", "createdAt", "startedAt"`;
   if (claimed.length === 0) return { status: "idle", completed: 0, failed: 0 };
   claimed.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   await prisma.$transaction((tx) => recomputeDocumentRun(tx, documentId));
@@ -263,11 +272,11 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
   let completed = 0;
   let failed = 0;
   let retryLater: RetryLater | null = null;
-  const requeue: string[] = [];
+  const requeue: ClaimedRun[] = [];
 
   for (const run of claimed) {
     if (retryLater) {
-      requeue.push(run.id);
+      requeue.push(run);
       continue;
     }
     try {
@@ -285,24 +294,24 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
       if (await writeRun(documentId, run, images, result, sequenceFieldId)) completed++;
     } catch (err) {
       if (err instanceof RunFailure) {
-        await failRun(run.id, err.message);
+        await failRun(run, err.message);
         failed++;
       } else if (err instanceof ProviderError) {
         if (err.transient && !opts.isLastAttempt) {
           retryLater = new RetryLater(err.kind === "RATE_LIMITED", err);
-          requeue.push(run.id);
+          requeue.push(run);
         } else {
           if (err.kind !== "INVALID_RESPONSE") log.warn("extraction provider error", { documentId, runId: run.id, kind: err.kind, error: err.message });
-          await failRun(run.id, providerErrorMessage(err), { usage: err.usage, responses: err.rawResponse?.responses });
+          await failRun(run, providerErrorMessage(err), { usage: err.usage, responses: err.rawResponse?.responses });
           failed++;
         }
       } else if (!opts.isLastAttempt) {
         log.error("extraction attempt failed", err, { documentId, runId: run.id });
         retryLater = new RetryLater(false, err);
-        requeue.push(run.id);
+        requeue.push(run);
       } else {
         log.error("extraction failed", err, { documentId, runId: run.id });
-        await failRun(run.id, "Something went wrong while extracting these pages. Retry them.");
+        await failRun(run, "Something went wrong while extracting these pages. Retry them; if it keeps failing, check the photos are readable.");
         failed++;
       }
     }
@@ -310,7 +319,10 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
   }
 
   if (retryLater) {
-    await prisma.extractionRun.updateMany({ where: { id: { in: requeue }, state: "RUNNING" }, data: { state: "QUEUED", startedAt: null } });
+    await prisma.extractionRun.updateMany({
+      where: { state: "RUNNING", OR: requeue.map((r) => ({ id: r.id, startedAt: r.startedAt })) },
+      data: { state: "QUEUED", startedAt: null },
+    });
     await prisma.$transaction((tx) => recomputeDocumentRun(tx, documentId));
     throw retryLater;
   }

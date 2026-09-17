@@ -27,6 +27,7 @@ const ACTION_ERRORS: Record<Exclude<PasswordSignInState["error"], null>, string>
   invalid: "That email and password don't match an account.",
   email_unverified: "Confirm your email address before signing in. Check your inbox for the link.",
   unavailable: "Sign-in isn't available right now. Try again in a moment.",
+  rate_limited: "Too many sign-in attempts. Wait 15 minutes and try again, or reset your password.",
 };
 
 export function SignInForm({

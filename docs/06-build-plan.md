@@ -292,6 +292,9 @@ mid-job leaves no document stuck in `RUNNING` (stale-run reaper).
 7. **Edit reasons UI** — the column already exists.
 8. **Team sharing** — ownership model change, roles, then concurrent editing.
 9. **Perspective correction** — corner-drag four-point transform.
+10. **Template rule overrides** — a nullable `ValidationRule.templateId` and the template editor's Validation tab,
+    overriding book rules for documents read with that template (docs/01 §16, decision 40). Build when a real
+    form needs a rule the book-level one gets wrong.
 
 ---
 

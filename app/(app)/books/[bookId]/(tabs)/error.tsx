@@ -1,8 +1,9 @@
 "use client";
 
+import { ErrorReference } from "@/components/shell/error-reference";
 import { Button } from "@/components/ui/button";
 
-export default function BookError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function BookError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-xl border px-6 py-16 text-center">
       <p className="font-medium">We couldn&apos;t load this part of the book.</p>
@@ -12,6 +13,7 @@ export default function BookError({ reset }: { error: Error & { digest?: string 
       <Button className="mt-2" onClick={reset}>
         Try again
       </Button>
+      <ErrorReference digest={error.digest} />
     </div>
   );
 }

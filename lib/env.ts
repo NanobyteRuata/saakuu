@@ -6,6 +6,9 @@ import { z } from "zod";
  * Read lazily (not at import time) so `next build` does not require runtime
  * secrets. Never import this from a client component.
  */
+/** Unset or empty (docker compose passes `${VAR:-}` as ""), so an optional value stays optional. */
+const optional = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.url(),
@@ -22,7 +25,7 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   // Origin the browser uses to reach storage (presigned upload/download URLs). Differs from
   // S3_ENDPOINT when the app talks to storage over an internal network (docker compose).
-  S3_PUBLIC_ENDPOINT: z.url().optional(),
+  S3_PUBLIC_ENDPOINT: optional(z.url()),
 
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(3),
   // Photo ingest/render jobs are CPU-heavy (HEIC decode, PDF render, resize); keep this low.
@@ -31,8 +34,9 @@ const envSchema = z.object({
   // Extraction (Phase 5). `fake` is a deterministic stub for local work and CI; it never calls the network.
   AI_PROVIDER: z.enum(["gemini", "fake"]).default("gemini"),
   // Optional so the app boots without it; a run without a key fails with a plain message.
-  GEMINI_API_KEY: z.string().min(1).optional(),
-  AI_FAKE_BEHAVIOUR: z.enum(["ok", "error", "rate-limited"]).default("ok"),
+  GEMINI_API_KEY: optional(z.string().min(1)),
+  // `slow` waits 90 s before answering, to test a worker killed mid-job.
+  AI_FAKE_BEHAVIOUR: z.enum(["ok", "error", "rate-limited", "slow"]).default("ok"),
   // Documents extracted at once, and model calls per minute across the worker (free tiers are low).
   EXTRACTION_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(3),
   EXTRACTION_RPM: z.coerce.number().int().min(1).max(10_000).default(10),
@@ -41,12 +45,23 @@ const envSchema = z.object({
   // misconfiguration fails loudly. AUTH_URL is the public origin used in emailed links.
   AUTH_SECRET: z.string().min(32),
   AUTH_URL: z.url().default("http://localhost:3000"),
-  AUTH_GOOGLE_ID: z.string().min(1).optional(),
-  AUTH_GOOGLE_SECRET: z.string().min(1).optional(),
+  AUTH_GOOGLE_ID: optional(z.string().min(1)),
+  AUTH_GOOGLE_SECRET: optional(z.string().min(1)),
+
+  // Request limits on auth and extraction endpoints (lib/rate-limit.ts). Only turn off for local debugging.
+  RATE_LIMIT_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  // Proxies in front of the app that append to X-Forwarded-For; the client address is this many entries from the right.
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(1).max(10).default(1),
+  // Days a deleted photo's files (and the photos of deleted documents and books) stay in storage.
+  // Keep it at least as long as database backups are kept, so a restore never points at missing files.
+  PHOTO_DELETE_GRACE_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
 
   // resend: real delivery. log: write to the server log. test: in-memory outbox for E2E.
   EMAIL_TRANSPORT: z.enum(["resend", "log", "test"]).default("log"),
-  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_API_KEY: optional(z.string().min(1)),
   EMAIL_FROM: z.string().min(3).default("SaaKuu <onboarding@resend.dev>"),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_TRANSPORT === "resend" && !env.RESEND_API_KEY) {

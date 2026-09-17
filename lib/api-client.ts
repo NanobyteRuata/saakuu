@@ -11,7 +11,16 @@ async function requestJson<T>(method: string, url: string, body?: unknown): Prom
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    return (await res.json()) as Result<T>;
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as Result<T>;
+    } catch {
+      // A proxy error page or a crash before the handler ran: the server answered, just not with a Result.
+      return {
+        ok: false,
+        error: { code: "INTERNAL", message: `The server had a problem (HTTP ${res.status}). Try again in a moment.` },
+      };
+    }
   } catch {
     return {
       ok: false,

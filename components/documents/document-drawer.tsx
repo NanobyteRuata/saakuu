@@ -89,31 +89,36 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [failedLoads, setFailedLoads] = useState(0);
 
   const load = useCallback(async (id: string) => {
     const result = await getJson<DocumentDetail>(`/api/documents/${id}`);
     if (result.ok) {
       setDetail(result.data);
       setError(null);
+      setFailedLoads(0);
     } else {
       setError(result.error.message);
+      setFailedLoads((n) => n + 1);
     }
   }, []);
 
   useEffect(() => {
     setDetail(null);
     setError(null);
+    setFailedLoads(0);
     setSelectedPages(new Set());
     if (documentId) void load(documentId);
   }, [documentId, load]);
 
   const extracting = detail ? detail.runState === "QUEUED" || detail.runState === "RUNNING" : false;
   const polling = detail ? needsPolling(detail.photos) || extracting : false;
+  // A failed refresh keeps polling, backing off up to 30 s, so a brief outage doesn't freeze progress.
   useEffect(() => {
     if (!polling || !documentId) return;
-    const t = window.setTimeout(() => void load(documentId), POLL_MS);
+    const t = window.setTimeout(() => void load(documentId), POLL_MS * Math.min(2 ** failedLoads, 15));
     return () => window.clearTimeout(t);
-  }, [polling, documentId, detail, load]);
+  }, [polling, documentId, detail, load, failedLoads]);
 
   // Tell the list when an extraction this drawer was watching finishes. The callback is read from a ref
   // because the parent passes a new function every render.
@@ -199,7 +204,16 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
               <SheetTitle>Document</SheetTitle>
             </SheetHeader>
             <div className="p-6">
-              {error ? <FormMessage tone="error">{error}</FormMessage> : <p className="text-muted-foreground text-sm">Loading document…</p>}
+              {error ? (
+                <div className="flex flex-col items-start gap-2">
+                  <FormMessage tone="error">{error}</FormMessage>
+                  <Button size="sm" variant="outline" onClick={() => documentId && void load(documentId)}>
+                    Try again
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">Loading document…</p>
+              )}
             </div>
           </>
         ) : (
@@ -224,6 +238,11 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
             </SheetHeader>
 
             <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-4">
+              {error ? (
+                <FormMessage tone="error">
+                  Couldn&apos;t refresh this document, so what you see may be out of date. It keeps trying.
+                </FormMessage>
+              ) : null}
               <section aria-labelledby="pages-heading" className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 id="pages-heading" className="text-sm font-semibold">

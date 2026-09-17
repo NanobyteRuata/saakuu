@@ -217,6 +217,24 @@ document in view is QUEUED/RUNNING). No websockets in v1.
   Below 0.5 the document is flagged `needsReview` as a possible template mismatch. `NO_ROWS_FOUND`, or content
   with no records, also sets `needsReview`.
 
+### As built (Phase 9): stale runs
+
+- A worker killed mid-job leaves its runs `RUNNING`. BullMQ may restart the job, but the restarted job can't claim a run
+  younger than 15 minutes, finishes idle, and the document would stay `Running`. The **stale-run reaper**
+  (`lib/extraction/reaper.ts`, `system.reap-stale` every minute) handles it: a run `RUNNING` for over 2 minutes whose
+  document has no extraction job active or waiting goes back to `QUEUED` and the document's job is enqueued. A run put
+  back 3 times is failed instead ("The worker stopped while reading these pages. Retry them."), so a page that crashes
+  the worker can't loop. It also re-ingests photos stuck `PROCESSING` for 10 minutes (also at most 3 times, then the
+  photo is `FAILED`) and recomputes documents whose run state says running with no active run. A run is only ever
+  updated with its `startedAt` in the guard.
+- **Fencing:** a claim sets `startedAt` to the claim time, and every later write of that run (complete, fail, put back)
+  requires `state = RUNNING` *and* that `startedAt`. A worker that lost its claim (the reaper re-queued the run and
+  another job took it) can't write over the newer attempt.
+- Checked by hand: a worker killed with `kill -9` during a run (`AI_FAKE_BEHAVIOUR=slow`) left the run `RUNNING`; the
+  restarted worker's reaper re-queued it on its first tick past 2 minutes and the document finished `COMPLETE`.
+- `AI_PROVIDER=gemini` without `GEMINI_API_KEY`: the estimate returns `providerProblem` and `start` refuses with
+  `PROVIDER_ERROR`, so nothing is queued that can only fail.
+
 ## 8. Transform pipeline
 
 Pure function. `lib/transform/run.ts`. No AI, no network, idempotent, cheap enough to

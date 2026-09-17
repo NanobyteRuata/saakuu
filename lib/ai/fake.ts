@@ -13,7 +13,10 @@ import { ProviderError, type AIProvider, type ExtractionImage, type ExtractionRe
  * - `AI_FAKE_BEHAVIOUR=error` or `rate-limited` fails every call, to exercise failure handling.
  */
 
-export type FakeBehaviour = "ok" | "error" | "rate-limited";
+export type FakeBehaviour = "ok" | "error" | "rate-limited" | "slow";
+
+/** How long `slow` waits before answering: long enough to kill a worker mid-run by hand. */
+const SLOW_MS = 90_000;
 
 async function isBlank(image: ExtractionImage): Promise<boolean> {
   const stats = await sharp(image.data).greyscale().stats();
@@ -54,6 +57,7 @@ export function createFakeProvider(behaviour: FakeBehaviour): AIProvider {
       return extractWithRepair(async () => {
         if (behaviour === "error") throw new ProviderError("UNAVAILABLE", "Fake provider forced an outage.");
         if (behaviour === "rate-limited") throw new ProviderError("RATE_LIMITED", "Fake provider forced a rate limit.");
+        if (behaviour === "slow") await new Promise((resolve) => setTimeout(resolve, SLOW_MS));
         return { text: await fakeResponse(req), usage: { inputTokens: 258 * req.images.length, outputTokens: 100 } };
       }, req);
     },

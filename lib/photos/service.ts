@@ -10,6 +10,7 @@ import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
 import { enqueuePhotoIngest, enqueuePhotoRender } from "@/lib/queue";
 import { baseKey, isUploadKeyForBook, pdfPageKey, uploadKey, UPLOAD_EXTENSIONS, type UploadMimeType } from "@/lib/storage/keys";
+import { graceMs, scheduleDeletion } from "@/lib/storage/lifecycle";
 import { getObjectBuffer, headObject, presignPut } from "@/lib/storage/s3";
 import { requireTemplateAccess } from "@/lib/templates/access";
 
@@ -226,7 +227,7 @@ export async function photoDeleteImpact(userId: string, photoId: string): Promis
 
 /**
  * Removes a photo from its document and renumbers the remaining pages. Deleting the only page
- * deletes the document. The stored files stay until storage cleanup (Phase 9 grace period).
+ * deletes the document. The stored files are tombstoned and removed after the grace period (lib/storage/lifecycle).
  */
 export async function deletePhoto(userId: string, photoId: string, input: DeletePhotoInput): Promise<{ documentDeleted: boolean }> {
   const { bookId, documentId } = await requirePhotoAccess(userId, photoId);
@@ -238,7 +239,8 @@ export async function deletePhoto(userId: string, photoId: string, input: Delete
       throw new AppError("CONFLICT", "This document's pages changed since you reviewed the deletion. Review it again.");
     }
     await assertNoExtractionOutput(tx, [documentId], "delete a page of");
-    await tx.photo.delete({ where: { id: photoId } });
+    const removed = await tx.photo.delete({ where: { id: photoId }, select: { id: true, originalKey: true } });
+    await scheduleDeletion(tx, [{ ...removed, bookId }], "PHOTO_DELETED", new Date(Date.now() + graceMs()));
     const rest = await tx.photo.findMany({ where: { documentId }, orderBy: { pageIndex: "asc" }, select: { id: true, pageIndex: true } });
     for (const [i, p] of rest.entries()) {
       if (p.pageIndex !== i) await tx.photo.update({ where: { id: p.id }, data: { pageIndex: i } });

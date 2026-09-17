@@ -52,6 +52,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
   const [estimate, setEstimate] = useState<ExtractionEstimate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const targetKey = target ? JSON.stringify(target) : "";
 
   useEffect(() => {
@@ -85,7 +86,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
     return () => {
       cancelled = true;
     };
-  }, [targetKey, nonce, model, estimate]);
+  }, [targetKey, nonce, model, estimate, attempt]);
 
   async function confirm() {
     if (!target || !model || !estimate || pending) return;
@@ -167,13 +168,23 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
             ) : null}
           </div>
         ) : null}
-        {error ? <FormMessage tone="error">{error}</FormMessage> : null}
+        {estimate?.providerProblem ? <FormMessage tone="error">{estimate.providerProblem}</FormMessage> : null}
+        {error ? (
+          <div className="flex flex-col items-start gap-2">
+            <FormMessage tone="error">{error}</FormMessage>
+            {!estimate ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+                Try again
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         <AlertDialogFooter>
           <AlertDialogCancel type="button" disabled={pending}>
             Cancel
           </AlertDialogCancel>
-          <Button type="button" onClick={confirm} disabled={!estimate || !model || estimate.extractable === 0 || pending}>
+          <Button type="button" onClick={confirm} disabled={!estimate || !model || estimate.extractable === 0 || estimate.providerProblem !== null || pending}>
             {pending ? "Starting…" : `${verb} ${plural(estimate?.extractable ?? 0, "document")}`}
           </Button>
         </AlertDialogFooter>

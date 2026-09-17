@@ -12,8 +12,24 @@ import { isAuthPath } from "@/lib/auth/redirect";
 
 const SESSION_COOKIES = ["authjs.session-token", "__Secure-authjs.session-token"];
 
+const REQUEST_ID = /^[\w-]{8,64}$/;
+
+/** Gives every API request an id (kept from a proxy if well-formed), readable by handlers and returned to the client. */
+function withRequestId(request: NextRequest): NextResponse {
+  const incoming = request.headers.get("x-request-id");
+  const id = incoming && REQUEST_ID.test(incoming) ? incoming : crypto.randomUUID();
+  const headers = new Headers(request.headers);
+  headers.set("x-request-id", id);
+  const response = NextResponse.next({ request: { headers } });
+  response.headers.set("x-request-id", id);
+  return response;
+}
+
 export function middleware(request: NextRequest): NextResponse {
   const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    return withRequestId(request);
+  }
   if (pathname === "/" || isAuthPath(pathname)) {
     return NextResponse.next();
   }
@@ -27,6 +43,6 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Everything except API routes, Next internals and static files.
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.[\\w]+$).*)"],
+  // Pages (route protection) and API routes (request ids); not Next internals or static files.
+  matcher: ["/api/:path*", "/((?!api|_next/static|_next/image|favicon.ico|.*\\.[\\w]+$).*)"],
 };

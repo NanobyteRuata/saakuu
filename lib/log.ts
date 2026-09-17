@@ -1,3 +1,5 @@
+import { currentLogContext } from "@/lib/log-context";
+
 type Level = "debug" | "info" | "warn" | "error";
 type Fields = Record<string, unknown>;
 
@@ -9,7 +11,7 @@ function serialiseError(err: unknown): Fields {
 }
 
 function write(level: Level, msg: string, fields?: Fields): void {
-  const line = JSON.stringify({ ts: new Date().toISOString(), level, msg, ...fields });
+  const line = JSON.stringify({ ts: new Date().toISOString(), level, msg, ...currentLogContext(), ...fields });
   if (level === "error" || level === "warn") {
     console.error(line);
   } else {
@@ -17,7 +19,10 @@ function write(level: Level, msg: string, fields?: Fields): void {
   }
 }
 
-/** Structured JSON-lines logger. Stack traces go here, never to the user. */
+/**
+ * Structured JSON-lines logger. Stack traces go here, never to the user. Lines carry the current
+ * request/job context (`requestId`, `correlationId`, `jobId`, ...) from `lib/log-context`.
+ */
 export const log = {
   debug: (msg: string, fields?: Fields) => write("debug", msg, fields),
   info: (msg: string, fields?: Fields) => write("info", msg, fields),

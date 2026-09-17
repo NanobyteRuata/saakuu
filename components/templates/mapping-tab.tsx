@@ -592,7 +592,12 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
 
   if (!overview) {
     return loadError ? (
-      <FormMessage tone="error">{loadError}</FormMessage>
+      <div className="flex flex-col items-start gap-2">
+        <FormMessage tone="error">{loadError}</FormMessage>
+        <Button size="sm" variant="outline" onClick={() => void load()}>
+          Try again
+        </Button>
+      </div>
     ) : (
       <p className="text-muted-foreground py-10 text-center text-sm">Loading mappings…</p>
     );

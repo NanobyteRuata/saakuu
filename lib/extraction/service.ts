@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { AI_MODELS, DEFAULT_MODEL_ID, modelIdSchema, type AIModelId } from "@/lib/ai/models";
 import { PROMPT_VERSION } from "@/lib/ai/prompts";
+import { providerStatus } from "@/lib/ai/status";
 import { requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import { requireDocumentsAccess, type Db } from "@/lib/documents/access";
@@ -115,6 +116,8 @@ function suggestedModel(targets: Target[]): AIModelId {
 export type ExtractionBlocker = { documentId: string; label: string | null; reason: string };
 
 export type ExtractionEstimate = {
+  /** Why nothing can be extracted on this server (no API key), or null. */
+  providerProblem: string | null;
   documentIds: string[];
   documents: number;
   extractable: number;
@@ -186,7 +189,9 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
     warnings.push(`${conflicted.map((name) => `“${name}”`).join(", ")} ${conflicted.length === 1 ? "has" : "have"} broken mappings. Extraction still works, but some columns won't fill until they are fixed.`);
   }
 
+  const provider = providerStatus();
   return {
+    providerProblem: provider.ready ? null : provider.message,
     documentIds,
     documents: targets.length,
     extractable: ready.length,
@@ -307,6 +312,8 @@ function collect(result: StartResult, target: { id: string; label: string | null
  * idempotent: submitting it twice (a double click, a network retry) creates nothing the second time.
  */
 export async function startExtraction(userId: string, input: StartInput): Promise<StartResult> {
+  const provider = providerStatus();
+  if (!provider.ready) throw new AppError("PROVIDER_ERROR", provider.message);
   const documentIds = await resolveDocumentIds(userId, input);
   const result: StartResult = { queued: 0, alreadyStarted: 0, skipped: [] };
   for (let i = 0; i < documentIds.length; i += START_BATCH) {
@@ -353,6 +360,8 @@ export async function startExtraction(userId: string, input: StartInput): Promis
  * pages for `photoIds`. The key is derived from the failed runs, so retrying twice creates one run.
  */
 export async function retryExtraction(userId: string, input: RetryInput): Promise<StartResult> {
+  const provider = providerStatus();
+  if (!provider.ready) throw new AppError("PROVIDER_ERROR", provider.message);
   const uid = requireUserId(userId);
   let requested: Map<string, Set<string> | null>;
   if (input.documentIds) {

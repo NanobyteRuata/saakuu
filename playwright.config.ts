@@ -7,7 +7,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  // The suite runs against `next dev` (the test email transport is refused in production), which compiles a route
+  // on its first request; under parallel tests a single request can take several seconds.
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL,
     trace: "on-first-retry",

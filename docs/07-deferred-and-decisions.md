@@ -192,7 +192,8 @@ request so flags appear at once; a queued job re-checks whole books. (Phase 7)
 
 **40. Template-level rule overrides are deferred.** docs/01 §16 allows overriding book rules per template, but
 `ValidationRule` has no template reference, and no real override case exists yet. Adding a nullable `templateId` later is
-additive. The template editor's Validation tab waits for it. (Phase 7)
+additive. The template editor's Validation tab waits for it. (Phase 7) The placeholder tab was removed before v1
+rather than shipping a promise; overrides are on the post-v1 list in docs/06. (Phase 9)
 
 **41. An editing session is one undo step.** Saves debounce while typing; logging each as its own `CellEdit` would make
 Undo step back through half-typed values. A save names the session's entry and extends it while it is still the cell's
@@ -218,6 +219,30 @@ mid-download may or may not be in the file. (Phase 8)
 and export warnings, like the table readout. A document with no such cells is neither reviewed nor unreviewed in progress,
 and is not `reviewed` in the Documents filter. Including void rows in an export adds a `_void` column so they stay
 recognisable. (Phase 8)
+
+**46. Rate limits fail open.** Limits live in Redis. If Redis is down the check is skipped and logged, not refused:
+sign-in and sign-up depend on Postgres, and a Redis outage locking every user out is worse than an unmetered minute.
+Fixed windows, not sliding: a burst at a window edge can reach twice the limit, which is acceptable for abuse
+prevention and needs one `INCR`. The client address is counted from the right of `X-Forwarded-For` by
+`TRUSTED_PROXY_HOPS`, never taken from the left, which the client controls. Failed sign-ins lock an email only at one
+address (10), with a looser per-email ceiling (50), so a stranger can't lock someone out. (Phase 9)
+
+**47. Deleted photos' files wait for a grace period, tracked by a tombstone table.** A photo row is hard-deleted (its
+keys would otherwise be lost), so `StorageDeletion` records the keys and when they may go. Soft-deleting `Photo` instead
+would have touched every photo query. The grace period is tied to backup retention (docs/09 §2), not to undo: v1 has no
+restore for deleted documents. (Phase 9)
+
+**48. Photos of long-deleted documents and books are purged.** After the grace period their photo rows and files are
+removed; rows, raw values and runs stay. Storage is the ongoing cost of keeping deleted work, and nothing in v1 reads
+those photos. (Phase 9)
+
+**49. The reaper decides from BullMQ, not from a heartbeat.** A `RUNNING` run is stale when its document has no active or
+waiting extraction job. That needs no schema change and no heartbeat writes during model calls, which can take minutes.
+The claim's `startedAt` doubles as a fencing token, so a worker that lost its lock can't write over a newer attempt.
+(Phase 9)
+
+**50. The template editor's Validation tab is removed from v1.** It was a placeholder for per-template rule overrides
+(decision 40). Shipping a tab that only says "later" costs a click and trust; overrides are post-v1 item 10. (Phase 9)
 
 ---
 

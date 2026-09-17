@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/auth/form-message";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { postJson } from "@/lib/api-client";
@@ -38,6 +39,7 @@ export function MappingPreviewPanel({ templateId, columns, shownColumnIds, draft
   const [preview, setPreview] = useState<MappingPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
   const request = useMemo(() => ({ documentId, draft: draft ?? undefined }), [documentId, draft]);
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export function MappingPreviewPanel({ templateId, columns, shownColumnIds, draft
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [templateId, request]);
+  }, [templateId, request, attempt]);
 
   const shown = columns.filter((c) => shownColumnIds.has(c.id));
   const flagged = (preview?.rows ?? []).flatMap((row, i) =>
@@ -94,7 +96,14 @@ export function MappingPreviewPanel({ templateId, columns, shownColumnIds, draft
         {loading && preview ? " Updating…" : ""}
       </p>
 
-      {error ? <FormMessage tone="error">{error}</FormMessage> : null}
+      {error ? (
+        <div className="flex flex-col items-start gap-2">
+          <FormMessage tone="error">{error}</FormMessage>
+          <Button size="sm" variant="outline" onClick={() => setAttempt((n) => n + 1)} disabled={loading}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {preview?.draftProblem ? <FormMessage tone="error">This mapping can&apos;t be used yet: {preview.draftProblem}</FormMessage> : null}
 
       {!preview ? (

@@ -15,6 +15,16 @@ guard, typed result.
 - Destructive endpoints take `confirm: true` **and** an `impact` hash returned by the
   matching preview endpoint, so the UI cannot skip the blast-radius check.
 
+**Phase 9 as built:**
+- Every `/api` response carries `X-Request-Id` (a well-formed incoming one is kept). Log lines of the request carry it
+  as `requestId`, and jobs it enqueues carry it as `correlationId` (docs/09 §7).
+- `RATE_LIMITED` responses are `429` with `Retry-After` (seconds) and `details: { retryAfterSeconds }`. Limits apply to
+  `register`, `resend-verification`, `forgot`, `verify`, `reset`, credentials sign-in (failures only; the form shows
+  "Too many sign-in attempts…"), and `extractions/start`, `retry`, `estimate`. Table and client-address rule in
+  docs/09 §6.
+- A non-JSON error response (a proxy page, a crash before the handler) reaches the UI as
+  "The server had a problem (HTTP 502). Try again in a moment.", not as a connection problem.
+
 ## Auth
 ```
 GET/POST /api/auth/*                Auth.js handlers (Google, credentials)
@@ -328,6 +338,9 @@ GET    /api/runs/:id                run detail incl. rawResponse and record coun
   resets its attempts.
 - Moving documents that are extracting is refused with `CONFLICT`.
 - `cancel` is not built (not in the Phase 5 scope).
+- Phase 9: `estimate` also returns `providerProblem: string | null`, set when the server has no usable AI provider
+  (Gemini without an API key); the dialog shows it and disables Extract, and `start` and `retry` refuse with
+  `PROVIDER_ERROR`.
 
 ## Output table
 ```

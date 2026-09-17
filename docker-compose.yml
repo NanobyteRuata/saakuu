@@ -20,6 +20,9 @@ x-app-env: &app-env
   AI_FAKE_BEHAVIOUR: ${AI_FAKE_BEHAVIOUR:-ok}
   EXTRACTION_CONCURRENCY: ${EXTRACTION_CONCURRENCY:-3}
   EXTRACTION_RPM: ${EXTRACTION_RPM:-10}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+  PHOTO_DELETE_GRACE_DAYS: ${PHOTO_DELETE_GRACE_DAYS:-30}
   PRISMA_HIDE_UPDATE_MESSAGE: "1"
   # Auth and email come from the host shell or a root .env; the dev secret is a fallback only.
   AUTH_SECRET: ${AUTH_SECRET:-dev-only-insecure-secret-change-me-0123456789}

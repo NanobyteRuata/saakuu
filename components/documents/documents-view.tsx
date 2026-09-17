@@ -314,6 +314,15 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
             <>
               <p className="font-medium">No documents match these filters</p>
               <p className="text-muted-foreground max-w-md text-sm">Clear a filter or change the search to see more documents.</p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearch("");
+                  setFilters({ q: "", templateId: null, runState: null, needsReview: null, hasEdits: null, reviewed: null });
+                }}
+              >
+                Clear filters
+              </Button>
             </>
           ) : (
             <>

@@ -417,6 +417,33 @@ model Photo {
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId, pageIndex])
+  // Storage cleanup asks, per page of listed objects, whether any photo still references a key (Phase 9).
+  @@index([originalKey])
+  @@index([workingKey])
+  @@index([thumbKey])
+}
+
+// ---------- Storage lifecycle (Phase 9) ----------
+
+enum StorageDeletionReason {
+  PHOTO_DELETED // one page removed from a document
+  DOCUMENT_PURGED // the photo's document or book was deleted longer ago than the grace period
+}
+
+/// Files of a deleted photo, kept until `deleteAfter` so a database restored from a backup still finds
+/// its images. The cleanup job deletes `originalKey` and everything under books/{bookId}/photos/{photoId}/,
+/// skipping any key a Photo row still references. No relations: the photo row is already gone.
+model StorageDeletion {
+  id          String                @id @default(cuid(2))
+  bookId      String
+  photoId     String                @unique
+  originalKey String
+  reason      StorageDeletionReason
+  deleteAfter DateTime              @db.Timestamptz(3)
+  createdAt   DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@index([deleteAfter])
+  @@index([originalKey])
 }
 
 // ---------- Extraction runs ----------

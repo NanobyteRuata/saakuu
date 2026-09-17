@@ -35,7 +35,6 @@ import { TemplateHeaderForm } from "./template-header-form";
 const TABS = [
   { id: "fields", label: "Fields" },
   { id: "mapping", label: "Mapping" },
-  { id: "validation", label: "Validation" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -228,21 +227,9 @@ export function TemplateEditor({
             )}
           </section>
         </div>
-      ) : tab === "mapping" ? (
+      ) : (
         <div role="tabpanel" id="panel-mapping" aria-labelledby="tab-mapping">
           <MappingTab template={template} tree={tree} lang={lang} onChanged={reload} />
-        </div>
-      ) : (
-        <div
-          role="tabpanel"
-          id={`panel-${tab}`}
-          aria-labelledby={`tab-${tab}`}
-          className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-16 text-center"
-        >
-          <p className="font-medium">Validation arrives in a later update</p>
-          <p className="text-muted-foreground max-w-md text-sm">
-            Here you&apos;ll override the book&apos;s validation rules for documents read with this template.
-          </p>
         </div>
       )}
 

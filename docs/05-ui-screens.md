@@ -266,6 +266,27 @@ Toolbar above the table: filters (needs review, has errors, edited, by template)
 `Review rows`, `Export CSV`, and a progress readout (`1,204 cells · 318 unreviewed ·
 12 errors`).
 
+*As built (Phase 7):*
+- Every page of rows loads in the background (`Loading rows… 1,500 of 3,060`); rows are virtualised with TanStack Virtual
+  and the row model (view-only sort and filters) is TanStack Table. Sticky header and sticky row column.
+- Row column: drag handle, row number, document label (void rows show `Total, void · …`), a row menu. Hovering the row
+  swaps the label for the provenance chip (template name + page thumbnail); the chip opens the photo viewer zoomed to
+  the record's box, with `Show whole page`.
+- Row menu (also right-click): Mark row reviewed / not reviewed, Revert row to extracted… (counted), Mark void / Not
+  void, Open source photo, Delete row… (counted; re-extraction won't bring it back).
+- Keyboard: arrows, Page Up/Down, Home/End move (Tab leaves the grid); Enter, F2 or typing edits; Enter/Tab save and move; Escape
+  cancels (and takes back what that session already saved); Delete clears; ⌘Z / Ctrl+Z undoes, one editing session or
+  one cell revert at a time. Clicking a focused cell or double-clicking edits.
+- Saves are debounced 400 ms and serialised per cell; a failed save shows a toast and puts the server value back.
+  Dragging is off while a sort is active; a drop writes one row.
+- Header: label, required mark, type, error count and unreviewed count (non-void rows), and a menu with sort, filters
+  (Needs attention, Errors, Warnings, Edited, Not reviewed, Empty, Containing…) and `Sweep this column (coming later)`.
+- Toolbar: Needs attention, Has errors, Edited, template (when several), Show void rows, Clear filters, row height,
+  legend, Refresh, `Review rows` (disabled until Phase 8). Readout: `24,000 cells · 24,000 unreviewed · 305 errors`.
+- Disagreement cells carry a chevron opening extracted vs yours with `Keep mine` / `Use extracted`.
+- Settings → Validation rules: rule list with how many cells each flags, an inline editor per kind with a live count of
+  failing cells, counted delete, `Re-check all cells`. Settings → General gains the uncertain-reading threshold.
+
 ## 13. Row review mode
 Split view. Left: the source photo, zoomable, with the current record's region boxed
 and the active cell's region highlighted more strongly. Right: that row's cells as a

@@ -79,18 +79,20 @@ enum DateEra {
 }
 
 model Book {
-  id             String        @id @default(cuid(2))
-  userId         String
-  name           String
-  defaultModel   String        @default("gemini-3.5-flash")
-  numeralSystem  NumeralSystem @default(AUTO)
-  dateEra        DateEra       @default(GREGORIAN)
+  id                  String        @id @default(cuid(2))
+  userId              String
+  name                String
+  defaultModel        String        @default("gemini-3.5-flash")
+  numeralSystem       NumeralSystem @default(AUTO)
+  dateEra             DateEra       @default(GREGORIAN)
   // export prefs
-  blankToken     String        @default("")
-  illegibleToken String        @default("?")
-  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
-  deletedAt      DateTime?     @db.Timestamptz(3)
+  blankToken          String        @default("")
+  illegibleToken      String        @default("?")
+  // Phase 7: below this, an extracted value nobody has touched gets a dotted underline (docs/08 §3)
+  confidenceThreshold Float         @default(0.75)
+  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @db.Timestamptz(3)
+  deletedAt           DateTime?     @db.Timestamptz(3)
 
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   columns   OutputColumn[]
@@ -512,15 +514,16 @@ enum ValidationState {
 }
 
 model Row {
-  id          String   @id @default(cuid(2))
+  id          String    @id @default(cuid(2))
   bookId      String
   documentId  String
   rawRecordId String?
   position    String // fractional index; canonical manual order
-  isVoid      Boolean  @default(false)
+  isVoid      Boolean   @default(false)
   voidReason  String? // Phase 6: SUBTOTAL | TOTAL | NOTE | STRUCK_THROUGH | ORPHANED when void by rule
   recordKey   String? // Phase 6: stable identity within the document ("form", "seq:12", "row:3")
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  deletedAt   DateTime? @db.Timestamptz(3) // Phase 7: deleted by hand; a rebuild matches it and keeps it deleted
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
 
   book      Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
   document  Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -539,6 +542,8 @@ model Cell {
   extractedValue  String? // post-transform, pre-human
   currentValue    String? // what exports
   state           ValueState      @default(OK)
+  extractedState  ValueState      @default(OK) // Phase 7: state of extractedValue, so revert restores it
+  buildIssues     Json? // Phase 7: [{ severity, message }] found by the transform for extractedValue
   isEdited        Boolean         @default(false)
   isReviewed      Boolean         @default(false)
   inherited       Boolean         @default(false) // resolved from a ditto mark
@@ -557,14 +562,22 @@ model Cell {
   @@index([rowId])
 }
 
+enum CellEditKind {
+  EDIT
+  REVERT
+  UNDO
+}
+
 model CellEdit {
-  id            String   @id @default(cuid(2))
+  id            String       @id @default(cuid(2))
   cellId        String
   userId        String
   previousValue String?
   newValue      String?
   reason        String? // UI deferred; column present from v1
-  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  kind          CellEditKind @default(EDIT) // Phase 7
+  flags         Json? // Phase 7: { before: { state, isEdited, disagreement }, after: { ... } }, for undo
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
   cell Cell @relation(fields: [cellId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

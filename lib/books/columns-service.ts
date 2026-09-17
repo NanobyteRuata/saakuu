@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { requireBookAccess } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
+import { requestBookRevalidation } from "@/lib/transform/triggers";
 import { impactHash, type BrokenMapping, type ImpactReport } from "@/lib/impact";
 
 import {
@@ -83,12 +84,12 @@ async function computeImpact(
       outputColumnId: { in: touched },
       OR: [{ NOT: [{ currentValue: null }, { currentValue: "" }] }, { isEdited: true }],
     } satisfies Prisma.CellWhereInput;
-    const onLiveDocument = { row: { document: { deletedAt: null } } } satisfies Prisma.CellWhereInput;
+    const onLiveDocument = { row: { deletedAt: null, document: { deletedAt: null } } } satisfies Prisma.CellWhereInput;
     [affectedCells, editedCells, reviewedCells, affectedRows] = await Promise.all([
       db.cell.count({ where: { ...affected, ...onLiveDocument } }),
       db.cell.count({ where: { ...affected, ...onLiveDocument, isEdited: true } }),
       db.cell.count({ where: { ...affected, ...onLiveDocument, isReviewed: true } }),
-      db.row.count({ where: { bookId, document: { deletedAt: null }, cells: { some: affected } } }),
+      db.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null }, cells: { some: affected } } }),
     ]);
   }
 
@@ -138,7 +139,7 @@ export async function applyColumnOps(
 ): Promise<{ columns: ColumnState[]; report: ImpactReport }> {
   await requireBookAccess(userId, bookId);
 
-  return prisma.$transaction(
+  const result = await prisma.$transaction(
     async (tx) => {
       // Serialise column changes per book so the recomputed impact is the one being applied.
       await tx.$queryRaw`SELECT id FROM "Book" WHERE id = ${bookId} AND "deletedAt" IS NULL FOR UPDATE`;
@@ -207,4 +208,7 @@ export async function applyColumnOps(
     },
     { timeout: 30_000 },
   );
+  // Required flags, types and deleted columns change what the rules and checks say about existing cells.
+  await requestBookRevalidation(bookId);
+  return result;
 }

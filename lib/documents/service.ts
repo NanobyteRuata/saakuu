@@ -129,7 +129,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
              coalesce(bool_or(c."isEdited"), false) AS edited,
              coalesce(bool_or(c.disagreement), false) AS disagreements
       FROM "Row" r LEFT JOIN "Cell" c ON c."rowId" = r.id
-      WHERE r."documentId" IN (${Prisma.join(ids)}) AND NOT r."isVoid"
+      WHERE r."documentId" IN (${Prisma.join(ids)}) AND NOT r."isVoid" AND r."deletedAt" IS NULL
       GROUP BY r."documentId"`,
   ]);
   const pages = new Map<string, { total: number; processing: number; failed: number }>();
@@ -210,7 +210,7 @@ export async function listDocuments(userId: string, bookId: string, input: ListD
   if (input.runState) conds.push(Prisma.sql`d."runState" = ${input.runState}::"RunState"`);
   if (input.needsReview !== undefined) conds.push(Prisma.sql`d."needsReview" = ${input.needsReview}`);
   if (input.hasEdits !== undefined) {
-    const edited = Prisma.sql`EXISTS (SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id WHERE r."documentId" = d.id AND c."isEdited")`;
+    const edited = Prisma.sql`EXISTS (SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND c."isEdited")`;
     conds.push(input.hasEdits ? edited : Prisma.sql`NOT ${edited}`);
   }
   if (input.q) {
@@ -497,10 +497,11 @@ export async function documentsDeleteImpact(userId: string, ids: string[], db: D
   await requireDocumentsAccess(userId, ids, db);
   const unique = [...new Set(ids)].sort();
   const where = { documentId: { in: unique } };
+  const liveRows = { ...where, deletedAt: null };
   const [photos, rows, editedCells] = await Promise.all([
     db.photo.count({ where }),
-    db.row.count({ where }),
-    db.cell.count({ where: { isEdited: true, row: where } }),
+    db.row.count({ where: liveRows }),
+    db.cell.count({ where: { isEdited: true, row: liveRows } }),
   ]);
   const counts = { documents: unique.length, photos, rows, editedCells };
   return { impactHash: impactHash({ action: "documents.delete", ids: unique, ...counts }), ...counts };
@@ -557,10 +558,10 @@ async function computeMoveImpact(userId: string, input: MoveImpactInput, db: Db)
     db.template.findUniqueOrThrow({ where: { id: target.id }, select: { name: true } }),
     db.photo.count({ where }),
     db.rawValue.count({ where: { record: where } }),
-    db.row.count({ where }),
-    db.cell.count({ where: { row: where } }),
-    db.cell.count({ where: { isEdited: true, row: where } }),
-    db.cell.count({ where: { isReviewed: true, row: where } }),
+    db.row.count({ where: { ...where, deletedAt: null } }),
+    db.cell.count({ where: { row: { ...where, deletedAt: null } } }),
+    db.cell.count({ where: { isEdited: true, row: { ...where, deletedAt: null } } }),
+    db.cell.count({ where: { isReviewed: true, row: { ...where, deletedAt: null } } }),
     db.document.count({ where: { id: { in: moving }, manualValues: { not: Prisma.DbNull } } }),
   ]);
   const counts = {

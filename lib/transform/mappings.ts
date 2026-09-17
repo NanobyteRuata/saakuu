@@ -35,7 +35,7 @@ export function tidyMapping<T extends MappingShape>(m: T): T {
 }
 
 /** A repeated group whose contents already repeat, e.g. `(\d+)+` or `(a*)*`: the shape behind catastrophic backtracking. */
-const NESTED_REPEAT = /\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/u;
+export const NESTED_REPEAT = /\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/u;
 
 export function splitPatternProblem(pattern: string): string | null {
   try {

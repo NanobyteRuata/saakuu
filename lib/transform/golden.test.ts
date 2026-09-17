@@ -160,6 +160,8 @@ function buildExisting(rows: NonNullable<Fixture["existing"]>): ExistingRow[] {
         outputColumnId,
         extractedValue: null,
         state: currentValue === null ? "EMPTY" : "OK",
+        extractedState: (c.extractedValue ?? null) === null ? "EMPTY" : "OK",
+        buildIssues: [],
         isEdited: false,
         isReviewed: false,
         inherited: false,
@@ -212,7 +214,12 @@ describe("transform golden files", () => {
             currentValue: u.values.currentValue,
             isReviewed: u.values.isReviewed,
           })),
-          editedCellUpdates: plan.editedCellUpdates,
+          editedCellUpdates: plan.editedCellUpdates.map((u) => ({
+            id: u.id,
+            extractedValue: u.extractedValue,
+            disagreement: u.disagreement,
+            isReviewed: u.isReviewed,
+          })),
           rowDeletes: plan.rowDeletes,
           orphanedRows: plan.orphanedRows,
         }).toEqual(fixture.expected.merge);

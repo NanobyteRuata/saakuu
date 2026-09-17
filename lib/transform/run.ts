@@ -4,7 +4,7 @@ import { buildTree, selectionOptions } from "@/lib/templates/tree";
 import { coerceToColumn } from "./coerce";
 import { evaluateExpression, parseExpression, type ParsedExpression } from "./expression";
 import type { DocumentFlag } from "./flags";
-import { DEFAULT_SEPARATOR, mappingProblem, OPTION_SEPARATOR, optionLabel, sourceId, type SourceTree } from "./mappings";
+import { DEFAULT_SEPARATOR, mappingProblem, OPTION_SEPARATOR, optionLabel, sourceId, type MappingContext, type SourceTree } from "./mappings";
 import { normaliseReading, type NormValue, type RawReading } from "./normalise";
 import { cleanText, numericReading, toLatinDigits } from "./numerals";
 import type {
@@ -385,6 +385,23 @@ function applyMapping({ mapping: m, parsed, pattern }: WorkingMapping, reader: R
   }
 }
 
+/** Shown for an empty cell in a required column; validation (lib/validation/rules.ts) raises it for stored cells. */
+export const REQUIRED_MESSAGE = "This column is required.";
+
+/** Errors first, each message once. */
+export function uniqueIssues(issues: Issue[]): Issue[] {
+  const seen = new Set<string>();
+  const out: Issue[] = [];
+  for (const severity of ["ERROR", "WARNING"] as const) {
+    for (const i of issues) {
+      if (i.severity !== severity || seen.has(i.message)) continue;
+      seen.add(i.message);
+      out.push(i);
+    }
+  }
+  return out;
+}
+
 function uniqueMessages(issues: Issue[]): string[] {
   const errors = issues.filter((i) => i.severity === "ERROR").map((i) => i.message);
   const warnings = issues.filter((i) => i.severity === "WARNING").map((i) => i.message);
@@ -401,13 +418,28 @@ function finishCell(column: TransformColumn, v: NormValue, voidReason: VoidReaso
     issues.push(...coerced.issues);
   }
   const cell = { outputColumnId: column.id, value, state: v.state, inherited: v.inherited, confidence: v.confidence };
-  if (voidReason !== null) return { ...cell, validationState: "NONE", validationMsgs: [] };
-  if (column.isRequired && value === null && v.state === "EMPTY") issues.push({ severity: "ERROR", message: "This column is required." });
+  if (voidReason !== null) return { ...cell, buildIssues: [], validationState: "NONE", validationMsgs: [] };
+  const buildIssues = uniqueIssues(issues);
+  if (column.isRequired && value === null && v.state === "EMPTY") issues.push({ severity: "ERROR", message: REQUIRED_MESSAGE });
   const validationState = issues.some((i) => i.severity === "ERROR") ? "ERROR" : issues.length > 0 ? "WARNING" : "NONE";
-  return { ...cell, validationState, validationMsgs: uniqueMessages(issues) };
+  return { ...cell, buildIssues, validationState, validationMsgs: uniqueMessages(issues) };
 }
 
 // ---------- entry point ----------
+
+/**
+ * The mapping that fills each column: the first, in the given (position) order, that works (docs/01 §8). Broken
+ * mappings and expressions that don't parse are skipped. The table's Manual/Skip tints use this too.
+ */
+export function firstWorkingMappings(mappings: TransformMapping[], context: MappingContext): Map<string, TransformMapping> {
+  const out = new Map<string, TransformMapping>();
+  for (const mapping of mappings) {
+    if (out.has(mapping.outputColumnId) || mappingProblem(mapping, context) !== null) continue;
+    if (mapping.kind === "EXPRESSION" && mapping.expression !== null && !parseExpression(mapping.expression).ok) continue;
+    out.set(mapping.outputColumnId, mapping);
+  }
+  return out;
+}
 
 export function runTransform(input: TransformInput): TransformResult {
   const tree: SourceTree = buildTree(input.groups, input.fields);
@@ -436,20 +468,12 @@ export function runTransform(input: TransformInput): TransformResult {
     flags.push(...sequenceFlags(output.filter((r) => r.rowType === "DATA" && voidReasonOf(r) === null), readings, sequenceField, system));
   }
 
-  // The first working mapping for each column fills it; broken mappings are skipped (docs/01 §8).
-  const context = { tree, liveColumnIds: new Set(input.columns.map((c) => c.id)) };
   // Expressions are parsed and split patterns compiled once per mapping, not per cell.
   const byColumn = new Map<string, WorkingMapping>();
-  for (const mapping of input.mappings) {
-    if (byColumn.has(mapping.outputColumnId) || mappingProblem(mapping, context) !== null) continue;
-    let parsed: ParsedExpression | null = null;
-    if (mapping.kind === "EXPRESSION" && mapping.expression !== null) {
-      const result = parseExpression(mapping.expression);
-      if (!result.ok) continue;
-      parsed = result.value;
-    }
+  for (const [columnId, mapping] of firstWorkingMappings(input.mappings, { tree, liveColumnIds: new Set(input.columns.map((c) => c.id)) })) {
+    const parsed = mapping.kind === "EXPRESSION" && mapping.expression !== null ? parseExpression(mapping.expression) : null;
     const pattern = mapping.kind === "SPLIT" && mapping.splitRegex !== null ? new RegExp(mapping.splitRegex, "u") : null;
-    byColumn.set(mapping.outputColumnId, { mapping, parsed, pattern });
+    byColumn.set(columnId, { mapping, parsed: parsed?.ok ? parsed.value : null, pattern });
   }
 
   let unresolvedDittos = 0;

@@ -50,6 +50,10 @@ export type TransformTemplateJobData = z.infer<typeof transformTemplateJobSchema
 export const transformDocumentJobSchema = z.object({ documentId: z.string().min(1) });
 export type TransformDocumentJobData = z.infer<typeof transformDocumentJobSchema>;
 
+/** Revalidation (docs/01 §16): re-check every cell of a book against its rules, e.g. after columns change. */
+export const revalidateBookJobSchema = z.object({ bookId: z.string().min(1) });
+export type RevalidateBookJobData = z.infer<typeof revalidateBookJobSchema>;
+
 export const JOBS = {
   noop: { queue: QUEUES.system, name: "noop", schema: noopJobSchema },
   photoIngest: { queue: QUEUES.media, name: "photo.ingest", schema: photoIngestJobSchema },
@@ -57,4 +61,5 @@ export const JOBS = {
   extractionRun: { queue: QUEUES.extraction, name: "extraction.run", schema: extractionRunJobSchema },
   transformTemplate: { queue: QUEUES.transform, name: "transform.template", schema: transformTemplateJobSchema },
   transformDocument: { queue: QUEUES.transform, name: "transform.document", schema: transformDocumentJobSchema },
+  revalidateBook: { queue: QUEUES.transform, name: "validation.book", schema: revalidateBookJobSchema },
 } as const;

@@ -8,16 +8,8 @@ import { postJson } from "@/lib/api-client";
 import { plural } from "@/lib/format";
 import type { MappingDraft } from "@/lib/mappings/schemas";
 import type { ColumnOption, MappingPreview, PreviewCell } from "@/lib/mappings/service";
-import type { VoidReason } from "@/lib/transform/types";
+import { VOID_REASON_LABELS } from "@/lib/table/labels";
 import { cn } from "@/lib/utils";
-
-const VOID_REASON_LABELS: Record<VoidReason, string> = {
-  SUBTOTAL: "Subtotal",
-  TOTAL: "Total",
-  NOTE: "Note",
-  STRUCK_THROUGH: "Struck through",
-  ORPHANED: "Unmatched",
-};
 
 function cellText(cell: PreviewCell): string {
   if (cell.state === "ILLEGIBLE") return "?";

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { log } from "@/lib/log";
-import { discardQueue, enqueueDocumentTransform, enqueueTemplateTransform, QUEUES } from "@/lib/queue";
+import { discardQueue, enqueueBookRevalidation, enqueueDocumentTransform, enqueueTemplateTransform, QUEUES } from "@/lib/queue";
 
 /**
  * Asks the worker to rebuild rows after something the transform reads has changed (mappings, fields,
@@ -33,6 +33,11 @@ export async function requestTemplateTransform(templateId: string): Promise<void
 
 export async function requestDocumentTransform(documentId: string): Promise<void> {
   await bestEffort(() => enqueueDocumentTransform({ documentId }), { documentId });
+}
+
+/** Asks the worker to re-check every cell of a book against its rules (best effort, like a rebuild). */
+export async function requestBookRevalidation(bookId: string): Promise<void> {
+  await bestEffort(() => enqueueBookRevalidation({ bookId }), { bookId });
 }
 
 export async function requestBookTransform(bookId: string): Promise<void> {

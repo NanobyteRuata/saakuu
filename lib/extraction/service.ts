@@ -166,7 +166,7 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
     const [edited] = await prisma.$queryRaw<{ documents: number; cells: number }[]>`
       SELECT count(DISTINCT r."documentId")::int AS documents, count(c.id)::int AS cells
       FROM "Cell" c JOIN "Row" r ON r.id = c."rowId"
-      WHERE r."documentId" IN (${Prisma.join(readyIds)}) AND c."isEdited"`;
+      WHERE r."documentId" IN (${Prisma.join(readyIds)}) AND r."deletedAt" IS NULL AND c."isEdited"`;
     if (edited && edited.cells > 0) {
       warnings.push(
         `${n(edited.documents, "document")} ${edited.documents === 1 ? "has" : "have"} ${n(edited.cells, "cell")} you edited. Your edits are kept; new readings that differ are flagged for you instead of replacing them.`,

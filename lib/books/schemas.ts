@@ -97,6 +97,8 @@ export const updateBookSchema = z
     defaultModel: modelIdSchema.optional(),
     numeralSystem: z.enum(NUMERAL_SYSTEMS).optional(),
     dateEra: z.enum(DATE_ERAS).optional(),
+    /** Below this self-reported confidence an untouched extracted value is underlined (docs/08 §3). */
+    confidenceThreshold: z.number().min(0).max(1).optional(),
     exportPrefs: z
       .object({ blankToken: exportTokenSchema.optional(), illegibleToken: exportTokenSchema.optional() })
       .optional(),

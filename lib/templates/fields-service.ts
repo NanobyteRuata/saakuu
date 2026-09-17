@@ -86,14 +86,14 @@ export async function fieldsDeleteImpact(userId: string, ids: string[], db: Db =
   if (clearedColumns.length > 0) {
     const affected = {
       outputColumnId: { in: clearedColumns },
-      row: { document: { templateId, deletedAt: null } },
+      row: { deletedAt: null, document: { templateId, deletedAt: null } },
       OR: [{ NOT: [{ currentValue: null }, { currentValue: "" }] }, { isEdited: true }],
     } satisfies Prisma.CellWhereInput;
     affectedCells = await db.cell.count({ where: affected });
     editedCells = await db.cell.count({ where: { ...affected, isEdited: true } });
     reviewedCells = await db.cell.count({ where: { ...affected, isReviewed: true } });
     affectedRows = await db.row.count({
-      where: { document: { templateId, deletedAt: null }, cells: { some: { outputColumnId: { in: clearedColumns }, OR: affected.OR } } },
+      where: { deletedAt: null, document: { templateId, deletedAt: null }, cells: { some: { outputColumnId: { in: clearedColumns }, OR: affected.OR } } },
     });
   }
 

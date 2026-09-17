@@ -345,6 +345,60 @@ GET    /api/books/:id/review-queue         next unreviewed cells, ordered by col
 `PATCH /api/cells/:id` must be idempotent enough for fast typing: debounce client-side
 at ~400ms, and no-op when the value is unchanged.
 
+**Phase 7 as built** (supersedes the lines above where they differ):
+```
+GET    /api/books/:id/table-meta           -> { columns, templates, columnSources: { templateId: { columnId: "MANUAL" | "SKIP" } },
+                                                confidenceThreshold, totalRows }
+GET    /api/books/:id/rows                 ?cursor&limit (≤ 500) -> { columnIds, items: WireRow[], documents, nextCursor }
+PATCH  /api/cells/:id                      { value, state?, editId? } -> CellChangeResult
+POST   /api/cells/:id/revert               -> CellChangeResult
+POST   /api/cells/:id/keep                 "Keep mine": clears disagreement -> CellChangeResult
+POST   /api/cell-edits/:id/undo            -> CellChangeResult; CONFLICT once the cell changed again
+POST   /api/cells/review                   { cellIds? , rowIds?, isReviewed } -> { cells }
+POST   /api/rows/reorder                   { rowId, afterRowId | null } -> { position, affected }
+PATCH  /api/rows/:id                       { isVoid } -> { isVoid, affected }
+POST   /api/rows/revert-impact             { ids[] } -> { impactHash, rows, editedCells, disagreements }
+POST   /api/rows/revert                    { ids[], impactHash, confirm } -> { cells, affected, edits: [{ editId, rowId }] }
+POST   /api/rows/delete-impact             { ids[] } -> { impactHash, rows, cells, editedCells, reviewedCells }
+POST   /api/rows/delete                    { ids[], impactHash, confirm } -> { deleted, affected }   soft delete
+```
+```jsonc
+// CellChangeResult
+{ "cell": TableCell, "rowId", "editId": "<CellEdit id to undo>" | null,
+  "affected": [{ "id", "rowId", "validationState", "validationMsgs" }] }   // other cells whose checks changed
+```
+- Rows come in manual order (`position` code-unit, then id), live rows of live documents and templates only. The wire
+  format (`lib/table/wire.ts`) lists cells in `columnIds` order and leaves defaults out; `documents` covers the page.
+  The browser loads every page, so view-only sorting, filters and header counts cover the whole book.
+- `editId` on a save continues that editing session's log entry while it is the cell's latest change (docs/02 → Output
+  table). Every cell change re-checks validation in the same transaction and returns what else changed.
+- Reorder writes exactly one row. Sorting in the table never calls the server.
+
+**Validation rules as built (Phase 7):**
+```
+GET    /api/books/:id/rules                -> RuleView[]  (rule + failing: cells it flags now, problem)
+POST   /api/books/:id/rules                RuleDraft -> RuleView   201
+PATCH  /api/books/:id/rules/:ruleId        RuleDraft (full shape) -> RuleView
+DELETE /api/books/:id/rules/:ruleId        -> { deleted }
+POST   /api/books/:id/rules/preview        RuleDraft -> { failing, problem }   writes nothing
+POST   /api/books/:id/rules/revalidate     -> { pending }   202, queues `validation.book` on the transform queue
+GET    /api/books/:id/rules/revalidate     -> { pending }
+```
+```jsonc
+// RuleDraft
+{ "outputColumnId", "severity": "WARNING" | "ERROR", "message": string | null, "enabled",
+  "kind": "REQUIRED" | "TYPE" | "RANGE" | "LENGTH" | "REGEX" | "ENUM" | "UNIQUE" | "CROSS_COLUMN" | "MONOTONIC",
+  "params": {} | { min, max } | { pattern } | { values[] } | { otherColumnId, operator: "LT" | "LTE" | "EQ" | "NEQ" | "GTE" | "GT" }
+            | { strict } }
+```
+- `VALIDATION`, each with a plain message: a deleted column; a range on a column that isn't a number or date, bounds
+  that don't parse (numbers plain, dates `YYYY-MM-DD`) or min above max; a pattern RE2 can't compile (no backreferences
+  or lookarounds; code points as `\x{1000}`); comparing a column with itself or across kinds (number/date/text; text only `EQ`/`NEQ`);
+  an increasing rule on a non-number, non-date column. Rule messages default to plain text written from the check.
+- Create, update and delete lock the book and re-check the affected columns before answering. Output-column changes
+  queue the book-wide re-check. Template-level overrides are deferred (docs/07 decision 40).
+- `GET /rules` counts failures (it reads every cell); the Settings page renders the list without counts and fetches them after.
+
 ## Export
 ```
 POST   /api/books/:id/export               { includeVoid, includeProvenance, columns? } -> { downloadUrl }

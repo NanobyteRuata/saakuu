@@ -14,13 +14,15 @@ import { plural } from "@/lib/format";
 import { log } from "@/lib/log";
 import { MAX_MAPPINGS } from "@/lib/mappings/schemas";
 import { mappingSelect, rowToTransformMapping } from "@/lib/mappings/views";
+import { parseIssues } from "@/lib/validation/rules";
+import { revalidate, type TouchedValue } from "@/lib/validation/revalidate";
 import { MAX_FIELDS, MAX_GROUPS } from "@/lib/templates/schemas";
 import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
 
 import { parseDocumentFlags, type DocumentFlag } from "./flags";
 import { planMerge, type ExistingRow, type MergePlan, type RowAnchor } from "./merge";
 import { runTransform } from "./run";
-import type { RawRecordInput, TransformInput } from "./types";
+import type { Issue, RawRecordInput, TransformInput } from "./types";
 
 /**
  * Loads what the transform reads and writes what the merge decides (docs/03 §8). The worker runs it
@@ -98,7 +100,7 @@ export async function loadDocumentRecords(db: Db, documentId: string): Promise<L
 type StoredRow = ExistingRow & { position: string };
 
 async function loadExistingRows(db: Db, documentId: string): Promise<StoredRow[]> {
-  const rows = await db.row.findMany({
+  const found = await db.row.findMany({
     where: { documentId },
     orderBy: { id: "asc" },
     take: MAX_RECORDS_PER_DOCUMENT + 1,
@@ -116,6 +118,8 @@ async function loadExistingRows(db: Db, documentId: string): Promise<StoredRow[]
           extractedValue: true,
           currentValue: true,
           state: true,
+          extractedState: true,
+          buildIssues: true,
           isEdited: true,
           isReviewed: true,
           inherited: true,
@@ -128,8 +132,8 @@ async function loadExistingRows(db: Db, documentId: string): Promise<StoredRow[]
     },
   });
   // A partial list would make the rows left out look gone, and the build would duplicate them.
-  if (rows.length > MAX_RECORDS_PER_DOCUMENT) tooMany();
-  return rows;
+  if (found.length > MAX_RECORDS_PER_DOCUMENT) tooMany();
+  return found.map((r) => ({ ...r, cells: r.cells.map((c) => ({ ...c, buildIssues: parseIssues(c.buildIssues) })) }));
 }
 
 // ---------- positions ----------
@@ -198,10 +202,16 @@ async function newRowKeys(
 
 // ---------- writes ----------
 
+function issuesJson(issues: Issue[]): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  return issues.length > 0 ? issues : Prisma.DbNull;
+}
+
 async function writeCells(tx: Db, plan: MergePlan): Promise<void> {
   for (let i = 0; i < plan.cellCreates.length; i += CELL_WRITE_CHUNK) {
     await tx.cell.createMany({
-      data: plan.cellCreates.slice(i, i + CELL_WRITE_CHUNK).map((c) => ({ rowId: c.rowId, outputColumnId: c.outputColumnId, ...c.values })),
+      data: plan.cellCreates
+        .slice(i, i + CELL_WRITE_CHUNK)
+        .map((c) => ({ rowId: c.rowId, outputColumnId: c.outputColumnId, ...c.values, buildIssues: issuesJson(c.values.buildIssues) })),
       skipDuplicates: true,
     });
   }
@@ -209,22 +219,29 @@ async function writeCells(tx: Db, plan: MergePlan): Promise<void> {
   for (let i = 0; i < plan.autoCellUpdates.length; i += CELL_WRITE_CHUNK) {
     const values = plan.autoCellUpdates.slice(i, i + CELL_WRITE_CHUNK).map(
       ({ id, values: v }) =>
-        Prisma.sql`(${id}, ${v.extractedValue}::text, ${v.currentValue}::text, ${v.state}::text, ${v.isReviewed}::boolean, ${v.inherited}::boolean, ${v.confidence}::float8, ${v.disagreement}::boolean, ${v.validationState}::text, ${v.validationMsgs}::text[])`,
+        Prisma.sql`(${id}, ${v.extractedValue}::text, ${v.currentValue}::text, ${v.state}::text, ${v.isReviewed}::boolean, ${v.inherited}::boolean, ${v.confidence}::float8, ${v.disagreement}::boolean, ${JSON.stringify(v.buildIssues)}::jsonb)`,
     );
+    // Validation state is left to `revalidate`, which runs right after in the same transaction.
     await tx.$executeRaw`
       UPDATE "Cell" AS c SET
-        "extractedValue" = v.ev, "currentValue" = v.cv, state = v.st::"ValueState", "isReviewed" = v.rv, inherited = v.inh,
-        confidence = v.conf, disagreement = v.dis, "validationState" = v.vs::"ValidationState", "validationMsgs" = v.msgs, "updatedAt" = now()
-      FROM (VALUES ${Prisma.join(values)}) AS v(id, ev, cv, st, rv, inh, conf, dis, vs, msgs)
+        "extractedValue" = v.ev, "currentValue" = v.cv, state = v.st::"ValueState", "extractedState" = v.st::"ValueState", "isReviewed" = v.rv,
+        inherited = v.inh, confidence = v.conf, disagreement = v.dis, "buildIssues" = v.bi, "updatedAt" = now()
+      FROM (VALUES ${Prisma.join(values)}) AS v(id, ev, cv, st, rv, inh, conf, dis, bi)
       WHERE c.id = v.id AND NOT c."isEdited"`;
   }
   for (let i = 0; i < plan.editedCellUpdates.length; i += CELL_WRITE_CHUNK) {
     const values = plan.editedCellUpdates
       .slice(i, i + CELL_WRITE_CHUNK)
-      .map((u) => Prisma.sql`(${u.id}, ${u.extractedValue}::text, ${u.disagreement}::boolean, ${u.isReviewed}::boolean)`);
+      .map(
+        (u) =>
+          Prisma.sql`(${u.id}, ${u.extractedValue}::text, ${u.extractedState}::text, ${u.inherited}::boolean, ${u.confidence}::float8, ${JSON.stringify(u.buildIssues)}::jsonb, ${u.disagreement}::boolean, ${u.isReviewed}::boolean)`,
+      );
+    // Never `currentValue` or `state`: those are the person's.
     await tx.$executeRaw`
-      UPDATE "Cell" AS c SET "extractedValue" = v.ev, disagreement = v.dis, "isReviewed" = v.rv, "updatedAt" = now()
-      FROM (VALUES ${Prisma.join(values)}) AS v(id, ev, dis, rv)
+      UPDATE "Cell" AS c SET
+        "extractedValue" = v.ev, "extractedState" = v.es::"ValueState", inherited = v.inh, confidence = v.conf, "buildIssues" = v.bi,
+        disagreement = v.dis, "isReviewed" = v.rv, "updatedAt" = now()
+      FROM (VALUES ${Prisma.join(values)}) AS v(id, ev, es, inh, conf, bi, dis, rv)
       WHERE c.id = v.id AND c."isEdited"`;
   }
 }
@@ -319,6 +336,19 @@ export async function transformDocument(documentId: string, context?: TemplateCo
         if (r.duplicateOf !== duplicateOf) await tx.rawRecord.update({ where: { id: r.id }, data: { duplicateOf } });
       }
       const keptOrphans = await writePlan(tx, doc, plan, existing);
+      // Values that changed may change another row's uniqueness check; the rows of this document are all checked.
+      const touched: TouchedValue[] = [];
+      const newValues = new Map(plan.autoCellUpdates.map((u) => [u.id, u.values.currentValue]));
+      const deleted = new Set(plan.rowDeletes);
+      for (const row of existing) {
+        for (const c of row.cells) {
+          if (!newValues.has(c.id) && !deleted.has(row.id)) continue;
+          touched.push({ columnId: c.outputColumnId, value: c.currentValue });
+          if (newValues.has(c.id)) touched.push({ columnId: c.outputColumnId, value: newValues.get(c.id) ?? null });
+        }
+      }
+      for (const c of plan.cellCreates) touched.push({ columnId: c.outputColumnId, value: c.values.currentValue });
+      await revalidate(tx, doc.bookId, { documentIds: [documentId] }, touched);
 
       const flags: DocumentFlag[] = [...result.flags];
       const orphaned = plan.orphanedRows.length + keptOrphans;

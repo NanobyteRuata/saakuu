@@ -13,6 +13,7 @@ import {
   type PhotoIngestJobData,
   type PhotoRenderJobData,
   type QueueName,
+  type RevalidateBookJobData,
   type TransformDocumentJobData,
   type TransformTemplateJobData,
 } from "./jobs";
@@ -25,6 +26,7 @@ export type {
   PhotoIngestJobData,
   PhotoRenderJobData,
   QueueName,
+  RevalidateBookJobData,
   TransformDocumentJobData,
   TransformTemplateJobData,
 };
@@ -53,6 +55,27 @@ export async function enqueueDocumentTransform(data: TransformDocumentJobData): 
     ...TRANSFORM_JOB_OPTIONS,
     deduplication: { id: `transform-document-${payload.documentId}`, keepLastIfActive: true },
   });
+}
+
+const revalidateKey = (bookId: string) => `revalidate-book-${bookId}`;
+
+/** Enqueues a re-check of a book's cells, deduplicated like a rebuild. */
+export async function enqueueBookRevalidation(data: RevalidateBookJobData): Promise<void> {
+  const payload = JOBS.revalidateBook.schema.parse(data);
+  await getQueue(JOBS.revalidateBook.queue).add(JOBS.revalidateBook.name, payload, {
+    ...TRANSFORM_JOB_OPTIONS,
+    deduplication: { id: revalidateKey(payload.bookId), keepLastIfActive: true },
+  });
+}
+
+/** Whether the book's re-check is waiting or running. */
+export async function isBookRevalidationPending(bookId: string): Promise<boolean> {
+  const queue = getQueue(QUEUES.transform);
+  const jobId = await queue.getDeduplicationJobId(revalidateKey(bookId));
+  const job = jobId ? await queue.getJob(jobId) : undefined;
+  if (!job) return false;
+  const state = await job.getState();
+  return state !== "completed" && state !== "failed" && state !== "unknown";
 }
 
 export type TransformJobStatus = { running: boolean; progress: { done: number; total: number } | null };

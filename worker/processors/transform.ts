@@ -2,7 +2,9 @@ import type { Job } from "bullmq";
 
 import { log } from "@/lib/log";
 import { JOBS, recordTemplateTransformRun, type TransformRunRecord } from "@/lib/queue";
+import { prisma } from "@/lib/db/client";
 import { transformDocument, transformTemplate } from "@/lib/transform/service";
+import { revalidate } from "@/lib/validation/revalidate";
 import { parseInput } from "@/lib/validation";
 
 async function record(templateId: string, run: Omit<TransformRunRecord, "finishedAt">): Promise<void> {
@@ -40,6 +42,13 @@ export async function processTransformJob(job: Job): Promise<unknown> {
     case JOBS.transformDocument.name: {
       const { documentId } = parseInput(JOBS.transformDocument.schema, job.data);
       return transformDocument(documentId);
+    }
+    case JOBS.revalidateBook.name: {
+      const { bookId } = parseInput(JOBS.revalidateBook.schema, job.data);
+      const book = await prisma.book.findFirst({ where: { id: bookId, deletedAt: null }, select: { id: true } });
+      if (!book) return { changed: 0 };
+      const changes = await revalidate(prisma, bookId, { all: true });
+      return { changed: changes.length };
     }
     default:
       throw new Error(`Unknown transform job: ${job.name}`);

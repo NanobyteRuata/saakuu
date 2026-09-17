@@ -356,6 +356,9 @@ Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pur
   for Myanmar era): then it is converted once. A `DATE` field has already converted its year, so nothing converts twice.
 - **Step 8.** Phase 6 validates what the transform knows: its own warnings and errors, and `OutputColumn.isRequired`.
   `ValidationRule` kinds arrive with their CRUD and the revalidate job in Phase 7. Void rows carry no flags.
+- **Step 8, Phase 7.** The build stores what it found as `Cell.buildIssues`; the stored `validationState` is worked out
+  after the merge, in the same transaction, by `revalidate` (`lib/validation/`), which adds the required flag and the
+  book's rules. An edited cell is checked against its column type instead of its build issues. See docs/02 → Output table.
 - **Step 9.** If an edit is saved to a row the plan was about to delete, the delete skips it and the row is kept as
   `ORPHANED`, like any edited row that no longer matches (keeping a void state someone set by hand). One refinement: an edited cell's `disagreement` is raised only when the new reading differs from the
   previous reading *and* from your value, and cleared when the reading equals your value. Re-running with an unchanged

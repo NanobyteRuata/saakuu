@@ -24,6 +24,7 @@ export function BookSettingsForm({ book }: { book: BookSettings }) {
   const [defaultModel, setDefaultModel] = useState(book.defaultModel);
   const [numeralSystem, setNumeralSystem] = useState(book.numeralSystem);
   const [dateEra, setDateEra] = useState(book.dateEra);
+  const [threshold, setThreshold] = useState(String(Math.round(book.confidenceThreshold * 100)));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -31,12 +32,18 @@ export function BookSettingsForm({ book }: { book: BookSettings }) {
     name.trim() !== book.name ||
     defaultModel !== book.defaultModel ||
     numeralSystem !== book.numeralSystem ||
-    dateEra !== book.dateEra;
+    dateEra !== book.dateEra ||
+    Number(threshold) !== Math.round(book.confidenceThreshold * 100);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!labelSchema.safeParse(name).success) {
       setError("A book needs a name (up to 200 characters).");
+      return;
+    }
+    const percent = Number(threshold);
+    if (threshold.trim() === "" || !Number.isInteger(percent) || percent < 0 || percent > 100) {
+      setError("Uncertain readings: enter a whole number from 0 to 100.");
       return;
     }
     setPending(true);
@@ -45,6 +52,7 @@ export function BookSettingsForm({ book }: { book: BookSettings }) {
       defaultModel,
       numeralSystem,
       dateEra,
+      confidenceThreshold: percent / 100,
     });
     setPending(false);
     if (!result.ok) {
@@ -107,6 +115,13 @@ export function BookSettingsForm({ book }: { book: BookSettings }) {
             ))}
           </SelectContent>
         </Select>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="settings-threshold">Underline readings below (% confidence)</Label>
+        <Input id="settings-threshold" inputMode="numeric" value={threshold} onChange={(e) => setThreshold(e.target.value)} className="w-28" />
+        <p className="text-muted-foreground text-xs">
+          The AI&apos;s own confidence is only a hint. Values it rated below this get a dotted underline in the table until you edit or review them.
+        </p>
       </div>
       <p className="text-muted-foreground text-sm sm:col-span-2">
         Numeral system and era are used when converting values after extraction. The AI always transcribes exactly

@@ -128,6 +128,9 @@ export type ComputedCell = {
   state: ValueState;
   inherited: boolean;
   confidence: number | null;
+  /** What building the value found (normalising, mapping, coercion). Stored on the cell; validation adds rules to it. */
+  buildIssues: Issue[];
+  /** Build issues plus the required-column check, as the mapping preview shows them. */
   validationState: ValidationState;
   validationMsgs: string[];
 };

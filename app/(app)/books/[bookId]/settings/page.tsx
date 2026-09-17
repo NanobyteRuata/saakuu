@@ -5,11 +5,13 @@ import { DeleteBookButton } from "@/components/books/delete-book-button";
 import { EditColumnsDialog } from "@/components/books/edit-columns-dialog";
 import { ExportPrefsForm } from "@/components/books/export-prefs-form";
 import { GlossaryEditor } from "@/components/books/glossary-editor";
+import { ValidationRulesEditor } from "@/components/books/validation-rules-editor";
 import { Badge } from "@/components/ui/badge";
 import { listGlossary } from "@/lib/books/glossary-service";
 import { COLUMN_TYPE_LABELS } from "@/lib/books/schemas";
 import { cn } from "@/lib/utils";
 import { PAGE_LIMIT_DEFAULT } from "@/lib/validation";
+import { listRules } from "@/lib/validation/rules-service";
 
 import { loadBookPage } from "../data";
 
@@ -45,7 +47,7 @@ function Section({
 
 export default async function BookSettingsPage({ params }: { params: Promise<{ bookId: string }> }) {
   const { user, book } = await loadBookPage((await params).bookId);
-  const glossary = await listGlossary(user.id, book.id, { limit: PAGE_LIMIT_DEFAULT });
+  const [glossary, rules] = await Promise.all([listGlossary(user.id, book.id, { limit: PAGE_LIMIT_DEFAULT }), listRules(user.id, book.id, { counts: false })]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,6 +62,7 @@ export default async function BookSettingsPage({ params }: { params: Promise<{ b
             dateEra: book.dateEra,
             blankToken: book.blankToken,
             illegibleToken: book.illegibleToken,
+            confidenceThreshold: book.confidenceThreshold,
             updatedAt: book.updatedAt,
           }}
         />
@@ -112,6 +115,13 @@ export default async function BookSettingsPage({ params }: { params: Promise<{ b
         description="Conventions your forms use, written in plain language. They're given to the AI with every extraction for this book."
       >
         <GlossaryEditor bookId={book.id} initial={glossary} />
+      </Section>
+
+      <Section
+        title="Validation rules"
+        description="Checks run on every cell of a column. Failing cells are flagged in the table with the reason; nothing is blocked."
+      >
+        <ValidationRulesEditor bookId={book.id} columns={book.columns.map((c) => ({ id: c.id, label: c.label, dataType: c.dataType }))} initial={rules} />
       </Section>
 
       <Section title="Export preferences" description="How cells without a readable value appear in the exported CSV.">

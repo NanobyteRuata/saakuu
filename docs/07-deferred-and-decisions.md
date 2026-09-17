@@ -175,6 +175,35 @@ older column in the same book is not, so the century belongs to the column writt
 per era (2000 / 2500 / 1300), never "this century today", so a rebuild is reproducible. The default stays `REFUSE`: an
 unconfigured field flags the date rather than guessing. (Phase 6)
 
+**37. Deleting a row is soft and survives re-extraction.** A hard delete would come straight back on the next rebuild,
+because the raw record still produces it. `Row.deletedAt` lets the merge keep matching the row by record key and leave it
+deleted, and keeps the deleted row's edits recoverable. (Phase 7)
+
+**38. Edits are stored in the column's canonical form when they read as its type.** An operator typing `12/3/2024` into
+a date column means the date, and the export should say `2024-03-12`; "the AI transcribes, it does not normalise" is about
+the model, not about a person's typing. A value that doesn't read as the type is stored exactly as typed and flagged, so
+nothing typed is ever lost. The cell shows the saved form at once. (Phase 7)
+
+**39. Build issues and rule issues are stored apart; validation state is derived.** Rules change far more often than
+extractions and must re-check without rebuilding rows, and an edited cell's build warnings stop applying. So the
+transform stores `Cell.buildIssues`, and `validationState` is recomputed from them, the column type (for edited values),
+the required flag and the rules, in the same transaction as whatever changed. Rule saves re-check their columns in the
+request so flags appear at once; a queued job re-checks whole books. (Phase 7)
+
+**40. Template-level rule overrides are deferred.** docs/01 §16 allows overriding book rules per template, but
+`ValidationRule` has no template reference, and no real override case exists yet. Adding a nullable `templateId` later is
+additive. The template editor's Validation tab waits for it. (Phase 7)
+
+**41. An editing session is one undo step.** Saves debounce while typing; logging each as its own `CellEdit` would make
+Undo step back through half-typed values. A save names the session's entry and extends it while it is still the cell's
+latest change. Undo is refused once someone or something changed the cell again, rather than overwriting it. (Phase 7)
+
+**42. Rule patterns run on RE2, not JavaScript regular expressions.** Rules run on the server, inside the transaction of
+every edit to their column. A backtracking pattern such as `(a|aa)*$` can take exponential time and no static check catches
+every such shape, so patterns go through `re2js` (a pure-JS RE2 port, no native build), which is linear. The cost is RE2
+syntax: no backreferences or lookarounds. Mapping split patterns (Phase 6) still use JavaScript regular expressions with the
+nested-repeat check; moving them to RE2 is a follow-up. (Phase 7)
+
 ---
 
 ## Part C — Open questions for later

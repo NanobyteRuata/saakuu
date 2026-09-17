@@ -597,6 +597,46 @@ Rules:
 - `RawRecord.duplicateOf` is written by the overlap dedupe and cleared when a record stops being a duplicate. It is the
   only raw-layer column the transform writes.
 
+## Output table (Phase 7)
+
+One additive migration:
+- `Cell.extractedState ValueState` (default `OK`): the state of `extractedValue`. `state` follows `currentValue`, so
+  without it reverting an edited `ILLEGIBLE` cell couldn't restore `ILLEGIBLE`. Backfilled from `state`.
+- `Cell.buildIssues Json?`: `[{ severity, message }]` the transform found for the extracted value (normalising, mapping,
+  coercion). Backfilled from `validationMsgs`; the next rebuild writes it exactly.
+- `CellEdit.kind CellEditKind` (`EDIT | REVERT | UNDO`, default `EDIT`) and `CellEdit.flags Json?`
+  (`{ before, after }`, each `{ state, isEdited, disagreement }`), so a logged change can be undone exactly.
+- `Row.deletedAt DateTime?`.
+- `Book.confidenceThreshold Float` (default 0.75), docs/08 §3.
+
+Rules:
+- **Validation state is derived, never typed.** A cell's `validationState/validationMsgs` = its `buildIssues` (or, once
+  edited, the column-type check of `currentValue`) + the column's required flag + every enabled `ValidationRule` on its
+  column (`lib/validation/rules.ts`, pure). Void and deleted rows carry no flags. It is recomputed in the transaction of
+  every change it depends on: a rebuild (the document), an edit, revert or undo (the row), void, delete and reorder (the
+  row or document), a rule saved or deleted (its columns, whole book). Column changes queue a book-wide re-check job.
+  Only changed cells are written, guarded on the value they were computed from.
+- `UNIQUE` counts exact `currentValue`s over live, non-void rows of live documents in the book; a change re-checks the
+  rows that share the old or new value. `MONOTONIC` compares a row with the counting row above it in the same document,
+  by manual position, so it re-checks whole documents. `TYPE` rules are accepted but add nothing: every value is always
+  checked against its column type. `REGEX` rules run on RE2 (`re2js`), which matches in linear time, so a typed pattern
+  can't stall a check.
+- **An edit stores the canonical value when it reads as the column type** (`12/3/2024` → `2024-03-12`, `၄၂` → `42`),
+  otherwise exactly what was typed, flagged. It never writes `extractedValue`, clears `disagreement`, and leaves
+  `isReviewed` alone. Typing the value already there changes nothing.
+- **Revert** writes `currentValue = extractedValue`, `state = extractedState`, `isEdited = false`,
+  `disagreement = false`. A rebuild also refreshes `extractedState`, `inherited`, `confidence` and `buildIssues` on edited
+  cells (never `currentValue` or `state`), so revert is right after a re-extraction.
+- **Every change a person makes is logged** (`CellEdit`, with `flags`). The debounced saves of one editing session extend
+  one entry while it is the cell's latest change, so Undo takes the whole session back. Undo is refused once the cell no
+  longer holds what the change wrote, and is itself logged (`UNDO`). "Keep mine" only clears `disagreement`.
+- **Deleting a row is soft.** A rebuild still matches a deleted row by record key and never touches `deletedAt`, so a row
+  deleted by hand doesn't return with a re-extraction. Every count shown to people leaves deleted rows out. Cells are
+  still created for deleted rows when a column is added (invariant 5).
+- **Reordering** takes the book lock and writes the one row: its key goes between the row it now follows and the next
+  key after that among all the book's rows (code-unit order, the moved row excluded).
+- A hand-set void (`isVoid` that disagrees with `voidReason`) is kept by rebuilds, as before.
+
 ## Indexing notes
 
 - The output table query is `Row where bookId, order by position` with cells joined.

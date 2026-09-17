@@ -244,10 +244,10 @@ async function computeDeleteImpact(db: Db, mappingId: string, templateId: string
     select: { outputColumnId: true, outputColumn: { select: { label: true } } },
   });
   if (!mapping) throw new AppError("NOT_FOUND", "That mapping doesn't exist or was deleted.");
-  const cells = { outputColumnId: mapping.outputColumnId, row: { document: { templateId, deletedAt: null } } } satisfies Prisma.CellWhereInput;
+  const cells = { outputColumnId: mapping.outputColumnId, row: { deletedAt: null, document: { templateId, deletedAt: null } } } satisfies Prisma.CellWhereInput;
   const clearedCells = await db.cell.count({ where: { ...cells, isEdited: false, NOT: [{ currentValue: null }, { currentValue: "" }] } });
   const editedCells = await db.cell.count({ where: { ...cells, isEdited: true } });
-  const documents = await db.document.count({ where: { templateId, deletedAt: null, rows: { some: {} } } });
+  const documents = await db.document.count({ where: { templateId, deletedAt: null, rows: { some: { deletedAt: null } } } });
   const body = { columnLabel: mapping.outputColumn.label, documents, clearedCells, editedCells };
   return { impactHash: impactHash({ action: "mappings.delete", mappingId, ...body }), ...body };
 }

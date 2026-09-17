@@ -15,6 +15,7 @@ const { db } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ prisma: db }));
 vi.mock("@/lib/auth/guards", () => ({ requireBookAccess: vi.fn().mockResolvedValue({ id: "book1", userId: "u1" }) }));
+vi.mock("@/lib/transform/triggers", () => ({ requestBookRevalidation: vi.fn().mockResolvedValue(undefined) }));
 
 import { applyColumnOps, previewColumnOps } from "./columns-service";
 import type { ColumnOp } from "./schemas";

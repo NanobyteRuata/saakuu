@@ -32,6 +32,7 @@ export type BookSettings = {
   dateEra: "GREGORIAN" | "BUDDHIST" | "MYANMAR";
   blankToken: string;
   illegibleToken: string;
+  confidenceThreshold: number;
   updatedAt: string;
 };
 
@@ -49,6 +50,7 @@ const settingsSelect = {
   dateEra: true,
   blankToken: true,
   illegibleToken: true,
+  confidenceThreshold: true,
   updatedAt: true,
 } satisfies Prisma.BookSelect;
 
@@ -71,7 +73,7 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
         select: {
           columns: { where: { deletedAt: null } },
           documents: { where: { deletedAt: null } },
-          rows: { where: { document: { deletedAt: null } } },
+          rows: { where: { deletedAt: null, document: { deletedAt: null } } },
         },
       },
     },
@@ -97,7 +99,7 @@ export async function getBook(userId: string, bookId: string): Promise<BookDetai
     prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: settingsSelect }),
     loadColumns(prisma, bookId),
     prisma.document.count({ where: { bookId, deletedAt: null } }),
-    prisma.row.count({ where: { bookId, document: { deletedAt: null } } }),
+    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null } } }),
   ]);
   return { ...toSettings(book), columns, documentCount, rowCount };
 }
@@ -154,8 +156,8 @@ export async function booksDeleteImpact(userId: string, ids: string[], db: Db = 
   const [documents, photos, rows, editedCells] = await Promise.all([
     db.document.count({ where: liveDocuments }),
     db.photo.count({ where: { document: liveDocuments } }),
-    db.row.count({ where: { document: liveDocuments } }),
-    db.cell.count({ where: { isEdited: true, row: { document: liveDocuments } } }),
+    db.row.count({ where: { deletedAt: null, document: liveDocuments } }),
+    db.cell.count({ where: { isEdited: true, row: { deletedAt: null, document: liveDocuments } } }),
   ]);
   const counts = { books: unique.length, documents, photos, rows, editedCells };
   return { impactHash: impactHash({ action: "books.delete", ids: unique, ...counts }), ...counts };

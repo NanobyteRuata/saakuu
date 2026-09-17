@@ -1,4 +1,4 @@
-import type { ComputedCell, ComputedRow, ValidationState, ValueState } from "./types";
+import type { ComputedCell, ComputedRow, Issue, ValidationState, ValueState } from "./types";
 
 /**
  * Merging computed rows into the rows and cells already stored (docs/03 §8 step 9). Pure: it decides
@@ -11,12 +11,19 @@ import type { ComputedCell, ComputedRow, ValidationState, ValueState } from "./t
  *   the previous reading and from your value, `disagreement` is raised and the cell is unreviewed.
  * - A row void by rule follows the rule; a row whose void state you changed keeps your choice.
  * - A row no longer produced is deleted, unless it holds edits: then it is kept, void, as `ORPHANED`.
+ * - A row deleted by hand is matched like any other and stays deleted: the merge never writes `deletedAt`.
+ *
+ * Validation state is not decided here: after the plan is written, `revalidate` (lib/validation) combines each
+ * cell's build issues with the book's rules. `validationState` on a created cell is only a first value.
  */
 
 export type CellValues = {
   extractedValue: string | null;
   currentValue: string | null;
   state: ValueState;
+  /** The state of `extractedValue`; `state` follows `currentValue`. */
+  extractedState: ValueState;
+  buildIssues: Issue[];
   isEdited: boolean;
   isReviewed: boolean;
   inherited: boolean;
@@ -42,6 +49,18 @@ export type RowAnchor = { after: string } | { before: string } | { document: tru
 
 export type RowWrite = { id: string; rawRecordId: string | null; recordKey: string | null; isVoid: boolean; voidReason: string | null };
 
+/** An edited cell takes the new reading's details (so revert restores them), never `currentValue` or `state`. */
+export type EditedCellUpdate = {
+  id: string;
+  extractedValue: string | null;
+  extractedState: ValueState;
+  inherited: boolean;
+  confidence: number | null;
+  buildIssues: Issue[];
+  disagreement: boolean;
+  isReviewed: boolean;
+};
+
 export type MergePlan = {
   newRowGroups: { anchor: RowAnchor; rows: RowWrite[] }[];
   rowUpdates: RowWrite[];
@@ -50,7 +69,7 @@ export type MergePlan = {
   /** Cells nobody edited: every value is replaced. */
   autoCellUpdates: { id: string; values: CellValues }[];
   /** Edited cells: never `currentValue`. */
-  editedCellUpdates: { id: string; extractedValue: string | null; disagreement: boolean; isReviewed: boolean }[];
+  editedCellUpdates: EditedCellUpdate[];
   rowDeletes: string[];
   /** Kept because they hold edits; included in `rowUpdates`. */
   orphanedRows: string[];
@@ -61,6 +80,8 @@ export function freshCell(c: ComputedCell): CellValues {
     extractedValue: c.value,
     currentValue: c.value,
     state: c.state,
+    extractedState: c.state,
+    buildIssues: c.buildIssues,
     isEdited: false,
     isReviewed: false,
     inherited: c.inherited,
@@ -71,19 +92,23 @@ export function freshCell(c: ComputedCell): CellValues {
   };
 }
 
+export function sameIssues(a: Issue[], b: Issue[]): boolean {
+  return a.length === b.length && a.every((x, i) => x.severity === b[i]?.severity && x.message === b[i]?.message);
+}
+
+/** Validation fields are left out: revalidation owns them. */
 function sameValues(a: CellValues, b: CellValues): boolean {
   return (
     a.extractedValue === b.extractedValue &&
     a.currentValue === b.currentValue &&
     a.state === b.state &&
+    a.extractedState === b.extractedState &&
+    sameIssues(a.buildIssues, b.buildIssues) &&
     a.isEdited === b.isEdited &&
     a.isReviewed === b.isReviewed &&
     a.inherited === b.inherited &&
     a.confidence === b.confidence &&
-    a.disagreement === b.disagreement &&
-    a.validationState === b.validationState &&
-    a.validationMsgs.length === b.validationMsgs.length &&
-    a.validationMsgs.every((m, i) => m === b.validationMsgs[i])
+    a.disagreement === b.disagreement
   );
 }
 
@@ -166,8 +191,22 @@ export function planMerge(computed: ComputedRow[], existing: ExistingRow[], newI
         const readingChanged = cell.value !== old.extractedValue;
         const disagreement = cell.value === old.currentValue ? false : readingChanged ? true : old.disagreement;
         const isReviewed = disagreement && readingChanged ? false : old.isReviewed;
-        if (readingChanged || disagreement !== old.disagreement || isReviewed !== old.isReviewed) {
-          plan.editedCellUpdates.push({ id: old.id, extractedValue: cell.value, disagreement, isReviewed });
+        const detailsChanged =
+          cell.state !== old.extractedState ||
+          cell.inherited !== old.inherited ||
+          cell.confidence !== old.confidence ||
+          !sameIssues(cell.buildIssues, old.buildIssues);
+        if (readingChanged || detailsChanged || disagreement !== old.disagreement || isReviewed !== old.isReviewed) {
+          plan.editedCellUpdates.push({
+            id: old.id,
+            extractedValue: cell.value,
+            extractedState: cell.state,
+            inherited: cell.inherited,
+            confidence: cell.confidence,
+            buildIssues: cell.buildIssues,
+            disagreement,
+            isReviewed,
+          });
         }
       } else {
         const unchanged = old.currentValue === cell.value && old.state === cell.state;

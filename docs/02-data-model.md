@@ -36,6 +36,8 @@ model User {
   name          String?
   image         String?
   passwordHash  String?   // null for OAuth-only users
+  aiApiKeyCipher String?  // Phase 12: the user's own Gemini key, encrypted at rest
+  aiApiKeyHint   String?  // Phase 12: last 4 characters, for display only
   createdAt     DateTime  @default(now())
   accounts      Account[]
   sessions      Session[]
@@ -294,6 +296,7 @@ model Document {
   lastRunAt          DateTime?
   lastModel          String?
   manualValues       Json?        // MANUAL-mode field values: { fieldId: value }
+  contentChangedAt   DateTime?    // Phase 11: a page was transformed, replaced or added
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
   deletedAt          DateTime?
@@ -322,6 +325,9 @@ model Photo {
   height         Int
   byteSize       Int
   transform      Json?       // { crop:{x,y,w,h}, rotate:number, deskew:number }
+  transformedAt  DateTime?   // Phase 11: null means untouched since upload
+  replacedAt     DateTime?   // Phase 11: superseded by a re-shot page
+  deletedAt      DateTime?   // Phase 11: soft delete, so old provenance still resolves
   status         PhotoStatus @default(DRAFT)
   errorMessage   String?
   createdAt      DateTime    @default(now())
@@ -455,6 +461,8 @@ model Cell {
   disagreement    Boolean         @default(false)  // re-extraction differs from an edit
   validationState ValidationState @default(NONE)
   validationMsgs  String[]        @default([])
+  reviewedAt      DateTime?       // Phase 12: when isReviewed became true
+  reviewedVia     ReviewSource?   // Phase 12: how it was reviewed
   updatedAt       DateTime        @updatedAt
 
   row    Row          @relation(fields: [rowId], references: [id], onDelete: Cascade)
@@ -465,6 +473,11 @@ model Cell {
   @@index([outputColumnId, validationState])
   @@index([rowId])
 }
+
+// Phase 12: how a cell came to be reviewed. Without this, one row-level mark stamps
+// every cell in the row at the same instant and no timing figure derived from
+// reviewedAt means anything (decision 57).
+enum ReviewSource { CELL ROW ILLEGIBLE }
 
 model CellEdit {
   id            String   @id @default(cuid())
@@ -671,6 +684,46 @@ outlive the row by a grace period so a restored backup still finds its images (d
 - Objects with no row and no tombstone are swept after a day (docs/09 §5).
 - A second additive migration indexes `Photo.originalKey`, `workingKey` and `thumbKey`: the sweep asks, for each page
   of listed objects, whether any photo references a key.
+
+## Staleness and re-shooting (Phase 11)
+
+A document's reading goes wrong the moment its pages change, and until Phase 11 nothing recorded that.
+The crop warning was shown once at save time and then the document looked identical to a correct one.
+
+**Staleness is a document-level fact** (decision 58). A document is stale when `contentChangedAt` is
+later than the `finishedAt` of its latest successful run. Three things set `contentChangedAt`: a page
+transformed, a page replaced, a page added. A marker that caught only transforms would still miss a
+third of the cases while being trusted for all of them.
+
+- `Photo.transformedAt` answers *which* page changed, for the drawer. `Document.contentChangedAt` is the
+  denormalised copy the Documents list actually queries: that list is virtualised and cursor-paginated,
+  and "max over this document's photos, compared against its latest run" would be a join per visible row.
+- **Replacing a page** writes a new `Photo` at the same `documentId` and `pageIndex` and sets the old
+  one's `replacedAt` and `deletedAt`. The old row stays so that provenance from existing cells keeps
+  resolving to an image between the replace and the re-extraction; its files age out through the normal
+  tombstone path (§ Storage lifecycle).
+- **Rows, cells and edits are untouched by a replace.** They hang off `Document` and `Row`, never off
+  `Photo`, which is what makes replace safe and makes deleting the document the wrong workaround.
+- `assertNoExtractionOutput` is relaxed for replace and add. Deleting or reordering a page of an
+  extracted document stays refused (docs/07 Part C, question 10).
+
+The re-shoot workflow is then three pieces that already exist: replace → the document is stale →
+re-extract → the Phase 6 rule keeps every edited cell. No new merge logic.
+
+## Keys, cost and review timing (Phase 12)
+
+- **`User.aiApiKeyCipher`** holds a user's own Gemini key, encrypted at rest by `lib/crypto` with an
+  `ENCRYPTION_KEY` env var, never logged and never returned to the client. `aiApiKeyHint` is the last
+  four characters, which is all the UI shows. A user without one falls back to the server key where the
+  deployment has configured one (decision 54).
+- **Cost** is derived from `ExtractionRun.inputTokens` / `outputTokens`, recorded since Phase 5. No new
+  column: what was missing was a readout, not data. Quota is deliberately not modelled yet (decision 55).
+- **`Cell.reviewedAt` and `Cell.reviewedVia`** are written together whenever `isReviewed` becomes true.
+  `reviewedVia` matters as much as the timestamp: `ROW` marks every cell of a row at one instant, and an
+  average that mixes those with per-cell confirms is meaningless (decision 57). Both are nullable with no
+  backfill — cells reviewed before this phase simply have no timing, and the launch period onward does.
+- Nothing reads these yet. They exist because review data not collected at launch cannot be recovered,
+  while the readout that uses it can be built at any time (decision 56).
 
 ## Indexing notes
 

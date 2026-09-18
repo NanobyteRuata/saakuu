@@ -82,7 +82,7 @@ run):
 | Job | When | Does |
 |---|---|---|
 | `system.reap-stale` | every 60 s | §4: stale `RUNNING` runs, stuck photos, documents whose run state drifted |
-| `storage.cleanup` | daily 03:30 UTC | purge → due deletions → orphan sweep, below |
+| `storage.cleanup` | daily 03:30 UTC | purge → due deletions → orphan sweep, below; from Phase 12 it also strips `rawResponse` from old successful runs (§8) |
 
 **Storage cleanup** (lib/storage/lifecycle.ts). No other code deletes stored files. One rule holds throughout: **an
 object any Photo row references is never deleted.**
@@ -142,3 +142,71 @@ Both processes write one JSON object per line to stdout/stderr (`lib/log.ts`). S
 To follow one extraction from click to finish, take `X-Request-Id` from the browser's network tab and search both
 logs for it: the request line has it as `requestId`, the worker's lines as `correlationId`. Error pages show a
 **Reference** (Next.js digest) that matches the server's error line.
+
+## 8. AI cost and keys (Phase 12)
+
+Extraction is the only thing this product does that costs money per use, and until Phase 12 none of it
+was visible: `ExtractionRun.inputTokens` and `outputTokens` had been recorded since Phase 5 and were
+surfaced nowhere, there was no quota and no per-user cap, and a single server key meant every user's
+extraction landed on the owner's bill.
+
+**Two key sources** (decision 54). A user can save their own Gemini key; the deployment's
+`GEMINI_API_KEY` remains the fallback for people the owner invites directly. `providerStatus()` resolves
+per user, and the Extract dialog always names which key a run will use.
+
+- User keys are encrypted at rest (`lib/crypto`, `ENCRYPTION_KEY`). They are never logged, never
+  returned to the client and never included in an error message. Only the last four characters are
+  shown back.
+- **Rotating `ENCRYPTION_KEY` invalidates every stored user key.** There is no re-wrap step in v1: if it
+  is rotated, users must paste their keys again. Treat it like a database credential — back it up with
+  the deployment secrets, separately from the database dump, or a restore comes back with keys that
+  cannot be decrypted.
+- A restored backup carries ciphertext. It is only usable with the `ENCRYPTION_KEY` that was live when
+  the dump was taken.
+
+### Watch the bill
+
+There is deliberately **no quota** (decision 55). Sizing a limit before hosted extraction is a real cost
+line, and before per-document pricing is understood, prices the product blind. What to watch instead,
+from the token columns already recorded:
+
+```sql
+-- spend shape for the last 30 days, per user
+SELECT u.email,
+       count(*)                      AS runs,
+       sum(r."inputTokens")          AS in_tokens,
+       sum(r."outputTokens")         AS out_tokens,
+       count(DISTINCT r."documentId") AS documents
+FROM "ExtractionRun" r
+JOIN "Document" d ON d.id = r."documentId"
+JOIN "Book"     b ON b.id = d."bookId"
+JOIN "User"     u ON u.id = b."userId"
+WHERE r."finishedAt" > now() - interval '30 days'
+  AND r.state = 'COMPLETE'
+GROUP BY u.email
+ORDER BY in_tokens DESC;
+```
+
+**Build the quota when both are true:** extraction on the server key is a cost line worth naming in a
+month, and the query above has enough history to set a number that is not a guess. The unit — documents,
+pages or tokens — is still open (docs/07 Part C, question 12). Until then, the exposure is bounded by
+who the owner invites, since self-serve users bring their own key.
+
+### `rawResponse` retention
+
+`ExtractionRun.rawResponse` holds the full model response for every run, for debugging. The Phase 9
+storage lifecycle covers photo **objects**, not this JSON, so it grew in Postgres without limit
+(decision 63).
+
+- **Failed runs keep it for ever.** That is when it is actually wanted.
+- **Successful runs lose it after 30 days**, in the daily `storage.cleanup`. Nothing else about the run
+  changes: the token counts, timings, `photoIds` and raw values all stay, so cost history and provenance
+  are unaffected.
+
+Check what it is costing before changing the window:
+
+```sql
+SELECT pg_size_pretty(sum(pg_column_size("rawResponse"))) AS raw_response_bytes,
+       count(*) FILTER (WHERE "rawResponse" IS NOT NULL)  AS runs_with_response
+FROM "ExtractionRun";
+```

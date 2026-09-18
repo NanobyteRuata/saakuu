@@ -14,6 +14,29 @@ Primary document language: Burmese handwriting, with mixed Latin/Burmese numeral
 Expected raw extraction error rate: 40–50% on handwritten non-Latin script. The
 system is designed around that reality rather than against it.
 
+**Say the error rate out loud** (decision 61). "Reviewing beats typing" is
+counterintuitive at 40–50%, and session one is where a new user decides whether to
+believe it. Meeting that number unprepared reads as a broken product; being told it
+first reads as an honest one. The Extract dialog states it before anyone's first run,
+scoped to the paper — "on handwriting like this" — and never as a claim about the
+product's accuracy.
+
+**What "reviewing rather than transcribing" is measured by.** Seconds per reviewed
+cell, and it is only measurable if the data records it. Until Phase 12 it did not:
+marking a cell reviewed wrote no timestamp and no log row, so the product's stated
+measure of success was not computable from its own database. From Phase 12 every cell
+records `reviewedAt` and **how** it was reviewed — a per-cell confirm, a row-level
+mark, or `I` for unreadable — because a row mark stamps every cell in the row at one
+instant and an average that mixes the two is fiction (decisions 56, 57). The readouts
+built on it are deliberately later; the collection is not, because data not gathered
+at launch cannot be recovered.
+
+**Setup is subject to the same thesis as data.** The machine proposes, the human
+disposes — applied to the output columns (`Create columns from this template`,
+Phase 10) and later to the field tree itself (post-v1 item 1). Setup was the one place
+the product asked an operator to author a schema from nothing, before they had read a
+single document (decisions 52, 53).
+
 ## 2. Core concepts
 
 | Concept | Definition |
@@ -47,6 +70,12 @@ an **Extraction** or **Run**. Use these terms consistently in code and UI.
 - Email verification required for credentials sign-up.
 - Password reset via emailed single-use token, 1 hour expiry.
 - Sessions: 30-day rolling, database-backed.
+- **AI key, per account** (Phase 12, decision 54). A user may save their own Gemini key;
+  the deployment's server key remains the fallback for people the owner invites directly.
+  Stored encrypted, never shown again beyond its last four characters. Bring-your-own
+  removes the owner's cost exposure for self-serve signups; the server key keeps friction
+  at zero for invited users, which matters because the audience is explicitly
+  non-technical. No quota is set until pricing is understood (decision 55, docs/09 §8).
 
 ## 5. Navigation shell
 
@@ -83,7 +112,15 @@ date era, the glossary, validation rules, and the edit-output-table action.
 **Editing the output table** opens a modal that first shows the blast radius —
 which templates' mappings break, which columns will be cleared, how many cells are
 affected and how many of those carry human edits — and requires explicit
-confirmation. See §8.
+confirmation. See §8. A column that no template maps is not silently blank for ever:
+the report names the templates that could fill it, and the table's column header says
+`Not filled by any template` until one does (Phase 10).
+
+**The book opens where you left it** (Phase 10, decision 60), per user and per book. A
+book with no templates always opens on Templates — Table is the tab that stays empty
+longest for a new user and the slowest to load for a returning one. A `Resume review`
+button in the header goes straight to the first unreviewed cell, so coming back to a
+book does not mean loading every row of a table you are about to leave.
 
 ### 6.4 Templates tab
 List of templates. Each item shows:
@@ -181,6 +218,11 @@ Bulk actions: `Extract`, `Re-extract`, `Move to another template`, `Delete`.
    selected documents already have human-edited cells.
 3. Confirm → one job enqueued per document, with an **idempotency key** so a
    double-click cannot double-charge.
+   The dialog also **warns, without blocking, when the template has no mappings yet**
+   (Phase 10). Extracting before mapping is the *correct* order — the mapping preview
+   needs real values to be worth anything — so the wording teaches that order rather
+   than forbidding it. Without the warning a first-time user can pay for four hundred
+   documents and land on an empty table.
 4. UI shows live per-document progress; failures are per-photo and retryable
    individually.
 
@@ -417,6 +459,18 @@ Full corner-drag perspective correction is deferred.
 
 Handle EXIF orientation on upload. Convert HEIC to JPEG on upload. Generate a
 thumbnail and a max-2048px working copy; send the working copy to the model.
+
+**Editing a page invalidates its last reading, and that must be recorded, not just
+warned about** (decision 58). From Phase 11 a document is marked
+`Changed since last read` whenever one of its pages is transformed, replaced or added,
+and stays marked until it is read again. A one-off warning at save time is forgotten
+across four hundred documents; a chip and a `Needs re-extraction` filter are not.
+
+**A page can be re-shot without destroying the document** (decision 59). `Replace page`
+puts a new photo at the same page index of the same document: rows, cells, human edits
+and reviewed marks all survive, because they hang off the Document and Row, never the
+Photo. Before this the only way to fix an unreadable page was deleting the whole
+document — throwing away exactly the reviewed work the product exists to protect.
 
 ## 16. Validation rules
 

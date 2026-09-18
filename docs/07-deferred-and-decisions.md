@@ -16,7 +16,9 @@ no migration and no data backfill.
 | Edit reasons | `CellEdit.reason` | UI only; column exists from v1. |
 | Team sharing | `Book.userId` → membership table later | Personal in v1. Concurrent editing of the output table is a separate design problem. |
 | Perspective correction | `Photo.transform` JSON is open-ended | Add a `corners` key; crop/rotate/deskew ship in v1. |
-| Cost calibration | `ExtractionRun.inputTokens/outputTokens` | Recorded from v1 so estimates can be calibrated against history. |
+| Cost calibration | `ExtractionRun.inputTokens/outputTokens` | Recorded from v1 so estimates can be calibrated against history. Surfaced as money in Phase 12; a quota is sized from it later (decision 55). |
+| AI proposes the template | none needed | A photo in, a field tree out, corrected in the existing editor. Post-v1 item 1; `Create columns from this template` is its cheap half and ships in Phase 10 (decisions 52, 53). |
+| Review-speed readouts | `Cell.reviewedAt`, `Cell.reviewedVia` | Collected from Phase 12 so the launch period is measurable; the display is built when there is data worth showing (decisions 56, 57). |
 
 ---
 
@@ -244,6 +246,93 @@ The claim's `startedAt` doubles as a fencing token, so a worker that lost its lo
 **50. The template editor's Validation tab is removed from v1.** It was a placeholder for per-template rule overrides
 (decision 40). Shipping a tab that only says "later" costs a click and trust; overrides are post-v1 item 10. (Phase 9)
 
+**51. The setup defects found in the Phase 10 walkthrough are fixed before launch, not added to
+post-v1.** They are gaps in what Phases 2–9 already claim done, not new capabilities. On a feature list
+a defect loses to a feature every time, for ever. The plan already has the precedent twice: 3.1 and 9.1
+were both inserted after their predecessor shipped, from looking at the real thing. (Phase 10)
+
+**52. The app proposes output columns; the human disposes.** `Create columns from this template` makes
+one Output Column and one `COPY` mapping per unmapped `Extract` field. A first book is almost always
+1:1 field → column, so the hardest part of setup becomes one click and a round of renaming. This is the
+product's own thesis — the machine does the first pass, the human corrects it — applied to setup instead
+of only to data. It also dissolves four separate findings at once: no empty column list, no Settings
+round-trip, no `DRAFT` template at the first extraction, no silently unfilled column. (Phase 10)
+
+**53. AI-proposed templates are post-v1, not v1.** Same idea as 52 one level up: a photo in, a field tree
+out, corrected by hand. Worth a phase of its own, not worth delaying launch, and proposing Phase 3.1's
+groups and selection groups is much harder than proposing flat fields. (Post-v1 item 1)
+
+**54. Both AI key sources: the user's own key and the server's.** A user can paste their own Gemini key;
+the server key stays as the fallback for people the owner invites directly. BYO alone would have removed
+the owner's cost exposure at the price of onboarding friction — "go make an API key" — landing in exactly
+the first hour Phase 10 exists to smooth, for an audience that is explicitly non-technical. Server-key
+alone would have put every stranger's extraction on the owner's bill. (Phase 12)
+
+**55. Quota is not built until pricing is known.** Token counts have been recorded per run since Phase 5,
+so the data to size a limit is already accumulating. Setting a number before hosted extraction is a real
+cost line, and before per-document pricing is understood, prices the product blind. The trigger condition
+is recorded in docs/09 §8 so it is not forgotten. (Phase 12)
+
+**56. Cell review is timestamped from launch; the readouts come later.** The product's stated measure of
+success is seconds per reviewed cell (docs/01 §1), and today that is not computable: marking a cell
+reviewed writes no timestamp and no log row, and `Cell.updatedAt` is bumped by anything. The column is
+tiny and the display can wait, but data not collected at launch cannot be recovered afterwards. (Phase 12)
+
+**57. The review timestamp records how the cell was reviewed.** `Cell.reviewedVia` is `CELL` (a per-cell
+confirm), `ROW` (a row-level `⌘Enter`) or `ILLEGIBLE` (`I`). A single row-mark reviews N cells at one
+instant; averaged blindly, that makes any "seconds per cell" figure fiction. Deciding this at collection
+time is free; discovering it later means the launch period's data is already useless. (Phase 12)
+
+**58. Staleness means "the document changed since it was last read", not "a crop changed".** A page
+replaced, added or transformed all invalidate the previous reading in the same way. A marker that caught
+only transforms would be worse than none, because it would be trusted and would still miss a third of
+the cases. A document is stale when `Document.contentChangedAt` is later than the latest successful run's
+`finishedAt`. (Phase 11)
+
+**59. A page can be replaced without destroying the document.** Today `completeUpload` takes only a
+`templateId`, so every upload makes a new document, and `assertNoExtractionOutput` refuses to delete a
+page of an extracted one. The only path left is deleting the whole document — losing its rows, its human
+edits and its review state, which is the exact work the product exists to protect. Replace keeps the
+`documentId` and `pageIndex`, soft-deletes the old photo so existing provenance still resolves, and
+leaves rows and cells untouched. It then composes with 58 and the Phase 6 no-overwrite rule: replace →
+marked stale → re-extract → edited cells survive. (Phase 11)
+
+**60. The book remembers which tab you were on.** Opening a book always landed on Table, the tab that
+stays empty longest for a new user and the most expensive to load for a returning one. The last tab is
+kept per user and per book in `localStorage`, with a computed default when it is missing or unreadable;
+a book with no templates always opens on Templates. Opening a book never drops the operator straight
+into full-screen review — a `Resume review` button in the header does that explicitly. (Phase 10)
+
+**61. The expected error rate is stated before the first extraction.** 40–50% on handwritten Burmese is
+the premise the whole product is designed around (docs/01 §1), but "reviewing beats typing" is
+counterintuitive at that rate, and session one is where a new user decides whether to believe it.
+Discovering the number unprepared reads as a broken product; being told it first reads as an honest one
+and turns a quit-moment into a confirmed prediction. The copy is scoped to the paper —
+"on handwriting like this" — never to the product as a claim about its accuracy. (Phase 10)
+
+**62. Mapping stays inside the template, but gets its own route.** It was considered as a fifth book tab.
+Mappings belong to a Template, a book can hold several, and a book-level tab would need a template picker
+that rebuilds the nesting with worse deep links. The editing loop — add a field, map it, read the
+preview, fix the field — is three-quarters inside the template. The preview stays glued to the mapping
+editor because it follows the *unsaved* draft; split out, it would become a read-only duplicate of the
+Table tab. What was actually wrong was width and the lack of a URL, so Mapping becomes
+`/templates/[id]/mapping` and the editor stops being squeezed by the book chrome. (Phase 10)
+
+**63. `rawResponse` is kept on failures and stripped from old successes.** It is the full model response
+for every run, held for ever, and the Phase 9 storage lifecycle covers photo objects rather than this
+JSON, so it grows in Postgres without limit. A failed run is when the response is actually wanted;
+a successful run older than 30 days loses it in the existing daily `storage.cleanup`. (Phase 12)
+
+**64. The post-v1 order is provisional until real usage replaces the guess.** It was written before
+anyone used the product. Its top items — vocabulary autocomplete and column sweep — both speed up
+*review*, which is already the strongest part of the app, while setup is where users actually fail.
+Launch, watch three real operators, then re-rank. (Post-v1)
+
+**65. Team sharing moves up if the buyers need seats.** v1 is personal to one user, and team sharing sits
+at post-v1 item 9. But operators do the work and operators do not buy software: the buyer is a clinic,
+NGO or research manager. If the first paying conversations need multiple seats, that item is mispriced
+where it sits. Do not move it on a guess — move it on a conversation. (Post-v1)
+
 ---
 
 ## Part C — Open questions for later
@@ -276,3 +365,15 @@ Not blocking v1, but worth revisiting once real data exists.
    validation or as a document-level review flag? Confirmed in Phase 6: cell-level on the mapped
    cell (warning or error per the group's setting), and the document's `needsReview` through its
    `CELLS_FLAGGED` flag.
+10. Should deleting or reordering a page of an already-extracted document be allowed, and what happens
+    to the `RawRecord`s that point at it? Current answer: blocked. Phase 11 supports replace and add,
+    which cover the real need (a re-shot page, an incompletely photographed form) without having to
+    decide what a dangling record means.
+11. Does BYO API key actually clear for a non-technical operator, or does it cost more signups than it
+    saves in bill? Both key sources ship (decision 54); watch which one new users actually complete at.
+12. When quota is finally built (decision 55), what is the right unit — documents, pages or tokens?
+    Documents is what an operator counts, tokens is what the bill counts, pages is what the cost
+    actually scales with. Answer it from the first months of recorded token data, not now.
+13. Does the per-column correction rate (how often the AI's reading survived review) change what people
+    do — switch a bad field to `MANUAL`, reword a note, change model? The data starts accumulating in
+    Phase 12; the readout is only worth building if the answer is yes.

@@ -1,8 +1,13 @@
 # 06 — Build Plan
 
-Ten phases. Each is independently shippable and has acceptance criteria. Do not start
-a phase before the previous one's criteria pass. Phases 0–9 are v1. Phase 3.1 is an
-inserted revision of the source layer and must pass before Phase 4.
+Each phase is independently shippable and has acceptance criteria. Do not start a phase
+before the previous one's criteria pass. Phases 0–9.1 built v1; Phases 10–12 make it
+survive its first hour and its first strangers, and the launch gate sits after Phase 12.
+
+Phases 3.1, 9.1 and 10–12 were inserted after their predecessors shipped, from looking at
+the real thing: 3.1 from modelling real registers, 9.1 from reviewing the book detail
+screen, 10–12 from walking a new operator through the product end to end. Reasoning for
+10–12 and the decisions behind them: docs/07 Part B, decisions 51–65.
 
 ## Testing policy (until launch)
 
@@ -325,23 +330,238 @@ and now waits out photo processing before extracting the selection.
 
 ---
 
-## Post-v1, in the order I would build them
+## Phase 10 — The first hour
 
-1. **Vocabulary autocomplete** — per-column value vocabulary built from existing
+Inserted after Phase 9.1, from walking a new operator through the whole product rather than one screen.
+v1 works well **once you are set up**. Getting set up is the weakest hour in the product, and one mistake
+inside it costs real money. No schema change; UI, copy and service-level checks only, so this phase ships
+and reverts on its own.
+
+**What the walkthrough found**, in the order a new user meets it:
+
+1. Create Book demands output columns at step 2, before the user has read a single document. That is
+   schema authoring, asked of an operator, about data they have not seen.
+2. Creating a book lands on the Table tab — the tab that stays empty longest. Its empty state offers two
+   links and no order between them.
+3. The Mapping tab's "The book has no output columns" state names Settings but does not link there, and
+   cannot add a column in place.
+4. The mapping preview — "the single highest-value affordance in the editor" (docs/05 §7) — reads
+   `No extracted documents yet` on every first visit. Nothing anywhere teaches the working order:
+   fields → upload → **extract one** → map against its real values → extract the rest.
+5. Extraction is never warned on a template with no mappings. The Extract dialog warns for `CONFLICTED`
+   but not `DRAFT`, and `blockerFor` does not look at mappings at all. A first-time user can extract 400
+   documents, pay for every one, and land on an empty table.
+6. An output column added later is silently unfilled: it appears in the table, stays blank forever, and
+   nothing points at the templates that would need a mapping for it.
+7. Returning to a book lands on the Table tab again and loads every row before the operator can reach
+   review — the one thing they came back to do.
+
+**Added:**
+- **`Create columns from this template`**, in the Mapping tab. For every `Extract`-mode field with no
+  mapping, it creates an Output Column (label from `labelMeaning` ?? `labelSource`, key auto-slugged,
+  type from the field's data type) and a `COPY` mapping to it. Counted confirmation first
+  ("Creates 11 columns and 11 mappings"). A first book is almost always 1:1 field → column, so this
+  replaces the hardest part of setup with one click and a round of renaming. It is the cheap half of
+  "let the app propose, the human dispose"; the expensive half is post-v1 (AI proposes the template).
+- **`Edit output columns` in the Mapping tab** — the existing column editor modal, mounted where the
+  operator discovers they need a column, instead of only in Settings.
+- **`Try one document`** as a first-class action, from the template editor and the Documents empty state:
+  upload or pick one document, extract only it, show the result beside the photo. It is the trust moment
+  *and* it fills the mapping preview, so the two problems have one fix.
+- **A Draft-template warning in the Extract dialog** — never a blocker, because extracting before mapping
+  is the correct order. The wording teaches that order rather than forbidding it:
+  *"«Name» has no mappings yet, so no rows will appear until you add them. Extracting one document first
+  is the normal way to set one up — the preview needs real values."*
+- **The expected error rate, stated before the first extraction** (decision 61), scoped to the paper and
+  not to the product: *"On handwriting like this, expect to correct roughly half the cells. Correcting is
+  still much faster than typing."* Discovering a 50% error rate unprepared reads as a broken product;
+  being told first reads as an honest one, and it is the moment a first-time user decides to stay.
+- **An unfilled-column signal**: a column-header chip when no template maps that column, and a line in
+  the column editor's impact report after one is added, naming the templates that could fill it.
+
+**Moved:**
+- **Mapping gets its own route**, `/books/[bookId]/templates/[templateId]/mapping`; Fields stays at the
+  template root. It stops being `useState` in `template-editor.tsx`, so it is deep-linkable, code-split
+  and survives the back button. The template editor opts out of the book layout's `max-w-6xl` and the
+  book header collapses to one breadcrumb line while inside a template, so the preview gets real width.
+  Mapping stays **inside the template**, not a book tab (decision 62).
+- **Creating a book lands on Templates**, not Table.
+
+**Landing tab (decision 60).** The book remembers the tab you were last on, per user and per book, in
+`localStorage`; a book with no templates always opens on Templates. Storage can be empty or throw
+(private windows, cleared site data), so every read is wrapped and the computed default renders on its
+own. A **`Resume review`** button appears in the book header whenever unreviewed cells exist, going
+straight to the first of them — the returning operator no longer loads the whole table to leave it.
+Opening a book never drops the operator into full-screen review by itself.
+
+**Tests (per the testing policy):** none new. The Phase 9 E2E gains the column-creation step in place of
+hand-built columns.
+
+**Done when:**
+- A new book, a 12-field template and a full set of mapped columns can be reached without ever opening
+  Settings, and `Create columns from this template` produces one column and one `COPY` mapping per
+  unmapped Extract field after a counted confirmation.
+- Extracting with a `DRAFT` template shows the warning, and still proceeds.
+- `Try one document` extracts exactly one document and leaves the mapping preview showing its values.
+- Mapping is reachable by URL, survives a reload and a back button, and the preview is wider than it is
+  on the Fields route.
+- A column no template fills is marked as such in the table header.
+- Reopening a book returns to the tab last used, and `Resume review` appears exactly when unreviewed
+  cells exist.
+
+---
+
+## Phase 11 — Re-shooting a page
+
+Inserted from the same walkthrough. A page that turns out to be unreadable **during review** is a dead
+end today, and review is where unreadable pages are found.
+
+**Why:**
+- `completeUpload` takes a `templateId` and nothing else (`lib/photos/schemas.ts`, `lib/photos/service.ts`),
+  so every upload creates a **new document**. No endpoint adds a page to an existing one.
+- `assertNoExtractionOutput` refuses to delete a page of a document that has extraction output
+  (`lib/photos/service.ts`), so the bad page cannot be removed either.
+- The only remaining path is deleting the whole document and starting over, which throws away its rows,
+  its human edits and its review state — exactly the work the product exists to protect.
+- Separately, editing a photo's crop already makes the last reading wrong and **nothing records it**. The
+  warning is shown once, at save time, and then the document looks identical to a correct one. Across 400
+  documents that is silent bad data.
+
+**Schema (additive, no backfill):**
+- `Photo.transformedAt DateTime?` — set whenever the transform changes. Null means untouched since upload.
+- `Document.contentChangedAt DateTime?` — set when any page of the document is transformed, replaced or
+  added. Denormalised on purpose: the Documents list is virtualised and cursor-paginated, and per-row
+  "max over photos, compared to the latest run" would be a join per row.
+- `Photo.replacedAt DateTime?` + `Photo.deletedAt DateTime?` — a replaced page is soft-deleted, not
+  removed, so provenance from existing rows keeps resolving until the document is read again.
+
+**Staleness means "the document changed since it was last read"** (decision 58), not "a crop changed".
+A page replaced or added makes the previous reading wrong in exactly the same way a crop does, and a
+marker that catches only two thirds of staleness is worse than none, because it would be trusted.
+A document is stale when `contentChangedAt` is later than the `finishedAt` of the latest successful run.
+
+**Added:**
+- **Replace page.** Upload a new file into an existing `documentId` at an existing `pageIndex`. The old
+  photo is soft-deleted and keeps its storage until the grace period; the document is marked changed.
+  Rows, cells, edits and review state are untouched, because they hang off Document and Row, never Photo.
+  `assertNoExtractionOutput` is relaxed for replace and add.
+- **Add page**, for a multi-page form that was photographed incompletely. Same marking.
+- **A `Changed since last read` chip** on the Documents list row and in the drawer, a
+  **`Needs re-extraction`** filter, and the count carried into the Extract dialog.
+
+Deleting or reordering a page of an already-extracted document stays blocked; those are recorded as an
+open question in docs/07 Part C rather than guessed at here.
+
+This composes with what already exists: replace → the document is marked stale → re-extract → the
+Phase 6 rule keeps every edited cell. Three pieces, no new merge logic.
+
+**Tests (per the testing policy):** unit test that replacing a page keeps the document's rows, cells and
+`isEdited` flags — it is a data-loss path, so it qualifies under the policy.
+
+**Done when:**
+- A page of an extracted document can be replaced, and the document's rows, edits and reviewed marks are
+  all still there afterwards.
+- That document shows `Changed since last read`, the `Needs re-extraction` filter finds it, and
+  re-extracting clears the chip without overwriting an edited cell.
+- Cropping a page of an extracted document marks it the same way.
+- A row's provenance chip still opens a photo between the replace and the re-extraction.
+
+---
+
+## Phase 12 — Before strangers
+
+Launch exposes two things that are unbounded today: the AI bill and the database. Neither is visible to
+anyone, including the operator.
+
+**Why:**
+- `ExtractionRun.inputTokens` / `outputTokens` have been recorded since Phase 5 and are **surfaced
+  nowhere**. There is no quota, no per-user cap and no cost readout. One server API key means every
+  user's extraction lands on the owner's bill.
+- `ExtractionRun.rawResponse` stores the full model response for every run, for ever. The Phase 9
+  storage lifecycle covers photo objects, not this JSON, so it grows in Postgres without limit.
+- Marking a cell reviewed writes **no timestamp and no log row** — `CellEditKind` is `EDIT | REVERT | UNDO`
+  and `Cell.updatedAt` is bumped by anything. The product's stated measure of success, seconds per
+  reviewed cell (docs/01 §1), is therefore not computable from the data it stores.
+
+**Schema (additive):**
+- `User.aiApiKeyCipher String?`, `User.aiApiKeyHint String?` — a user's own Gemini key, encrypted at rest,
+  plus the last four characters for display. New `lib/crypto` with an `ENCRYPTION_KEY` env var.
+- `Cell.reviewedAt DateTime?` and `Cell.reviewedVia ReviewSource?` (`CELL | ROW | ILLEGIBLE`).
+
+**Added:**
+- **Both key sources (decision 54).** A user can paste their own Gemini key; the server key remains as the
+  fallback for people the owner invites directly. `providerStatus()` becomes per-user, and the Extract
+  dialog says which key a run will use. BYO removes the owner's cost exposure for self-serve signups;
+  the server key keeps friction at zero for invited users, which matters because the audience is
+  explicitly non-technical and Phase 10 exists to remove exactly this kind of friction.
+- **Cost in the Extract dialog, in money rather than tokens.** Tokens mean nothing to an operator.
+  Per-book and per-user totals come from the token columns already recorded.
+- **`rawResponse` retention (decision 63):** kept for ever on `FAILED` runs, which is when it is wanted;
+  stripped from successful runs older than 30 days by the existing daily `storage.cleanup` job.
+- **A review timestamp, collected from launch (decision 56).** `reviewedAt` is written whenever a cell
+  becomes reviewed, together with **how** it happened (decision 57): a per-cell confirm, a row-level
+  `⌘Enter`, or `I` for illegible. Without the source a single row-mark stamps N cells at one instant and
+  every later "seconds per cell" figure is fiction. **Readouts are deferred** — this phase only collects,
+  because data not collected at launch cannot be recovered afterwards.
+
+**Not built: quota.** Recorded in docs/09 §8 with the condition that triggers building it — hosted
+extraction becoming a real cost line, and per-document pricing being known well enough to set a number.
+Guessing a limit before either is true prices the product blind.
+
+**Tests (per the testing policy):** unit test that an encrypted key round-trips and is never logged. No
+others.
+
+**Done when:**
+- A user can save their own key, see its last four characters, and extract with it; removing it falls
+  back to the server key where one is configured, and the dialog says which is in use.
+- The Extract dialog states an estimated cost in money.
+- A failed run keeps its `rawResponse`; a successful run older than 30 days has lost it and nothing else.
+- Reviewing a cell by keystroke, by row and by `I` each writes a timestamp and the right source.
+
+---
+
+## Launch gate
+
+Launch after **Phase 12**. Earlier is possible and deliberate:
+
+- **After Phase 10** you can invite people you already know, on the server key, and watch the bill by hand.
+- **Phase 11 and 12 are what make strangers safe** — data that cannot be silently wrong, and a bill that
+  cannot silently grow.
+
+Do not start post-v1 before launching. The post-v1 order below is a guess made before anyone used the
+product, and launching is the only thing that replaces the guess with evidence (decision 64).
+
+## Post-v1
+
+**This order is provisional** (decision 64). It was written before anyone used the product,
+and the ranking of the first three items in particular is a guess about where an operator's
+time actually goes. Re-rank it from real usage after launch rather than building down it.
+
+1. **AI proposes the template** — upload one photo, the model returns the field list, it
+   lands in the existing tree editor, the human corrects it. The product's own thesis
+   ("the AI does the first pass, the human reviews") applied to setup, which is otherwise
+   the one place the user must author from nothing. The provider interface, the versioned
+   prompts and the tree editor all already exist; the output is just a tree. Propose flat
+   fields first — groups and selection groups (Phase 3.1 structure) are much harder to
+   infer and stay manual. Phase 10's `Create columns from this template` is the cheap half
+   of the same idea and ships before launch.
+2. **Vocabulary autocomplete** — per-column value vocabulary built from existing
    entries, offered on edit, with near-miss typo flagging and optional controlled
    vocabulary. Biggest remaining win on typing cost.
-2. **Column sweep review** — one column down all documents with cropped source regions
+3. **Column sweep review** — one column down all documents with cropped source regions
    side by side. Needs no new extraction; the bboxes are already stored.
-3. **Batches** — upload sessions with metadata, feeding CONSTANT mappings and giving
+4. **Batches** — upload sessions with metadata, feeding CONSTANT mappings and giving
    filter/retry granularity.
-4. **Double extraction** — per-template toggle, two passes, disagreement flags.
-5. **Book duplication** — structure only / + documents / full copy.
-6. **Source-definition library with versioning** — portable source layers, books pin a
+5. **Double extraction** — per-template toggle, two passes, disagreement flags.
+6. **Book duplication** — structure only / + documents / full copy.
+7. **Source-definition library with versioning** — portable source layers, books pin a
    version, opt-in updates with a diff.
-7. **Edit reasons UI** — the column already exists.
-8. **Team sharing** — ownership model change, roles, then concurrent editing.
-9. **Perspective correction** — corner-drag four-point transform.
-10. **Template rule overrides** — a nullable `ValidationRule.templateId` and the template editor's Validation tab,
+8. **Edit reasons UI** — the column already exists.
+9. **Team sharing** — ownership model change, roles, then concurrent editing. **Move this up**
+   if the first paying conversations need seats (decision 65): operators do the work, but a
+   clinic, NGO or research manager is who buys.
+10. **Perspective correction** — corner-drag four-point transform.
+11. **Template rule overrides** — a nullable `ValidationRule.templateId` and the template editor's Validation tab,
     overriding book rules for documents read with that template (docs/01 §16, decision 40). Build when a real
     form needs a rule the book-level one gets wrong.
 
@@ -357,3 +577,12 @@ and now waits out photo processing before extracting the selection.
   first and TABLE in a follow-up — the schema supports both from day one.
 - **The transform layer is the product's spine.** Keep it pure and heavily tested; if
   it is correct, mapping mistakes cost zero AI spend to fix.
+- **The first hour is where users are lost, not the tenth.** Review — the part that works
+  best — is only reached by surviving setup. Any future work that speeds up review while
+  setup is still confusing is optimising a stage people never get to (decision 64).
+- **Extraction is the only thing that costs money per use**, and nothing capped or displayed
+  it before Phase 12. Watch the per-user spend query in docs/09 §8 from the first week; build
+  the quota when the number is real rather than guessed (decision 55).
+- **Trust is spent in session one.** At a 40–50% raw error rate, a user who meets the errors
+  before they meet the explanation concludes the product is broken and leaves. `Try one
+  document` and the stated error rate exist for that minute (decision 61).

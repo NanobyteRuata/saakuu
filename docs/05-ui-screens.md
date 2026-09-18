@@ -34,14 +34,38 @@ Step 2: output columns — an editable list with add/remove/drag-reorder. Per co
 label, key (auto-slugged from label, editable), type, and for ENUM a values editor.
 `Create` → navigate to the book's Table tab.
 
+*Planned (Phase 10):* `Create` lands on the **Templates** tab, not Table — Table is the tab
+that stays empty longest, and the real next action is building a template. Step 2's columns
+stop being load-bearing: the copy says they can be left for later, because
+`Create columns from this template` (§7) will propose them from the first template's fields.
+Asking an operator to author a schema for data they have not read yet was the first wall in
+the product (docs/06 Phase 10).
+
 ## 4. Book detail shell
 Header: book name (click to edit inline), row count, `Export CSV`.
 Tabs: **Table** · **Templates** · **Documents** · **Settings**.
+
+*Planned (Phase 10):* the book **remembers which tab you were on**, per user and per book, in
+`localStorage` (decision 60). A book with no templates always opens on Templates. Storage can
+be empty or throw — private windows, cleared site data — so every read is wrapped and the
+computed default renders on its own.
+
+A **`Resume review`** button sits in the header whenever the book has unreviewed cells, going
+straight to the first of them. Without it a returning operator loads every row of a
+virtualised table only to leave it again, which is two clicks and a full page of loading in
+front of the one thing they came back to do. Opening a book never drops anyone into
+full-screen review by itself.
 
 ## 5. Settings tab
 Sections: General (name, default model, numeral system, date era), Output table
 (opens the column editor), Glossary (term/meaning list), Validation rules, Export
 preferences, Danger zone (delete book).
+
+*Planned (Phase 12):* an **AI key** section in the account area (not per book): paste your own
+Gemini key, see its last four characters, remove it. A user without one falls back to the
+server key where the deployment has configured one, and the Extract dialog always says which
+is in use (decision 54). The field explains in one line where a key comes from and that it is
+stored encrypted and never shown again.
 
 **Edit output table** opens the column editor in a modal. On save it calls the preview
 endpoint and shows the impact report before applying. Severity drives the styling:
@@ -71,7 +95,23 @@ and uploading and extracting happen there (Phase 9.1, docs/06). The run badge st
 every 2 s while a run is going, as read-only status.
 
 ## 7. Template editor
-Full-page, two tabs: **Fields** · **Mapping**. (A third **Validation** tab for per-template rule overrides is
+Full-page, two tabs: **Fields** · **Mapping**.
+
+*Planned (Phase 10):* Mapping stops being client state and becomes its own route,
+`/books/[bookId]/templates/[templateId]/mapping`, with Fields at the template root. It is then
+deep-linkable, code-split and survives the back button. The editor opts out of the book
+layout's `max-w-6xl` and the book header collapses to one breadcrumb line while inside a
+template, so the preview gets real width instead of what is left after the book chrome.
+
+Mapping stays **inside the template** rather than becoming a fifth book tab: mappings belong to
+a template, a book can hold several, and a book-level tab would need a template picker that
+rebuilds the same nesting with worse deep links (decision 62). What was wrong was width and
+the missing URL, not the nesting.
+
+*Planned (Phase 10):* **`Try one document`**, offered from the template editor once the tree has
+fields. It uploads or picks a single document, extracts only it, and shows the result beside
+the photo. It is the product's trust moment — the first time anyone sees what the AI actually
+read — and it is also what fills the mapping preview, so one action answers two problems. (A third **Validation** tab for per-template rule overrides is
 post-v1, see docs/06; book rules live in Settings.)
 
 ### Fields tab
@@ -157,6 +197,21 @@ feedback.
   `Rebuild rows` runs it on demand. Deleting a mapping is a counted confirmation: cells that empty, edited cells kept.
 - Documents list chips and the document drawer's `Row checks` show the transform's document flags.
 
+*Planned (Phase 10):*
+- **`Create columns from this template`** sits above the two panes. For every `Extract`-mode field
+  with no mapping it creates an Output Column (label from the meaning label, falling back to the
+  source label; key auto-slugged; type from the field's data type) and a `COPY` mapping to it.
+  Counted confirmation first: `Creates 11 columns and 11 mappings`. A first book is almost always
+  1:1 field → column, so this replaces the hardest part of setup with one click and a round of
+  renaming (decision 52).
+- **`Edit output columns`** opens the existing column editor modal here, where the operator
+  discovers they need a column — not only in Settings. The old state named Settings and did not
+  link to it.
+- The preview's empty state stops being a dead end. Instead of `No extracted documents yet` alone
+  it names the working order — fields → upload → **extract one** → map against its real values →
+  extract the rest — and offers `Try one document` inline. This panel is called the single
+  highest-value affordance in the editor, and it was blank on every first visit.
+
 ### Validation tab (post-v1)
 Per-template overrides of the book's rules. Not built in v1: the tab is not shown. The per-column rule list with
 add/edit/remove, severity selector and live failing-cell count is built at book level, in Settings (Phase 7).
@@ -170,6 +225,13 @@ Selection bar: `Extract`, `Re-extract`, `Move to template`, `Delete`.
 
 Flags surface as inline chips: `possible template mismatch`, `sequence gap`,
 `no rows found`, `has disagreements`.
+
+*Planned (Phase 11):* a **`Changed since last read`** chip joins them, and a
+**`Needs re-extraction`** filter joins the filter bar. A document earns the chip when a page of
+it was transformed, replaced or added after its last successful run (decision 58). Before this,
+cropping a page of an extracted document left it looking identical to a correct one; the warning
+appeared once at save time and then nothing. Over four hundred documents that is silent bad
+data. The Extract dialog carries the same count.
 
 ## 9. Upload & document detail
 **Upload:** drop zone, progress per file, then a staging grid of uploaded photos.
@@ -199,6 +261,20 @@ documents.
 MANUAL-mode field inputs (typed once here, not per cell), run history, and
 `Extract` / `Re-extract`.
 
+*Planned (Phase 11):* **`Replace page`** and **`Add page`** in the drawer.
+
+Until now a page that turned out unreadable during review was a dead end: every upload creates a
+*new* document, no endpoint adds a page to an existing one, and a page of an extracted document
+cannot be deleted. The only path left was deleting the whole document and starting over, which
+throws away its rows, its human edits and its review state — the exact work the product exists
+to protect (decision 59).
+
+Replace takes the old page's place: same document, same page index, old photo soft-deleted so a
+row's provenance chip still opens an image between the replace and the re-extraction. Rows,
+cells and edits are untouched, because they hang off Document and Row, never Photo. The document
+is then marked `Changed since last read`, and re-extracting keeps every edited cell under the
+Phase 6 rule. Deleting or reordering a page of an extracted document stays refused.
+
 Photo grid has a small/medium size toggle. Collapsed state shows a count badge.
 
 ## 10. Photo editor
@@ -216,6 +292,10 @@ stale for this document.
 - Auto-detect suggests a deskew for the current turn and switches the grid on.
 - The crop box moves with the arrow keys and resizes with Shift + arrows.
 - The drawer's page cards show `Edited (updating…)` until the new thumbnail is rendered.
+
+*Planned (Phase 11):* the warning shown at save time stops being the only record. Saving a
+transform marks the document `Changed since last read`, so the operator can find every page they
+touched later instead of having to remember them.
 
 ## 11. Extract modal
 Shows: document count, page count, model selector (pre-filled from template override,
@@ -236,6 +316,27 @@ Confirm enqueues and closes; a progress indicator appears on the affected rows.
   reading of its pages. It explains a blank page (not a failure) and "no rows found" (check template or photo).
 - Template cards refresh every 2 s while their run badge is `Running`, but show no progress detail; the
   Documents list is where a run is watched.
+
+*Planned (Phase 10):*
+- **A `DRAFT`-template warning**, which the dialog never had: it warned for `CONFLICTED` but not for a
+  template with no mappings at all, and `blockerFor` never looked at mappings. A first-time user could
+  extract four hundred documents, pay for every one, and land on an empty table. It is a **warning, not a
+  blocker** — extracting before mapping is the *correct* order, because the mapping preview needs real
+  values — so the wording teaches that order instead of forbidding it:
+  *"«Name» has no mappings yet, so no rows will appear until you add them. Extracting one document first
+  is the normal way to set one up — the preview needs real values."*
+- **The expected error rate, before anyone's first extraction** (decision 61):
+  *"On handwriting like this, expect to correct roughly half the cells. Correcting is still much faster
+  than typing."* 40–50% on handwritten Burmese is the premise the product is designed around, but
+  "reviewing beats typing" is counterintuitive at that rate and session one is where a new user decides
+  whether to believe it. Meeting the number unprepared reads as a broken product; being told first reads
+  as an honest one. The claim is scoped to **the paper**, never phrased as the product's accuracy.
+
+*Planned (Phase 11):* the dialog states how many of the selected documents are
+`Changed since last read`.
+
+*Planned (Phase 12):* the estimate is shown **in money, not tokens** — tokens mean nothing to an
+operator — and the dialog says which key the run will use, the user's own or the server's.
 
 ## 12. Table tab (output table)
 Virtualised grid. Sticky header, sticky first column optional.
@@ -284,6 +385,11 @@ Toolbar above the table: filters (needs review, has errors, edited, by template)
   Dragging is off while a sort is active; a drop writes one row.
 - Header: label, required mark, type, error count and unreviewed count (non-void rows), and a menu with sort, filters
   (Needs attention, Errors, Warnings, Edited, Not reviewed, Empty, Containing…) and `Sweep this column (coming later)`.
+
+*Planned (Phase 10):* a column no template maps carries a **`Not filled by any template`** chip in its
+header, and the column editor's impact report names the templates that could fill it after one is added.
+A column added later was otherwise silently blank for ever: it appeared in the table, stayed empty, and
+nothing pointed at the mapping it needed.
 - Toolbar: Needs attention, Has errors, Edited, template (when several), Show void rows, Clear filters, row height,
   legend, Refresh, `Review rows` (disabled until Phase 8). Readout: `24,000 cells · 24,000 unreviewed · 305 errors`.
 - Disagreement cells carry a chevron opening extracted vs yours with `Keep mine` / `Use extracted`.

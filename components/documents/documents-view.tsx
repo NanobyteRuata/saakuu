@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
-import { ExtractDialog } from "@/components/extraction/extract-dialog";
+import { ExtractDialog, type ExtractTarget } from "@/components/extraction/extract-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -93,6 +93,11 @@ function isFiltered(f: DocumentFilters): boolean {
   return f.templateId !== null || f.runState !== null || f.needsReview !== null || f.hasEdits !== null || f.reviewed !== null || f.q !== "";
 }
 
+/** Arrived from a template card: the list is that template's documents and nothing else is narrowing it. */
+function onlyTemplateFilter(f: DocumentFilters): boolean {
+  return f.templateId !== null && f.runState === null && f.needsReview === null && f.hasEdits === null && f.reviewed === null && f.q === "";
+}
+
 /** Documents tab (docs/05 §8): filter bar, virtualised list, selection bar, detail drawer. */
 export function DocumentsView({ bookId, templates, filters, initialPage }: Props) {
   const router = useRouter();
@@ -107,7 +112,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [extract, setExtract] = useState<{ verb: string; documentIds: string[] } | null>(null);
+  const [extract, setExtract] = useState<{ verb: string; target: ExtractTarget } | null>(null);
   const [progress, setProgress] = useState<Record<string, ExtractionStatus["pages"]>>({});
   const [pollTick, setPollTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -205,6 +210,9 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
 
   const selectedDocs = items.filter((d) => selected.has(d.id));
   const allSelected = items.length > 0 && selectedDocs.length === items.length;
+  // null when no template filter is set, and for a book past MAX_TEMPLATES whose filter points beyond the loaded page:
+  // the template-wide extract and the per-template empty state then fall back to the generic ones.
+  const filterTemplate = templates.find((t) => t.id === filters.templateId) ?? null;
 
   if (templates.length === 0) {
     return (
@@ -225,10 +233,22 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Documents</h2>
-        <Button size="sm" onClick={() => setUploadOpen(true)}>
-          <Upload />
-          Upload documents
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onlyTemplateFilter(filters) && filterTemplate && selected.size === 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExtract({ verb: "Extract", target: { templateId: filterTemplate.id } })}
+            >
+              <Sparkles />
+              <span className="max-w-64 truncate">Extract all in {filterTemplate.name}</span>
+            </Button>
+          ) : null}
+          <Button size="sm" onClick={() => setUploadOpen(true)}>
+            <Upload />
+            Upload documents
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2" role="search" aria-label="Filter documents">
@@ -289,11 +309,11 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
               Clear selection
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setExtract({ verb: "Extract", documentIds: [...selected] })}>
+            <Button variant="outline" size="sm" onClick={() => setExtract({ verb: "Extract", target: { documentIds: [...selected] } })}>
               <Sparkles />
               Extract
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setExtract({ verb: "Re-extract", documentIds: [...selected] })}>
+            <Button variant="outline" size="sm" onClick={() => setExtract({ verb: "Re-extract", target: { documentIds: [...selected] } })}>
               Re-extract
             </Button>
             <Button variant="outline" size="sm" onClick={() => setMoveOpen(true)} disabled={templates.length < 2}>
@@ -310,7 +330,21 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
 
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
-          {isFiltered(filters) ? (
+          {onlyTemplateFilter(filters) && filterTemplate ? (
+            <>
+              <p className="font-medium">No documents in {filterTemplate.name}</p>
+              <p className="text-muted-foreground max-w-md text-sm">
+                This template has no documents yet. Upload photos or PDFs of its paper form to get started.
+              </p>
+              <Button variant="outline" onClick={() => setUploadOpen(true)}>
+                <Upload />
+                Upload documents
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setFilters({ templateId: null })}>
+                Show all documents
+              </Button>
+            </>
+          ) : isFiltered(filters) ? (
             <>
               <p className="font-medium">No documents match these filters</p>
               <p className="text-muted-foreground max-w-md text-sm">Clear a filter or change the search to see more documents.</p>
@@ -484,7 +518,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
         }}
       />
       <ExtractDialog
-        target={extract ? { documentIds: extract.documentIds } : null}
+        target={extract?.target ?? null}
         verb={extract?.verb}
         onOpenChange={(open) => !open && setExtract(null)}
         onStarted={() => {

@@ -55,8 +55,8 @@ test("sign in → book → template → upload → extract → review → export
     await expect(page.getByText(`Saved the mapping for “${column}”`)).toBeVisible();
   }
 
-  // Upload one photo to the template.
-  await page.goto(`${bookUrl}/templates`);
+  // Upload one photo. Ingestion lives on the Documents tab (Phase 9.1); the only template is pre-selected.
+  await page.goto(`${bookUrl}/documents`);
   await page.getByRole("button", { name: "Upload documents" }).click();
   const upload = page.getByRole("dialog", { name: "Upload documents" });
   await upload.locator('input[type="file"]').setInputFiles(FIXTURE);
@@ -64,13 +64,24 @@ test("sign in → book → template → upload → extract → review → export
   await expect(upload.getByRole("button", { name: "Done" })).toBeEnabled({ timeout: 30_000 });
   await upload.getByRole("button", { name: "Done" }).click();
 
-  // Extract: waits for the photo to finish processing, then for the run to complete.
-  const extractButton = page.getByRole("button", { name: "Extract", exact: true });
-  await expect(extractButton).toBeEnabled();
+  // The upload produced one document: a header row and one data row.
+  await expect(page.getByRole("row")).toHaveCount(2);
+
+  // The list only polls while a run is active, so reload until the photo has finished processing.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("row")).toHaveCount(2);
+    await expect(page.getByText("1 page processing")).toBeHidden({ timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
+
+  // Extract the selection. The click is retried: under `next dev` the page can still be hydrating.
   const extractDialog = page.getByRole("alertdialog", { name: "Extract with AI" });
   await expect(async () => {
-    if (!(await extractDialog.isVisible())) await extractButton.click();
-    await expect(extractDialog.getByRole("button", { name: "Extract 1 document" })).toBeEnabled({ timeout: 2_000 });
+    if (!(await extractDialog.isVisible())) {
+      await page.getByRole("checkbox", { name: "Select all loaded documents" }).check();
+      await page.getByRole("button", { name: "Extract", exact: true }).click();
+    }
+    await expect(extractDialog.getByRole("button", { name: "Extract 1 document" })).toBeEnabled({ timeout: 3_000 });
   }).toPass({ timeout: 60_000 });
   await extractDialog.getByRole("button", { name: "Extract 1 document" }).click();
   await expect(extractDialog).toBeHidden();

@@ -276,6 +276,55 @@ mid-job leaves no document stuck in `RUNNING` (stale-run reaper).
 
 ---
 
+## Phase 9.1 — Ingestion lives on the Documents tab
+
+Inserted after Phase 9, from reviewing the book detail screen. Upload and Extract existed in two
+places: on each template card and on the Documents tab. No schema change; UI and routing only.
+
+**Why:**
+- The Templates tab describes the shape of the paper; the Documents tab feeds paper in and watches
+  it run. Ingestion buttons on a template card blur the two jobs.
+- Feedback belongs where the polling is. Documents polls run state every 2 s and offers per-photo
+  retry in the drawer; a template card only refreshes a coarse run badge, so an operator who started
+  a long run there saw almost nothing.
+- Two `UploadDialog` and two `ExtractDialog` mounts meant every change to estimates, warnings or
+  rate-limit copy had to land twice.
+
+**Moved:**
+- Template cards lose `Upload documents` and `Extract`. The document count becomes a link to
+  `/books/[bookId]/documents?templateId=<id>`. The run badge and its 2 s refresh stay, read-only.
+
+**Added, so template-wide extract is not lost:** `{ templateId }` extraction already existed in the
+API, but the template card was its only caller, and the Documents tab could only extract the loaded
+page of a cursor-paginated selection. The Documents header now shows `Extract all in <template>`
+when the template filter is the only one narrowing the list and nothing is selected — it covers the whole
+template, so it must not sit next to a run-state or search filter that shows a smaller set. The label carries no count — the list has
+no total — and `ExtractDialog` states the exact document, extractable and blocker counts before the
+operator confirms. A template-wide extract does re-read documents that already completed; the
+dialog's counts and estimate are what the operator decides on, and edited cells are never
+overwritten (Phase 6 rule).
+
+**Also added:** an empty state for "this template has no documents yet", leading with
+`Upload documents` — otherwise arriving from a fresh template dead-ends on "No documents match
+these filters".
+
+**Docs updated:** docs/01 §6.4 and §6.8, docs/05 §6, §9 and §11.
+
+**Tests (per the testing policy):** no new tests. The Phase 9 E2E is repointed at the Documents tab
+and now waits out photo processing before extracting the selection.
+
+**Done when:**
+- No template card shows an Upload or Extract button, and its document count opens the Documents
+  tab filtered to that template.
+- A template with no documents lands on `No documents in <name>` and its `Upload documents` opens
+  the uploader with that template already chosen.
+- With a template filter active and nothing selected, `Extract all in <name>` covers every document
+  of the template, and the run shows live per-document progress in the list.
+- Selecting rows hides that button and restores `Extract` / `Re-extract`.
+- The Phase 9 E2E passes unchanged in meaning.
+
+---
+
 ## Post-v1, in the order I would build them
 
 1. **Vocabulary autocomplete** — per-column value vocabulary built from existing

@@ -6,8 +6,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
-import { UploadDialog } from "@/components/documents/upload-dialog";
-import { ExtractDialog } from "@/components/extraction/extract-dialog";
 import { Button } from "@/components/ui/button";
 import { getJson } from "@/lib/api-client";
 import type { Page } from "@/lib/db/pagination";
@@ -27,8 +25,6 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toDuplicate, setToDuplicate] = useState<TemplateSummary | null>(null);
   const [toDelete, setToDelete] = useState<TemplateSummary | null>(null);
-  const [uploadTo, setUploadTo] = useState<TemplateSummary | null>(null);
-  const [extractFor, setExtractFor] = useState<TemplateSummary | null>(null);
 
   // A refresh brings new counts and run badges for the first page; keep templates loaded further down.
   useEffect(() => {
@@ -79,48 +75,39 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
       ) : (
         <ul className="flex flex-col gap-3" aria-label="Templates">
           {templates.map((t) => (
-            <li key={t.id} className="flex flex-col gap-3 rounded-xl border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link href={`/books/${bookId}/templates/${t.id}`} className="font-medium hover:underline">
-                  {t.name}
-                </Link>
-                <div className="flex flex-wrap items-center gap-1.5">
+            <li key={t.id} className="flex items-start justify-between gap-4 rounded-xl border p-4">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link href={`/books/${bookId}/templates/${t.id}`} className="font-medium hover:underline">
+                    {t.name}
+                  </Link>
                   <KindBadge kind={t.kind} />
                   <ConfigBadge state={t.configState} />
                   <RunBadge run={t.run} />
                 </div>
-              </div>
-              <p className="text-muted-foreground text-sm">
-                {plural(t.fieldCount, "field")} · {plural(t.documentCount, "document")} · {plural(t.photoCount, "photo")}
-              </p>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setUploadTo(t)}>
-                    Upload documents
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setExtractFor(t)}
-                    disabled={t.documentCount === 0}
-                    title={t.documentCount === 0 ? "Upload documents to this template first." : undefined}
+                <p className="text-muted-foreground text-sm">
+                  {plural(t.fieldCount, "field")} ·{" "}
+                  <Link
+                    href={`/books/${bookId}/documents?templateId=${t.id}`}
+                    className="text-foreground underline decoration-dotted underline-offset-4 hover:decoration-solid"
                   >
-                    Extract
-                  </Button>
-                </div>
-                <div className="flex gap-1 border-l pl-2">
-                  <Button asChild variant="ghost" size="icon" aria-label={`Edit ${t.name}`}>
-                    <Link href={`/books/${bookId}/templates/${t.id}`}>
-                      <Pencil />
-                    </Link>
-                  </Button>
-                  <Button variant="ghost" size="icon" aria-label={`Duplicate ${t.name}`} onClick={() => setToDuplicate(t)}>
-                    <Copy />
-                  </Button>
-                  <Button variant="ghost" size="icon" aria-label={`Delete ${t.name}`} onClick={() => setToDelete(t)}>
-                    <Trash2 />
-                  </Button>
-                </div>
+                    {plural(t.documentCount, "document")}
+                  </Link>{" "}
+                  · {plural(t.photoCount, "photo")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button asChild variant="ghost" size="icon" aria-label={`Edit ${t.name}`}>
+                  <Link href={`/books/${bookId}/templates/${t.id}`}>
+                    <Pencil />
+                  </Link>
+                </Button>
+                <Button variant="ghost" size="icon" aria-label={`Duplicate ${t.name}`} onClick={() => setToDuplicate(t)}>
+                  <Copy />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label={`Delete ${t.name}`} onClick={() => setToDelete(t)}>
+                  <Trash2 />
+                </Button>
               </div>
             </li>
           ))}
@@ -134,22 +121,6 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
         </Button>
       ) : null}
 
-      {uploadTo ? (
-        <UploadDialog
-          bookId={bookId}
-          templates={[{ id: uploadTo.id, name: uploadTo.name, kind: uploadTo.kind }]}
-          initialTemplateId={uploadTo.id}
-          lockTemplate
-          open
-          onOpenChange={(open) => !open && setUploadTo(null)}
-          onClosed={() => router.refresh()}
-        />
-      ) : null}
-      <ExtractDialog
-        target={extractFor ? { templateId: extractFor.id } : null}
-        onOpenChange={(open) => !open && setExtractFor(null)}
-        onStarted={() => router.refresh()}
-      />
       <DuplicateTemplateDialog
         bookId={bookId}
         template={toDuplicate}

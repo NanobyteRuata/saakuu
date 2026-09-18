@@ -53,24 +53,22 @@ requires typing nothing but does require an explicit confirm on a screen that sh
 List of template cards. Each card:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ Vaccination card 2023        [Table]  [Ready] [Complete 40/40]│
-│ 12 fields · 40 documents · 58 photos · last run 2h ago        │
-│                                                               │
-│ [ Upload documents ]  [ Extract ]            [edit] [copy] [×]│
-│ ▸ Documents (40)                                              │
-└──────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│ Vaccination card 2023 [Table] [Ready] [Complete]  [edit][copy][×] │
+│ 12 fields · 40 documents · 58 photos                              │
+│              ^ links to Documents, filtered to this template      │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 Two badges, never merged: **config state** (`Draft` / `Ready` / `Conflicted`) and
 **run state** (`Never run` / `Running 12/40` / `Partial` / `Failed` / `Complete`).
 Conflicted shows a tooltip listing broken mappings and a `Fix mappings` link.
 
-Primary actions (Upload, Extract) are buttons; admin actions (edit, duplicate, delete)
-are icon buttons in a visually separated group at the right.
-
-Expanding shows that template's documents inline, capped at 20 with a link to the
-Documents tab filtered to this template.
+Two lines: name with both badges and the icon actions on the first, counts on the second.
+Admin actions (edit, duplicate, delete) are icon buttons at the right of the first line. The card carries no
+ingestion action: the document count is a link to the Documents tab filtered to this template,
+and uploading and extracting happen there (Phase 9.1, docs/06). The run badge still refreshes
+every 2 s while a run is going, as read-only status.
 
 ## 7. Template editor
 Full-page, two tabs: **Fields** · **Mapping**. (A third **Validation** tab for per-template rule overrides is
@@ -180,10 +178,11 @@ document shows its pages in order with drag-reorder handles. `Done` creates the
 documents.
 
 *As built (Phase 4):*
-- Upload is a large modal. `Upload documents` is always on the Documents tab: the template is
-  pre-selected from the template filter, or when the book has one template; otherwise the operator
-  picks one before the drop zone unlocks. A template card opens the same modal with its template fixed.
-  The template can't change once files are added.
+- Upload is a large modal, opened only from the Documents tab (`Upload documents`, or the empty
+  state). The template is pre-selected from the template filter, or when the book has one template;
+  otherwise the operator picks one before the drop zone unlocks. The template can't change once
+  files are added. Arriving from a template card means the filter is already set, so the template
+  is already chosen.
 - Each finished upload is already a document; everything saves as it happens. Per card:
   - select to group
   - drag pages to reorder
@@ -225,15 +224,18 @@ edited cells, templates in Conflicted state, documents flagged as possible misma
 Confirm enqueues and closes; a progress indicator appears on the affected rows.
 
 *As built (Phase 5):*
-- Opened from the Documents selection bar (`Extract`, `Re-extract`), the document drawer footer, and a template
-  card (all of that template's documents). Documents that can't be extracted are listed with the reason and skipped.
+- Opened from the Documents selection bar (`Extract`, `Re-extract`), the document drawer footer, and
+  `Extract all in <template>` — which appears in the Documents header when the template filter is the only one
+  narrowing the list and nothing is selected, and covers every document of that template, not just the loaded page. Documents that
+  can't be extracted are listed with the reason and skipped.
 - The dialog makes one nonce when it opens and sends it with every submit, and the confirm button disables while
   starting, so a double click is one extraction.
 - The Documents list polls every 2 s while a loaded document is queued or running; multi-request documents show
   `Running 3/12` pages. Failed and partial documents get a chip pointing to the drawer.
 - The drawer lists runs with their pages, error and `Retry these pages` on a failed run that is still the latest
   reading of its pages. It explains a blank page (not a failure) and "no rows found" (check template or photo).
-- Template cards refresh every 2 s while their run badge is `Running`.
+- Template cards refresh every 2 s while their run badge is `Running`, but show no progress detail; the
+  Documents list is where a run is watched.
 
 ## 12. Table tab (output table)
 Virtualised grid. Sticky header, sticky first column optional.

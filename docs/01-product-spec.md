@@ -90,9 +90,9 @@ List of templates. Each item shows:
 - Name, type (Form/Table), field count
 - **Config badge**: `Draft` / `Ready` / `Conflicted`
 - **Run badge**: `Never run` / `Running (n/m)` / `Partial` / `Failed` / `Complete`
-- Document count and total photo count
-- Primary actions: `Upload documents`, `Extract`
-- Secondary (visually separated, icon-only): `Edit`, `Duplicate`, `Delete`
+- Document count (a link to the Documents tab filtered to this template) and total photo count
+- Actions (icon-only): `Edit`, `Duplicate`, `Delete`. Uploading and extracting live on the
+  Documents tab, not here (Phase 9.1, docs/06)
 
 Expand/collapse reveals that template's documents inline; collapsed shows counts only.
 For large templates the inline list caps at 20 with a "view all in Documents" link.
@@ -174,7 +174,8 @@ Bulk actions: `Extract`, `Re-extract`, `Move to another template`, `Delete`.
 - Photo grid has small and medium size options.
 
 ### 6.8 Extract flow
-1. User selects documents (or a whole template) and presses `Extract`.
+1. On the Documents tab the user selects documents and presses `Extract`, or — with a template
+   filter active and nothing selected — presses `Extract all in <template>` for the whole template.
 2. Modal: choose model (pre-filled from template override, else book default),
    shows document count, page count and an estimated cost/time. Warns if any
    selected documents already have human-edited cells.

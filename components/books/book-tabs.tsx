@@ -3,16 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { writeLastTab, type BookTabSegment } from "@/lib/books/landing-tab";
 import { cn } from "@/lib/utils";
 
-const TABS = [
+const TABS: { label: string; segment: BookTabSegment }[] = [
   { label: "Table", segment: "" },
   { label: "Templates", segment: "templates" },
   { label: "Documents", segment: "documents" },
   { label: "Settings", segment: "settings" },
-] as const;
+];
 
-export function BookTabs({ bookId }: { bookId: string }) {
+export function BookTabs({ bookId, userId }: { bookId: string; userId: string }) {
   const pathname = usePathname();
   const root = `/books/${bookId}`;
   return (
@@ -25,6 +26,8 @@ export function BookTabs({ bookId }: { bookId: string }) {
             key={label}
             href={href}
             aria-current={active ? "page" : undefined}
+            // Written before navigating, so landing on the Table tab by choice is not redirected away.
+            onClick={() => writeLastTab(userId, bookId, segment)}
             className={cn(
               "border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
               active ? "border-foreground text-foreground" : "text-muted-foreground hover:text-foreground border-transparent",

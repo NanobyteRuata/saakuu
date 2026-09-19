@@ -141,6 +141,11 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
               {plural(estimate.extractable, "document")} · {plural(estimate.pages, "page")} · {plural(estimate.requests, "request")} to the
               model. Roughly {formatCount(Math.round(estimate.estInputTokens / 100) * 100)} input tokens, {aboutTime(estimate.estSeconds)}.
             </p>
+            {estimate.firstExtraction ? (
+              <p className="text-muted-foreground bg-muted/50 rounded-md border p-3">
+                On handwriting like this, expect to correct roughly half the cells. Correcting is still much faster than typing.
+              </p>
+            ) : null}
             {estimate.warnings.length > 0 ? (
               <ul className="flex list-disc flex-col gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 pl-7" aria-label="Warnings">
                 {estimate.warnings.map((w) => (

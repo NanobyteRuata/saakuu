@@ -21,6 +21,8 @@ export type ImpactReport = {
   affectedCells: number;
   editedCells: number;
   reviewedCells: number;
+  /** Templates that could fill a column being added, so a new column is never silently blank (docs/01 §6.3). */
+  fillableTemplates: { id: string; name: string }[];
 };
 
 export type BooksDeleteImpact = {

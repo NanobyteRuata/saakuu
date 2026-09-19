@@ -17,20 +17,15 @@ test("sign in → book → template → upload → extract → review → export
   test.setTimeout(180_000);
   await createVerifiedUser(page);
 
-  // Book with two output columns.
+  // Book with no columns: they are proposed from the template's fields further down (Phase 10).
   await page.getByRole("link", { name: "Create your first book" }).click();
   await page.getByLabel("Book name").fill("E2E ledger");
   await page.getByRole("button", { name: "Next: columns" }).click();
-  await page.getByLabel("Column 1 label").fill("Name");
-  await page.getByRole("button", { name: "Add column" }).click();
-  await page.getByLabel("Column 2 label").fill("Village");
-  await page.getByRole("button", { name: "Create book" }).click();
-  await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}$/);
-  const bookUrl = new URL(page.url()).pathname;
-  const sections = page.getByRole("navigation", { name: "Book sections" });
+  await page.getByRole("button", { name: "Create book without columns" }).click();
+  await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}\/templates$/);
+  const bookUrl = new URL(page.url()).pathname.replace(/\/templates$/, "");
 
   // Form template with two fields (new fields default to Extract).
-  await sections.getByRole("link", { name: "Templates" }).click();
   await page.getByRole("button", { name: "Create your first template" }).click();
   const createDialog = page.getByRole("dialog");
   await createDialog.getByLabel("Template name").fill("Household card");
@@ -43,17 +38,14 @@ test("sign in → book → template → upload → extract → review → export
     await expect(page.getByRole("list", { name: "Fields and groups in paper order" }).getByText(label, { exact: true })).toBeVisible();
   }
 
-  // Map each column from the field of the same name.
-  await page.getByRole("tab", { name: "Mapping" }).click();
-  for (const column of ["Name", "Village"]) {
-    const row = page.getByRole("listitem").filter({ has: page.getByText(column, { exact: true }) }).filter({ has: page.getByRole("button", { name: "Map" }) });
-    await row.getByRole("button", { name: "Map" }).click();
-    const editor = page.getByRole("form", { name: `Mapping for ${column}` });
-    await editor.getByLabel("Reads").click();
-    await page.getByRole("option", { name: new RegExp(`^${column}`) }).click();
-    await editor.getByRole("button", { name: "Save mapping" }).click();
-    await expect(page.getByText(`Saved the mapping for “${column}”`)).toBeVisible();
-  }
+  // Let the app propose the output table: one column and one COPY mapping per unmapped Extract field.
+  await page.getByRole("link", { name: "Mapping" }).click();
+  await expect(page).toHaveURL(/\/templates\/[a-z0-9]{24}\/mapping$/);
+  await page.getByRole("button", { name: "Create columns from this template" }).click();
+  const proposal = page.getByRole("alertdialog", { name: "Creates 2 columns and 2 mappings" });
+  await proposal.getByRole("button", { name: "Create 2 columns" }).click();
+  await expect(page.getByText("Created 2 columns and 2 mappings")).toBeVisible();
+  await expect(page.getByText("Filled by this template (2)")).toBeVisible();
 
   // Upload one photo. Ingestion lives on the Documents tab (Phase 9.1); the only template is pre-selected.
   await page.goto(`${bookUrl}/documents`);
@@ -86,6 +78,8 @@ test("sign in → book → template → upload → extract → review → export
   await extractDialog.getByRole("button", { name: "Extract 1 document" }).click();
   await expect(extractDialog).toBeHidden();
 
+  // Straight to the table. Nothing in this flow picked a tab, so the landing memory has nothing
+  // stored and the book opens where it is asked to (Phase 10).
   await page.goto(bookUrl);
   await expect(async () => {
     await page.reload();

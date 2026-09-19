@@ -1,8 +1,10 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { generateNKeysBetween } from "fractional-indexing";
 
 import { requireUserId } from "@/lib/auth/guards";
-import { loadColumns } from "@/lib/books/columns-service";
-import type { ColumnType } from "@/lib/books/schemas";
+import { createEmptyCells, loadColumns } from "@/lib/books/columns-service";
+import { proposeColumns, type ProposedColumn } from "@/lib/books/column-proposal";
+import { MAX_COLUMNS, type ColumnType } from "@/lib/books/schemas";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
@@ -225,6 +227,153 @@ export async function updateMapping(userId: string, mappingId: string, draft: Ma
   });
   await requestTemplateTransform(templateId);
   return view;
+}
+
+// ---------- column proposal ----------
+
+/**
+ * Keys read to de-duplicate a proposed one. Soft-deleted columns keep parked keys
+ * (`deletedColumnKey`) and the unique index ignores `deletedAt`, so they count. A book past this
+ * many keys can still propose: `createColumn` retries a key the database rejects.
+ */
+const KEY_SCAN = 2000;
+/** Retries for a key the scan above didn't know was taken. */
+const KEY_ATTEMPTS = 5;
+
+export type ColumnProposal = {
+  items: ProposedColumn[];
+  /** Columns the book already has, so the dialog can say when the proposal was capped. */
+  liveColumns: number;
+  maxColumns: number;
+};
+
+async function buildProposal(db: Db, templateId: string, bookId: string): Promise<ColumnProposal> {
+  const { tree } = await loadSourceTree(db, templateId);
+  const mappings = await db.mapping.findMany({
+    where: { templateId },
+    select: { inputs: { select: { fieldId: true, groupId: true } } },
+    take: MAX_MAPPINGS,
+  });
+  const mappedFieldIds = new Set<string>();
+  const mappedGroupIds = new Set<string>();
+  for (const m of mappings) {
+    for (const input of m.inputs) {
+      if (input.fieldId !== null) mappedFieldIds.add(input.fieldId);
+      if (input.groupId !== null) mappedGroupIds.add(input.groupId);
+    }
+  }
+  const keys = await db.outputColumn.findMany({ where: { bookId }, select: { key: true }, take: KEY_SCAN });
+  const liveColumns = await db.outputColumn.count({ where: { bookId, deletedAt: null } });
+  const items = proposeColumns({
+    tree,
+    mappedFieldIds,
+    mappedGroupIds,
+    takenKeys: keys.map((k) => k.key),
+    liveColumns,
+  });
+  return { items, liveColumns, maxColumns: MAX_COLUMNS };
+}
+
+/** What `Create columns from this template` would create, for the counted confirmation. */
+export async function columnProposal(userId: string, templateId: string): Promise<ColumnProposal> {
+  const { bookId } = await requireTemplateAccess(userId, templateId);
+  return buildProposal(prisma, templateId, bookId);
+}
+
+/** A COPY mapping's draft, with the defaults `mappingDraftSchema` would apply. */
+const EMPTY_DRAFT = {
+  kind: "COPY",
+  inputs: [] as MappingSourceInput[],
+  separator: null,
+  splitBy: null,
+  splitIndex: null,
+  splitRegex: null,
+  constantValue: null,
+  expression: null,
+  fillDown: true,
+} satisfies Omit<MappingDraft, "outputColumnId">;
+
+/** Creates a proposed column, retrying its key if a column outside `KEY_SCAN` already holds it. */
+async function createColumn(tx: Db, bookId: string, item: ProposedColumn, position: string): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const key = attempt === 0 ? item.key : `${item.key.slice(0, 58)}_${attempt + 1}`;
+    try {
+      const column = await tx.outputColumn.create({
+        data: { bookId, key, label: item.label, dataType: item.dataType, enumValues: item.enumValues, position },
+        select: { id: true },
+      });
+      return column.id;
+    } catch (err) {
+      const duplicateKey = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+      if (!duplicateKey || attempt + 1 >= KEY_ATTEMPTS) throw err;
+    }
+  }
+}
+
+/**
+ * Creates one output column and one COPY mapping per unmapped source (docs/06 Phase 10, decision 52).
+ * The proposal is recomputed inside the transaction, so a second click finds nothing left to create
+ * rather than duplicating the first one's columns.
+ */
+export async function applyColumnProposal(userId: string, templateId: string): Promise<{ columns: number; mappings: number }> {
+  const { bookId } = await requireTemplateAccess(userId, templateId);
+  const created = await prisma.$transaction(
+    async (tx) => {
+      // Same lock order as applyColumnOps: the book first, then the template.
+      await tx.$queryRaw`SELECT id FROM "Book" WHERE id = ${bookId} AND "deletedAt" IS NULL FOR UPDATE`;
+      await lockTemplate(tx, templateId);
+
+      const { items } = await buildProposal(tx, templateId, bookId);
+      if (items.length === 0) return 0;
+
+      const others = await tx.mapping.findMany({ where: { templateId }, select: { id: true, outputColumnId: true, position: true }, take: MAX_MAPPINGS });
+      if (others.length + items.length > MAX_MAPPINGS) {
+        throw new AppError("VALIDATION", `A template can have up to ${MAX_MAPPINGS} mappings, and this would need ${others.length + items.length}.`);
+      }
+
+      const columns = await loadColumns(tx, bookId);
+      const columnKeys = generateNKeysBetween(columns.at(-1)?.position ?? null, null, items.length);
+      const mappingKeys = generateNKeysBetween(appendPosition(others), null, items.length);
+
+      // 1. The columns, then their cells in one pass over the book's rows.
+      const created: { item: ProposedColumn; columnId: string }[] = [];
+      for (const [i, item] of items.entries()) {
+        const columnId = await createColumn(tx, bookId, item, columnKeys[i] ?? appendPosition(columns));
+        created.push({ item, columnId });
+      }
+      await createEmptyCells(tx, bookId, created.map((c) => c.columnId));
+
+      // 2. The mappings, checked by the same rules every other mapping write goes through, so a
+      //    proposal can never write one the editor would refuse.
+      const ctx = await loadContext(tx, templateId, bookId);
+      const saved = [...others];
+      for (const [i, { item, columnId }] of created.entries()) {
+        const source: MappingSourceInput =
+          item.source.kind === "field" ? { kind: "field", id: item.source.id } : { kind: "group", id: item.source.id, optionValues: {}, noneValue: null };
+        const draft = { ...EMPTY_DRAFT, outputColumnId: columnId, inputs: [source] };
+        const { mapping, sources } = resolveDraft(draft, ctx.tree);
+        const problem = draftProblem(mapping, null, ctx, saved);
+        if (problem) throw new AppError("VALIDATION", `“${item.label}” can't be mapped: ${problem}`);
+        const row = await tx.mapping.create({
+          data: {
+            templateId,
+            position: mappingKeys[i] ?? appendPosition(saved),
+            ...mappingData(mapping),
+            inputs: { create: inputRows(sources) },
+          },
+          select: { id: true, outputColumnId: true, position: true },
+        });
+        saved.push(row);
+      }
+
+      await tx.book.update({ where: { id: bookId }, data: { updatedAt: new Date() } });
+      await recomputeConfigState(tx, templateId);
+      return items.length;
+    },
+    { timeout: 30_000 },
+  );
+  if (created > 0) await requestTemplateTransform(templateId);
+  return { columns: created, mappings: created };
 }
 
 export type MappingDeleteImpact = {

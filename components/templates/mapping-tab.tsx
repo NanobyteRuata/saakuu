@@ -27,6 +27,9 @@ import { expressionFromDisplay, expressionToDisplay } from "@/lib/transform/expr
 import { DEFAULT_SEPARATOR, optionLabel } from "@/lib/transform/mappings";
 import { MAPPING_KINDS, type MappingKind } from "@/lib/transform/types";
 
+import { TryOneDocument } from "@/components/documents/try-one-document";
+
+import { ColumnSetupBar } from "./column-setup-bar";
 import { DeleteMappingDialog } from "./delete-mapping-dialog";
 import { MappingPreviewPanel } from "./mapping-preview";
 
@@ -534,6 +537,12 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
   const [draft, setDraft] = useState<(MappingDraft & { id: string | null }) | null>(null);
   const [deleting, setDeleting] = useState<{ mappingId: string; columnLabel: string } | null>(null);
   const [status, setStatus] = useState<RetransformStatus>({ state: "idle", done: 0, total: 0, lastRun: null });
+  const [trying, setTrying] = useState(false);
+  /**
+   * Bumped whenever the preview's own inputs change outside it — a new reading, or columns and
+   * mappings created in one go — so it refetches instead of holding a stale answer.
+   */
+  const [previewKey, setPreviewKey] = useState(0);
   const [watching, setWatching] = useState(true);
 
   const options = useMemo(() => sourceOptions(tree), [tree]);
@@ -642,6 +651,18 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
   return (
     <div className="grid items-start gap-6 lg:grid-cols-2">
       <section aria-label="Mappings" className="flex flex-col gap-4">
+        <ColumnSetupBar
+          bookId={template.bookId}
+          templateId={template.id}
+          lang={lang}
+          onApplied={async (message) => {
+            await Promise.all([load(), onChanged()]);
+            setPreviewKey((n) => n + 1);
+            setWatching(true);
+            if (message) toast.success(message);
+          }}
+        />
+
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm" aria-live="polite">
           {status.state === "idle" && status.lastRun?.error ? (
             <span className="text-destructive">{status.lastRun.error}</span>
@@ -667,8 +688,11 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
 
         {overview.columns.length === 0 ? (
           <div className="rounded-xl border border-dashed px-6 py-10 text-center">
-            <p className="font-medium">The book has no output columns</p>
-            <p className="text-muted-foreground text-sm">Add columns in the book&apos;s Settings, then map fields to them here.</p>
+            <p className="font-medium">The book has no output columns yet</p>
+            <p className="text-muted-foreground text-sm">
+              These are the columns of the spreadsheet you export. Create them from this template&apos;s fields above, or
+              add them by hand with Edit output columns.
+            </p>
           </div>
         ) : null}
 
@@ -773,7 +797,9 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
 
       <section aria-label="Preview" className="rounded-xl border p-4 lg:sticky lg:top-[calc(var(--top-bar-height)+1.5rem)]">
         <MappingPreviewPanel
+          key={previewKey}
           templateId={template.id}
+          onTryOneDocument={() => setTrying(true)}
           columns={overview.columns}
           shownColumnIds={shownColumnIds}
           draft={draft}
@@ -781,6 +807,19 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
           lang={lang}
         />
       </section>
+
+      <TryOneDocument
+        bookId={template.bookId}
+        templateId={template.id}
+        templateName={template.name}
+        lang={lang}
+        open={trying}
+        onOpenChange={setTrying}
+        onExtracted={() => {
+          setPreviewKey((n) => n + 1);
+          void Promise.all([load(), onChanged()]);
+        }}
+      />
 
       <DeleteMappingDialog
         mappingId={deleting?.mappingId ?? null}

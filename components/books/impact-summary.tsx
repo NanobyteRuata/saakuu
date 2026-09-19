@@ -46,6 +46,13 @@ export function ImpactSummary({ report, columnLabels }: { report: ImpactReport; 
         edited by you.
       </p>
 
+      {report.fillableTemplates.length > 0 ? (
+        <p>
+          A new column stays empty until a template fills it.{" "}
+          {report.fillableTemplates.map((t) => t.name).join(", ")} can be given a mapping for it in the template&apos;s Mapping tab.
+        </p>
+      ) : null}
+
       {report.brokenMappings.length === 0 ? (
         <p>No template mappings break.</p>
       ) : (

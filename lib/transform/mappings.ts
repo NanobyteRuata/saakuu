@@ -1,4 +1,4 @@
-import { ancestorsFrom, selectionProblem, type Tree } from "@/lib/templates/tree";
+import { ancestorsFrom, selectionProblem, type Tree, type TreeField, type TreeGroup } from "@/lib/templates/tree";
 
 import { parseExpression } from "./expression";
 import type { MappingSource, TransformField, TransformGroup, TransformMapping } from "./types";
@@ -114,7 +114,7 @@ export function mappingProblem(m: TransformMapping, ctx: MappingContext): string
  * An option's default output: its path below the selection group, meaning labels where set
  * (`Positive › A`). A mapping can replace it with its own value per option.
  */
-export function optionLabel(tree: SourceTree, groupId: string, fieldId: string): string {
+export function optionLabel<G extends TreeGroup, F extends TreeField>(tree: Tree<G, F>, groupId: string, fieldId: string): string {
   const node = tree.fields.get(fieldId);
   if (!node) return "";
   const chain: string[] = [];

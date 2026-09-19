@@ -32,23 +32,24 @@ with `Delete (n)`. Empty state explains the concept in two sentences with a CTA.
 Step 1: name, default model.
 Step 2: output columns — an editable list with add/remove/drag-reorder. Per column:
 label, key (auto-slugged from label, editable), type, and for ENUM a values editor.
-`Create` → navigate to the book's Table tab.
 
-*Planned (Phase 10):* `Create` lands on the **Templates** tab, not Table — Table is the tab
-that stays empty longest, and the real next action is building a template. Step 2's columns
-stop being load-bearing: the copy says they can be left for later, because
-`Create columns from this template` (§7) will propose them from the first template's fields.
-Asking an operator to author a schema for data they have not read yet was the first wall in
-the product (docs/06 Phase 10).
+Step 2 starts **empty and optional** (Phase 10). The copy says the columns can be left for
+later, because `Create columns from this template` (§7) proposes them from the first template's
+fields, and the button reads `Create book without columns` while none have been added. `Create`
+lands on the **Templates** tab, not Table — Table is the tab that stays empty longest, and the
+real next action is building a template. Asking an operator to author a schema for data they
+have not read yet was the first wall in the product (docs/06 Phase 10).
 
 ## 4. Book detail shell
 Header: book name (click to edit inline), row count, `Export CSV`.
 Tabs: **Table** · **Templates** · **Documents** · **Settings**.
 
-*Planned (Phase 10):* the book **remembers which tab you were on**, per user and per book, in
-`localStorage` (decision 60). A book with no templates always opens on Templates. Storage can
-be empty or throw — private windows, cleared site data — so every read is wrapped and the
-computed default renders on its own.
+The book **remembers which tab you were on** (Phase 10), per user and per book, in
+`localStorage` (decision 60). A book nobody has opened before, and which has no templates, opens
+on Templates; a tab you picked yourself always wins over that default, including Table. The
+redirect runs once per browser session per book, so the back button is never caught in it.
+Storage can be empty or throw — private windows, cleared site data — so every read is wrapped
+and the computed default renders on its own.
 
 A **`Resume review`** button sits in the header whenever the book has unreviewed cells, going
 straight to the first of them. Without it a returning operator loads every row of a
@@ -95,22 +96,23 @@ and uploading and extracting happen there (Phase 9.1, docs/06). The run badge st
 every 2 s while a run is going, as read-only status.
 
 ## 7. Template editor
-Full-page, two tabs: **Fields** · **Mapping**.
+Full-page, two sections: **Fields** · **Mapping**.
 
-*Planned (Phase 10):* Mapping stops being client state and becomes its own route,
-`/books/[bookId]/templates/[templateId]/mapping`, with Fields at the template root. It is then
-deep-linkable, code-split and survives the back button. The editor opts out of the book
-layout's `max-w-6xl` and the book header collapses to one breadcrumb line while inside a
-template, so the preview gets real width instead of what is left after the book chrome.
+Each is its own route (Phase 10): Fields at the template root and Mapping at
+`/books/[bookId]/templates/[templateId]/mapping`, so both are deep-linkable, code-split and
+survive the back button. Inside a template the book layout drops its `max-w-6xl` and the book
+header collapses to one breadcrumb line, so the preview gets real width instead of what is left
+after the book chrome.
 
 Mapping stays **inside the template** rather than becoming a fifth book tab: mappings belong to
 a template, a book can hold several, and a book-level tab would need a template picker that
 rebuilds the same nesting with worse deep links (decision 62). What was wrong was width and
 the missing URL, not the nesting.
 
-*Planned (Phase 10):* **`Try one document`**, offered from the template editor once the tree has
-fields. It uploads or picks a single document, extracts only it, and shows the result beside
-the photo. It is the product's trust moment — the first time anyone sees what the AI actually
+**`Try one document`** (Phase 10) is offered above the field tree once the tree has fields, from
+the mapping preview's empty state, and from the Documents tab's empty state for a template. It
+uploads or picks a single document, extracts only it, and shows what was read beside the photo —
+hovering a value moves the photo to where it was read. It is the product's trust moment — the first time anyone sees what the AI actually
 read — and it is also what fills the mapping preview, so one action answers two problems. (A third **Validation** tab for per-template rule overrides is
 post-v1, see docs/06; book rules live in Settings.)
 
@@ -197,19 +199,21 @@ feedback.
   `Rebuild rows` runs it on demand. Deleting a mapping is a counted confirmation: cells that empty, edited cells kept.
 - Documents list chips and the document drawer's `Row checks` show the transform's document flags.
 
-*Planned (Phase 10):*
+Added in Phase 10:
 - **`Create columns from this template`** sits above the two panes. For every `Extract`-mode field
   with no mapping it creates an Output Column (label from the meaning label, falling back to the
   source label; key auto-slugged; type from the field's data type) and a `COPY` mapping to it.
-  Counted confirmation first: `Creates 11 columns and 11 mappings`. A first book is almost always
-  1:1 field → column, so this replaces the hardest part of setup with one click and a round of
-  renaming (decision 52).
+  A **selection group is one answer, so it proposes one column**, mapped from the group: `One of`
+  becomes a list column of its option labels, `Any of` a text column, and the group's tick fields
+  are not proposed separately. Counted confirmation first, listing every proposed column:
+  `Creates 11 columns and 11 mappings`. The proposal is recomputed on the server as it is applied,
+  so a second click creates nothing twice. A first book is almost always 1:1 field → column, so
+  this replaces the hardest part of setup with one click and a round of renaming (decision 52).
 - **`Edit output columns`** opens the existing column editor modal here, where the operator
-  discovers they need a column — not only in Settings. The old state named Settings and did not
-  link to it.
-- The preview's empty state stops being a dead end. Instead of `No extracted documents yet` alone
-  it names the working order — fields → upload → **extract one** → map against its real values →
-  extract the rest — and offers `Try one document` inline. This panel is called the single
+  discovers they need a column — not only in Settings.
+- The preview's empty state is not a dead end. Instead of `No extracted documents yet` alone it
+  names the working order — fields → upload → **extract one** → map against its real values →
+  extract the rest — and offers `Try one document` inline. This panel is the single
   highest-value affordance in the editor, and it was blank on every first visit.
 
 ### Validation tab (post-v1)
@@ -317,15 +321,15 @@ Confirm enqueues and closes; a progress indicator appears on the affected rows.
 - Template cards refresh every 2 s while their run badge is `Running`, but show no progress detail; the
   Documents list is where a run is watched.
 
-*Planned (Phase 10):*
+Added in Phase 10:
 - **A `DRAFT`-template warning**, which the dialog never had: it warned for `CONFLICTED` but not for a
-  template with no mappings at all, and `blockerFor` never looked at mappings. A first-time user could
-  extract four hundred documents, pay for every one, and land on an empty table. It is a **warning, not a
-  blocker** — extracting before mapping is the *correct* order, because the mapping preview needs real
+  template with no mappings at all. A first-time user could extract four hundred documents, pay for
+  every one, and land on an empty table. It is a **warning, not a blocker** — extracting before mapping is the *correct* order, because the mapping preview needs real
   values — so the wording teaches that order instead of forbidding it:
   *"«Name» has no mappings yet, so no rows will appear until you add them. Extracting one document first
   is the normal way to set one up — the preview needs real values."*
-- **The expected error rate, before anyone's first extraction** (decision 61):
+- **The expected error rate, before the book's first extraction** — shown while no run of the book has
+  finished, and not on every run after that (decision 61):
   *"On handwriting like this, expect to correct roughly half the cells. Correcting is still much faster
   than typing."* 40–50% on handwritten Burmese is the premise the product is designed around, but
   "reviewing beats typing" is counterintuitive at that rate and session one is where a new user decides
@@ -386,10 +390,11 @@ Toolbar above the table: filters (needs review, has errors, edited, by template)
 - Header: label, required mark, type, error count and unreviewed count (non-void rows), and a menu with sort, filters
   (Needs attention, Errors, Warnings, Edited, Not reviewed, Empty, Containing…) and `Sweep this column (coming later)`.
 
-*Planned (Phase 10):* a column no template maps carries a **`Not filled by any template`** chip in its
-header, and the column editor's impact report names the templates that could fill it after one is added.
-A column added later was otherwise silently blank for ever: it appeared in the table, stayed empty, and
-nothing pointed at the mapping it needed.
+A column no template maps carries a **`Not filled`** chip in its header (Phase 10), and the column
+editor names the templates that could fill a new column — in its impact report, and in the confirmation
+that follows an additive change, which is the one an operator adding a column actually sees. A column
+added later was otherwise silently blank for ever: it appeared in the table, stayed empty, and nothing
+pointed at the mapping it needed.
 - Toolbar: Needs attention, Has errors, Edited, template (when several), Show void rows, Clear filters, row height,
   legend, Refresh, `Review rows` (disabled until Phase 8). Readout: `24,000 cells · 24,000 unreviewed · 305 errors`.
 - Disagreement cells carry a chevron opening extracted vs yours with `Keep mine` / `Use extracted`.

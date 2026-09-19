@@ -1,15 +1,16 @@
 import { notFound } from "next/navigation";
 
-import { TemplateEditor } from "@/components/templates/template-editor";
+import { MappingEditor } from "@/components/templates/mapping-editor";
 import { AppError } from "@/lib/errors";
 import { getTemplate, type TemplateDetail } from "@/lib/templates/service";
 import { idSchema } from "@/lib/validation";
 
-import { loadBookPage } from "../../../data";
+import { loadBookPage } from "../../../../data";
 
 type Params = { params: Promise<{ bookId: string; templateId: string }> };
 
-export default async function TemplateEditorPage({ params }: Params) {
+/** Mapping has its own route so it is deep-linkable and survives the back button (decision 62). */
+export default async function TemplateMappingPage({ params }: Params) {
   const { bookId, templateId } = await params;
   const { user, book } = await loadBookPage(bookId);
   if (!idSchema.safeParse(templateId).success) notFound();
@@ -23,5 +24,5 @@ export default async function TemplateEditorPage({ params }: Params) {
   }
   if (template.bookId !== book.id) notFound();
 
-  return <TemplateEditor initial={template} bookDefaultModel={book.defaultModel} bookDateEra={book.dateEra} />;
+  return <MappingEditor initial={template} bookDefaultModel={book.defaultModel} />;
 }

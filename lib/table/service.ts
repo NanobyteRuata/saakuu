@@ -171,12 +171,14 @@ export async function getTableMeta(userId: string, bookId: string): Promise<Tabl
   ]);
   // Decided exactly as the transform decides which mapping fills a column.
   const columnSources: TableMeta["columnSources"] = {};
+  const filled = new Set<string>();
   for (const t of templates) {
     const ctx = await loadTemplateContext(prisma, t.id);
     if (!ctx) continue;
     const fields = new Map(ctx.fields.map((f) => [f.id, f]));
     const working = firstWorkingMappings(ctx.mappings, { tree: buildTree(ctx.groups, ctx.fields), liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
     for (const [columnId, mapping] of working) {
+      filled.add(columnId);
       const modes = mapping.inputs.map((i) => (i.kind === "field" ? fields.get(i.fieldId)?.mode : undefined));
       const source: ColumnSource | null = modes.length === 0 ? null : modes.every((m) => m === "MANUAL") ? "MANUAL" : modes.every((m) => m === "SKIP") ? "SKIP" : null;
       if (source) (columnSources[t.id] ??= {})[columnId] = source;
@@ -188,6 +190,7 @@ export async function getTableMeta(userId: string, bookId: string): Promise<Tabl
     columns: columns.map((c) => ({ id: c.id, key: c.key, label: c.label, dataType: c.dataType, isRequired: c.isRequired })),
     templates: templates.map((t) => ({ id: t.id, name: t.name })),
     columnSources,
+    unfilledColumnIds: columns.filter((c) => !filled.has(c.id)).map((c) => c.id),
     confidenceThreshold: book.confidenceThreshold,
     totalRows,
   };

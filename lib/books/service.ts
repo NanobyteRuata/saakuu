@@ -40,6 +40,9 @@ export type BookDetail = BookSettings & {
   columns: ColumnState[];
   documentCount: number;
   rowCount: number;
+  templateCount: number;
+  /** Whether `Resume review` has anywhere to go (docs/06 Phase 10). A count would scan every cell. */
+  hasUnreviewedCells: boolean;
 };
 
 const settingsSelect = {
@@ -95,13 +98,27 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
 
 export async function getBook(userId: string, bookId: string): Promise<BookDetail> {
   await requireBookAccess(userId, bookId);
-  const [book, columns, documentCount, rowCount] = await Promise.all([
+  const [book, columns, documentCount, rowCount, templateCount, unreviewed] = await Promise.all([
     prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: settingsSelect }),
     loadColumns(prisma, bookId),
     prisma.document.count({ where: { bookId, deletedAt: null } }),
     prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
+    prisma.template.count({ where: { bookId, deletedAt: null } }),
+    // Existence, not a count: the review queue orders the same rows when the operator gets there.
+    // Driven from Row, whose `bookId` is indexed: reading from Cell makes the planner scan every
+    // cell in the database when the book happens to be fully reviewed.
+    prisma.row.findFirst({
+      where: {
+        bookId,
+        deletedAt: null,
+        isVoid: false,
+        document: { deletedAt: null, template: { deletedAt: null } },
+        cells: { some: { isReviewed: false, column: { deletedAt: null } } },
+      },
+      select: { id: true },
+    }),
   ]);
-  return { ...toSettings(book), columns, documentCount, rowCount };
+  return { ...toSettings(book), columns, documentCount, rowCount, templateCount, hasUnreviewedCells: unreviewed !== null };
 }
 
 export async function createBook(userId: string, input: CreateBookInput): Promise<{ id: string }> {

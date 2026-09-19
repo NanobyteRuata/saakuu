@@ -15,7 +15,7 @@ import type { EditorColumn } from "@/lib/books/column-diff";
 import { pickOption } from "@/lib/books/labels";
 import { labelSchema } from "@/lib/validation";
 
-import { ColumnListEditor, newEditorColumn, validateColumns } from "./column-list-editor";
+import { ColumnListEditor, validateColumns } from "./column-list-editor";
 
 const MODEL_IDS = AI_MODELS.map((m) => m.id);
 
@@ -24,7 +24,7 @@ export function CreateBookWizard() {
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState("");
   const [model, setModel] = useState<AIModelId>(DEFAULT_MODEL_ID);
-  const [columns, setColumns] = useState<EditorColumn[]>(() => [newEditorColumn()]);
+  const [columns, setColumns] = useState<EditorColumn[]>([]);
   const [nameError, setNameError] = useState<string | null>(null);
   const [columnErrors, setColumnErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -43,10 +43,6 @@ export function CreateBookWizard() {
   async function create() {
     const errors = validateColumns(columns);
     setColumnErrors(errors);
-    if (columns.length === 0) {
-      setFormError("Add at least one column.");
-      return;
-    }
     if (Object.keys(errors).length > 0) {
       setFormError("Fix the highlighted columns first.");
       return;
@@ -64,7 +60,8 @@ export function CreateBookWizard() {
       return;
     }
     toast.success("Book created.");
-    router.push(`/books/${result.data.id}`);
+    // Templates, not Table: the table is empty until a template reads a document (docs/06 Phase 10).
+    router.push(`/books/${result.data.id}/templates`);
   }
 
   const modelDescription = AI_MODELS.find((m) => m.id === model)?.description;
@@ -77,7 +74,7 @@ export function CreateBookWizard() {
         <p className="text-muted-foreground text-sm">
           {step === 1
             ? "A book is one project: the spreadsheet you want to fill and everything that fills it."
-            : "List the columns of the spreadsheet you'll export, in order. You can change them later in Settings."}
+            : "The columns of the spreadsheet you'll export, in order. You can leave this empty: once you've built a template, Create columns from this template proposes one column per field, and you rename what needs renaming."}
         </p>
       </div>
 
@@ -132,10 +129,15 @@ export function CreateBookWizard() {
       ) : (
         <div className="flex flex-col gap-4">
           <ColumnListEditor columns={columns} onChange={setColumns} errors={columnErrors} disabled={pending} />
+          {columns.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No columns yet. That&apos;s fine — build a template first and let the app propose them.
+            </p>
+          ) : null}
           {formError ? <FormMessage tone="error">{formError}</FormMessage> : null}
           <div className="flex gap-2">
             <Button type="button" onClick={create} disabled={pending}>
-              {pending ? "Creating…" : "Create book"}
+              {pending ? "Creating…" : columns.length === 0 ? "Create book without columns" : "Create book"}
             </Button>
             <Button type="button" variant="outline" onClick={() => setStep(1)} disabled={pending}>
               Back

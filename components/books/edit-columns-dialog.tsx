@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { FormMessage } from "@/components/auth/form-message";
@@ -21,9 +21,28 @@ import { ImpactSummary } from "./impact-summary";
  * Output table editor. Saves as a diff of ops: preview first, then apply with the preview's hash.
  * SAFE and ADDITIVE changes apply straight away; DESTRUCTIVE ones stop on the impact report.
  */
-export function EditColumnsDialog({ bookId, columns }: { bookId: string; columns: ColumnState[] }) {
+type Props = {
+  bookId: string;
+  columns: ColumnState[];
+  /** Controlled from elsewhere (the Mapping tab opens it where the operator finds they need a column). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Called after columns were saved, so a caller with its own copy of them can reload. */
+  onSaved?: () => void;
+  /** Hidden when the dialog is opened from somewhere else. */
+  showTrigger?: boolean;
+  /** What the caller calls this action, so the heading matches the button that opened it. */
+  title?: string;
+};
+
+export function EditColumnsDialog({ bookId, columns, open: openProp, onOpenChange, onSaved, showTrigger = true, title = "Edit output table" }: Props) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
   const [step, setStep] = useState<"edit" | "impact">("edit");
   const [working, setWorking] = useState<EditorColumn[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -35,25 +54,27 @@ export function EditColumnsDialog({ bookId, columns }: { bookId: string; columns
   const labels = new Map(columns.map((c) => [c.id, c.label]));
   const previewUrl = `/api/books/${bookId}/columns/preview`;
 
+  // Opening seeds the editor from the book's current columns. In an effect rather than in the open
+  // handler, because a caller that controls `open` never goes through that handler.
+  useEffect(() => {
+    if (!open) return;
+    setWorking(columns.map(toEditorColumn));
+    setErrors({});
+    setMessage(null);
+    setReport(null);
+    setStep("edit");
+    // Re-seeding on every columns change would throw away what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   function handleOpenChange(next: boolean) {
     if (pending) return;
-    if (next) {
-      setWorking(columns.map(toEditorColumn));
-      setErrors({});
-      setMessage(null);
-      setReport(null);
-      setStep("edit");
-    }
     setOpen(next);
   }
 
   async function save() {
     const found = validateColumns(working);
     setErrors(found);
-    if (working.length === 0) {
-      setMessage("A book needs at least one column.");
-      return;
-    }
     if (Object.keys(found).length > 0) {
       setMessage("Fix the highlighted columns first.");
       return;
@@ -110,19 +131,24 @@ export function EditColumnsDialog({ bookId, columns }: { bookId: string; columns
     setPending(false);
     setOpen(false);
     const added = currentOps.filter((op) => op.kind === "add").length;
+    const fillable = currentReport.fillableTemplates.map((t) => t.name).join(", ");
     toast.success(
-      currentReport.severity === "ADDITIVE"
+      added > 0
         ? `Output table updated. ${plural(added, "new column")} ${added === 1 ? "stays" : "stay"} empty until a template fills ${added === 1 ? "it" : "them"}.`
         : "Output table updated.",
+      added > 0 && fillable !== "" ? { description: `Add a mapping in ${fillable} to fill ${added === 1 ? "it" : "them"}.` } : undefined,
     );
+    onSaved?.();
     router.refresh();
   }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline">Edit output table</Button>
-      </DialogTrigger>
+      {showTrigger ? (
+        <DialogTrigger asChild>
+          <Button variant="outline">Edit output table</Button>
+        </DialogTrigger>
+      ) : null}
       <DialogContent
         className="sm:max-w-4xl"
         showCloseButton={!pending}
@@ -132,7 +158,7 @@ export function EditColumnsDialog({ bookId, columns }: { bookId: string; columns
         {step === "edit" || !report ? (
           <>
             <DialogHeader>
-              <DialogTitle>Edit output table</DialogTitle>
+              <DialogTitle>{title}</DialogTitle>
               <DialogDescription>
                 Rename, reorder, add or remove columns. Renaming and reordering never lose data; if a change would,
                 you&apos;ll see exactly what it affects before anything is saved.

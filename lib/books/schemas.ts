@@ -72,10 +72,9 @@ export const createBookSchema = z
   .object({
     name: labelSchema,
     defaultModel: modelIdSchema,
-    columns: z
-      .array(columnDraftSchema)
-      .min(1, { error: "Add at least one column." })
-      .max(MAX_COLUMNS, { error: `A book can have up to ${MAX_COLUMNS} columns.` }),
+    // Columns can wait: `Create columns from this template` proposes them from the first template's
+    // fields, so nobody has to author a schema for data they have not read yet (docs/06 Phase 10).
+    columns: z.array(columnDraftSchema).max(MAX_COLUMNS, { error: `A book can have up to ${MAX_COLUMNS} columns.` }),
   })
   .superRefine((book, ctx) => {
     const seen = new Map<string, number>();

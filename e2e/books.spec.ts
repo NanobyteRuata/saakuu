@@ -18,15 +18,18 @@ test("create a book with 5 columns, rename a column, delete a column through the
   await page.getByRole("link", { name: "Create your first book" }).click();
   await page.getByLabel("Book name").fill("Vaccination cards 2023");
   await page.getByRole("button", { name: "Next: columns" }).click();
+  // Step 2 starts empty since Phase 10: columns can be added here or proposed from a template later.
   const labels = ["Full name", "Date of birth", "Village", "Weight (kg)", "Doses given"];
   for (const [i, label] of labels.entries()) {
-    if (i > 0) await page.getByRole("button", { name: "Add column" }).click();
+    await page.getByRole("button", { name: "Add column" }).click();
     await page.getByLabel(`Column ${i + 1} label`).fill(label);
   }
   await page.getByRole("button", { name: "Create book" }).click();
-  await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}$/);
-  const bookId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
+  // Creating a book lands on Templates (Phase 10): the table stays empty until a template reads a document.
+  await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}\/templates$/);
+  const bookId = new URL(page.url()).pathname.split("/").at(-2) ?? "";
   // A new book has no rows, so the table shows its empty state; the columns are checked through the API.
+  await page.getByRole("navigation", { name: "Book sections" }).getByRole("link", { name: "Table" }).click();
   await expect(page.getByText("No rows yet")).toBeVisible();
   const created = await columnsOf(page, bookId);
   expect(created.map((c) => c.key)).toEqual(["full_name", "date_of_birth", "village", "weight_kg", "doses_given"]);

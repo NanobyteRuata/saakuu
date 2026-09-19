@@ -48,7 +48,7 @@ async function loadTargets(db: Db, documentIds: string[]) {
       runState: true,
       templateMatchScore: true,
       template: { select: { id: true, name: true, kind: true, configState: true, modelOverride: true } },
-      book: { select: { defaultModel: true } },
+      book: { select: { id: true, defaultModel: true } },
       photos: {
         orderBy: [{ pageIndex: "asc" }, { id: "asc" }],
         take: MAX_DOCUMENT_PAGES,
@@ -129,6 +129,8 @@ export type ExtractionEstimate = {
   suggestedModel: AIModelId;
   warnings: string[];
   blockers: ExtractionBlocker[];
+  /** Nothing in this book has been read yet: the dialog says what a first reading looks like (decision 61). */
+  firstExtraction: boolean;
 };
 
 const n = (count: number, one: string, many = `${one}s`) => `${count.toLocaleString("en-US")} ${count === 1 ? one : many}`;
@@ -188,6 +190,18 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   if (conflicted.length > 0) {
     warnings.push(`${conflicted.map((name) => `“${name}”`).join(", ")} ${conflicted.length === 1 ? "has" : "have"} broken mappings. Extraction still works, but some columns won't fill until they are fixed.`);
   }
+  // Never a blocker: extracting before mapping is the correct order, because the preview needs real
+  // values (docs/06 Phase 10). The wording teaches that order rather than forbidding it.
+  const draft = [...new Set(ready.filter((t) => t.template.configState === "DRAFT").map((t) => t.template.name))];
+  for (const name of draft) {
+    warnings.push(
+      `“${name}” has no mappings yet, so no rows will appear until you add them. Extracting one document first is the normal way to set one up — the preview needs real values.`,
+    );
+  }
+
+  // From any document of the selection, live or not: an empty selection is not a first reading.
+  const bookId = targets[0]?.book.id ?? (await prisma.document.findFirst({ where: { id: { in: documentIds } }, select: { bookId: true } }))?.bookId ?? null;
+  const previousRun = bookId === null ? null : await prisma.extractionRun.findFirst({ where: { state: "COMPLETE", document: { bookId } }, select: { id: true } });
 
   const provider = providerStatus();
   return {
@@ -203,6 +217,7 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
     suggestedModel: suggested,
     warnings,
     blockers,
+    firstExtraction: bookId !== null && previousRun === null,
   };
 }
 

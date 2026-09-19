@@ -12,11 +12,13 @@ import { nextDocumentPosition } from "@/lib/photos/service";
 import { photoSelect, toPhotoView, type PhotoView } from "@/lib/photos/views";
 import { presignGet } from "@/lib/storage/s3";
 import { requireTemplateAccess } from "@/lib/templates/access";
+import { bboxSchema } from "@/lib/table/service";
 import { parseDocumentFlags, type DocumentFlag } from "@/lib/transform/flags";
 import { requestDocumentTransform } from "@/lib/transform/triggers";
+import type { RowType, ValueState } from "@/lib/transform/types";
 import type { FieldType, TemplateKind } from "@/lib/templates/schemas";
 import { buildTree, flattenTree, formatPath, headerPath } from "@/lib/templates/tree";
-import { fieldSelect, groupSelect } from "@/lib/templates/views";
+import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
 
 import { assertNoExtractionOutput, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
 import { isProblem, planGroup, planReorder, planSplit, type RestructurePlan } from "./restructure";
@@ -331,6 +333,116 @@ async function loadDetail(db: Db, documentId: string): Promise<DocumentDetail> {
 export async function getDocument(userId: string, documentId: string): Promise<DocumentDetail> {
   await requireDocumentAccess(userId, documentId);
   return loadDetail(prisma, documentId);
+}
+
+/** What the AI read, page by page, before any mapping: the first thing anyone sees of a reading. */
+
+
+export type RawValueView = {
+  fieldId: string;
+  label: string;
+  /** The field as it reads on the paper, header path included. */
+  path: string;
+  valueText: string | null;
+  state: ValueState;
+  isDitto: boolean;
+  confidence: number | null;
+  photoId: string | null;
+  bbox: { x: number; y: number; w: number; h: number } | null;
+};
+
+export type RawRecordView = {
+  id: string;
+  recordIndex: number;
+  rowType: RowType;
+  struckThrough: boolean;
+  photoId: string | null;
+  values: RawValueView[];
+};
+
+export type DocumentRawValues = {
+  documentId: string;
+  label: string | null;
+  templateKind: TemplateKind;
+  contentState: ContentState;
+  records: RawRecordView[];
+  /** Records beyond `RAW_RECORD_LIMIT` are not returned; the reading itself keeps all of them. */
+  totalRecords: number;
+};
+
+const RAW_RECORD_LIMIT = 50;
+const RAW_VALUE_LIMIT = 1000;
+
+/**
+ * The document's current raw records, in template order (docs/02 → Raw layer) — the same records the
+ * transform reads, replaced page by page as a page is read again. Read-only and mapping-free on
+ * purpose: `Try one document` shows it before any column exists (docs/06 Phase 10).
+ */
+export async function getDocumentRawValues(userId: string, documentId: string): Promise<DocumentRawValues> {
+  const { templateId } = await requireDocumentAccess(userId, documentId);
+  const [doc, groups, fields, records] = await Promise.all([
+    prisma.document.findUniqueOrThrow({
+      where: { id: documentId },
+      select: { label: true, contentState: true, template: { select: { kind: true } } },
+    }),
+    prisma.fieldGroup.findMany({ where: { templateId }, select: groupSelect }),
+    prisma.field.findMany({ where: { templateId }, select: fieldSelect }),
+    prisma.rawRecord.findMany({
+      where: { documentId },
+      orderBy: [{ recordIndex: "asc" }, { id: "asc" }],
+      take: RAW_RECORD_LIMIT,
+      select: {
+        id: true,
+        recordIndex: true,
+        rowType: true,
+        struckThrough: true,
+        photoId: true,
+        values: {
+          select: { fieldId: true, valueText: true, state: true, isDitto: true, confidence: true, photoId: true, bbox: true },
+          take: RAW_VALUE_LIMIT,
+        },
+      },
+    }),
+  ]);
+  const totalRecords = await prisma.rawRecord.count({ where: { documentId } });
+
+  const tree = buildTree(groups, fields.map(toFieldView));
+  // Template order, so a value sits where the operator's eye already is on the paper.
+  const order = new Map(flattenTree(tree).flatMap((n, i) => (n.kind === "field" ? [[n.id, i] as const] : [])));
+  const labels = new Map(fields.map((f) => [f.id, { label: f.labelMeaning ?? f.labelSource, path: formatPath(headerPath(tree, { kind: "field", id: f.id })) }]));
+
+  return {
+    documentId,
+    label: doc.label,
+    templateKind: doc.template.kind,
+    contentState: doc.contentState,
+    totalRecords,
+    records: records.map((r) => ({
+      id: r.id,
+      recordIndex: r.recordIndex,
+      rowType: r.rowType,
+      struckThrough: r.struckThrough,
+      photoId: r.photoId,
+      values: r.values
+        .map((v): RawValueView => {
+          const bbox = bboxSchema.safeParse(v.bbox);
+          const known = labels.get(v.fieldId);
+          return {
+            fieldId: v.fieldId,
+            // A value of a field deleted since the reading is kept, so it is named rather than hidden.
+            label: known?.label ?? "Deleted field",
+            path: known?.path ?? "Deleted field",
+            valueText: v.valueText,
+            state: v.state,
+            isDitto: v.isDitto,
+            confidence: v.confidence,
+            photoId: v.photoId,
+            bbox: bbox.success ? bbox.data : null,
+          };
+        })
+        .sort((a, b) => (order.get(a.fieldId) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.fieldId) ?? Number.MAX_SAFE_INTEGER)),
+    })),
+  };
 }
 
 // ---------- edits ----------

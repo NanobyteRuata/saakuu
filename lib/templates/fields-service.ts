@@ -108,6 +108,8 @@ export async function fieldsDeleteImpact(userId: string, ids: string[], db: Db =
     affectedCells,
     editedCells,
     reviewedCells,
+    // Deleting fields never adds a column; the table's own report carries this.
+    fillableTemplates: [],
     templateId,
     fields: unique.length,
     fieldLabels: fields.map((f) => f.labelSource),

@@ -21,6 +21,8 @@ function cellText(cell: PreviewCell): string {
 
 type Props = {
   templateId: string;
+  /** The working order the empty state teaches ends in `Try one document`, offered inline. */
+  onTryOneDocument: () => void;
   columns: ColumnOption[];
   /** Columns this template fills, plus the one being edited. */
   shownColumnIds: ReadonlySet<string>;
@@ -34,7 +36,7 @@ type Props = {
  * The mappings applied to a real document's raw values before anything runs (docs/05 §7). Nothing is
  * written. Shows up to 50 rows, void rows labelled, and every flagged cell's message in words.
  */
-export function MappingPreviewPanel({ templateId, columns, shownColumnIds, draft, focusColumnId, lang }: Props) {
+export function MappingPreviewPanel({ templateId, onTryOneDocument, columns, shownColumnIds, draft, focusColumnId, lang }: Props) {
   const [documentId, setDocumentId] = useState<string | undefined>(undefined);
   const [preview, setPreview] = useState<MappingPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,9 +111,18 @@ export function MappingPreviewPanel({ templateId, columns, shownColumnIds, draft
       {!preview ? (
         error ? null : <p className="text-muted-foreground text-sm">Loading the preview…</p>
       ) : !preview.document ? (
-        <div className="rounded-lg border border-dashed px-4 py-8 text-center">
-          <p className="font-medium">No extracted documents yet</p>
-          <p className="text-muted-foreground text-sm">Extract a document with this template to see its real values here.</p>
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-8 text-center">
+          <div className="flex flex-col gap-1">
+            <p className="font-medium">Nothing has been read with this template yet</p>
+            <p className="text-muted-foreground text-sm">
+              The usual order is: add the fields, upload a page, <strong className="font-medium">read one document</strong>,
+              map the columns against its real values, then read the rest. Mapping against real values is much faster than
+              guessing, and reading one page costs almost nothing.
+            </p>
+          </div>
+          <Button size="sm" onClick={onTryOneDocument}>
+            Try one document
+          </Button>
         </div>
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground text-sm">Map a column to see its values for this document.</p>

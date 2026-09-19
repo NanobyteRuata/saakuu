@@ -153,6 +153,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
   const visibleIndex = useMemo(() => new Map(visibleIds.map((id, i) => [id, i])), [visibleIds]);
   const columnIds = useMemo(() => meta.columns.map((c) => c.id), [meta.columns]);
   const counts = useMemo(() => countCells(rows, columnIds), [rows, columnIds]);
+  const unfilledColumnIds = useMemo(() => new Set(meta.unfilledColumnIds), [meta.unfilledColumnIds]);
   const filtered = isToolbarFiltered(toolbar) || Object.keys(columnFilters).length > 0;
   const totalWidth = LEAD_WIDTH + meta.columns.reduce((n, c) => n + columnWidth(c), 0);
 
@@ -645,6 +646,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
                 width={columnWidth(c)}
                 errors={counts.byColumn.get(c.id)?.errors ?? 0}
                 unreviewed={counts.byColumn.get(c.id)?.unreviewed ?? 0}
+                unfilled={unfilledColumnIds.has(c.id)}
                 sort={sort?.columnId === c.id ? sort.direction : false}
                 filter={columnFilters[c.id]}
                 onSort={onSort}

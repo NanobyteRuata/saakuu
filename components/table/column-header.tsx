@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, CircleAlert, CircleDashed, Filter } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleAlert, CircleDashed, Filter, Unplug } from "lucide-react";
 import { memo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ type Props = {
   width: number;
   errors: number;
   unreviewed: number;
+  unfilled: boolean;
   sort: SortDirection;
   filter: ColumnFilter | undefined;
   onSort: (columnId: string, direction: SortDirection) => void;
@@ -35,7 +36,7 @@ type Props = {
 };
 
 /** Label, type, error and unreviewed counts, and a menu for view-only sort and filter (docs/05 §12). */
-export const ColumnHeader = memo(function ColumnHeader({ column, width, errors, unreviewed, sort, filter, onSort, onFilter }: Props) {
+export const ColumnHeader = memo(function ColumnHeader({ column, width, errors, unreviewed, unfilled, sort, filter, onSort, onFilter }: Props) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(filter?.kind === "contains" ? filter.text : "");
   const set = (next: ColumnFilter | undefined) => {
@@ -110,6 +111,15 @@ export const ColumnHeader = memo(function ColumnHeader({ column, width, errors, 
             <CircleAlert className="size-3" aria-hidden />
             {formatCount(errors)}
             <span className="sr-only"> errors</span>
+          </span>
+        ) : null}
+        {unfilled ? (
+          <span
+            className="flex shrink-0 items-center gap-0.5 text-(--attn-warn)"
+            title="No template maps a field to this column, so it stays blank. Add a mapping in a template."
+          >
+            <Unplug className="size-3" aria-hidden />
+            Not filled
           </span>
         ) : null}
         {unreviewed > 0 ? (

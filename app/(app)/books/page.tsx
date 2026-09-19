@@ -14,7 +14,7 @@ export default async function BooksPage() {
   const page = await listBooks(user.id, { limit: PAGE_LIMIT_DEFAULT });
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-      <BookList initialPage={page} />
+      <BookList initialPage={page} userId={user.id} />
     </div>
   );
 }

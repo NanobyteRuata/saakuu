@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -21,23 +21,15 @@ import { langOf } from "@/lib/templates/labels";
 import type { TemplateDetail } from "@/lib/templates/service";
 import { buildTree, formatPath, headerPath, sameRef, type SiblingRef } from "@/lib/templates/tree";
 import type { FieldView, GroupView } from "@/lib/templates/views";
-import { cn } from "@/lib/utils";
+
+import { TryOneDocument } from "@/components/documents/try-one-document";
 
 import { DeleteFieldDialog } from "./delete-field-dialog";
 import { DeleteGroupDialog } from "./delete-group-dialog";
-import { DuplicateTemplateDialog } from "./duplicate-template-dialog";
 import { FieldProperties } from "./field-properties";
 import { FieldTree } from "./field-tree";
 import { GroupProperties } from "./group-properties";
-import { MappingTab } from "./mapping-tab";
-import { TemplateHeaderForm } from "./template-header-form";
-
-const TABS = [
-  { id: "fields", label: "Fields" },
-  { id: "mapping", label: "Mapping" },
-] as const;
-
-type Tab = (typeof TABS)[number]["id"];
+import { TemplateChrome } from "./template-chrome";
 
 export function TemplateEditor({
   initial,
@@ -49,14 +41,13 @@ export function TemplateEditor({
   bookDateEra: DateEra;
 }) {
   const [template, setTemplate] = useState(initial);
-  const [tab, setTab] = useState<Tab>("fields");
   const [selected, setSelected] = useState<SiblingRef | null>(null);
   const [dirty, setDirty] = useState(false);
   const [pendingSelect, setPendingSelect] = useState<SiblingRef | null>(null);
   const [toDelete, setToDelete] = useState<FieldView | null>(null);
   const [groupToDelete, setGroupToDelete] = useState<GroupView | null>(null);
-  const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [trying, setTrying] = useState(false);
   const lang = langOf(template.languageHint);
   const tree = useMemo(() => buildTree(template.groups, template.fields), [template.groups, template.fields]);
   const selectedField = selected?.kind === "field" ? (template.fields.find((f) => f.id === selected.id) ?? null) : null;
@@ -115,37 +106,20 @@ export function TemplateEditor({
   const pendingLabel = selectedField?.labelSource ?? selectedGroup?.labelSource;
 
   return (
-    <div className="flex flex-col gap-6">
-      <TemplateHeaderForm
-        template={template}
-        bookDefaultModel={bookDefaultModel}
-        onSaved={setTemplate}
-        onDuplicate={() => setDuplicateOpen(true)}
-      />
-
-      <div role="tablist" aria-label="Template sections" className="flex gap-1 border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`panel-${t.id}`}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm font-medium",
-              tab === t.id ? "border-foreground text-foreground" : "text-muted-foreground hover:text-foreground border-transparent",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "fields" ? (
-        <div role="tabpanel" id="panel-fields" aria-labelledby="tab-fields" className="grid items-start gap-6 lg:grid-cols-2">
+    <TemplateChrome template={template} bookDefaultModel={bookDefaultModel} active="fields" onTemplate={setTemplate}>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
           <section aria-label="Field list" className="flex flex-col gap-4">
+            {template.fields.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                <p className="text-muted-foreground text-sm">
+                  Read one page with these fields before uploading the rest — it shows what the AI makes of this paper.
+                </p>
+                <Button size="sm" variant="outline" onClick={() => setTrying(true)}>
+                  <Sparkles />
+                  Try one document
+                </Button>
+              </div>
+            ) : null}
             <FieldTree
               template={template}
               tree={tree}
@@ -226,12 +200,17 @@ export function TemplateEditor({
               </div>
             )}
           </section>
-        </div>
-      ) : (
-        <div role="tabpanel" id="panel-mapping" aria-labelledby="tab-mapping">
-          <MappingTab template={template} tree={tree} lang={lang} onChanged={reload} />
-        </div>
-      )}
+      </div>
+
+      <TryOneDocument
+        bookId={template.bookId}
+        templateId={template.id}
+        templateName={template.name}
+        lang={lang}
+        open={trying}
+        onOpenChange={setTrying}
+        onExtracted={() => void reload()}
+      />
 
       <DeleteFieldDialog
         field={toDelete}
@@ -259,14 +238,6 @@ export function TemplateEditor({
         }}
       />
 
-      <DuplicateTemplateDialog
-        bookId={template.bookId}
-        template={template}
-        initialKind={template.kind === "FORM" ? "TABLE" : "FORM"}
-        open={duplicateOpen}
-        onOpenChange={setDuplicateOpen}
-      />
-
       <AlertDialog open={pendingSelect !== null} onOpenChange={(open) => !open && setPendingSelect(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -290,6 +261,6 @@ export function TemplateEditor({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </TemplateChrome>
   );
 }

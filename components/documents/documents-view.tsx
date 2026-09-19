@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { DeleteDocumentsDialog } from "./delete-documents-dialog";
 import { DocumentDrawer } from "./document-drawer";
 import { MoveDocumentsDialog } from "./move-documents-dialog";
+import { TryOneDocument } from "./try-one-document";
 import { UploadDialog, type TemplateOption } from "./upload-dialog";
 
 export type { TemplateOption };
@@ -112,6 +113,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [trying, setTrying] = useState(false);
   const [extract, setExtract] = useState<{ verb: string; target: ExtractTarget } | null>(null);
   const [progress, setProgress] = useState<Record<string, ExtractionStatus["pages"]>>({});
   const [pollTick, setPollTick] = useState(0);
@@ -336,10 +338,16 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
               <p className="text-muted-foreground max-w-md text-sm">
                 This template has no documents yet. Upload photos or PDFs of its paper form to get started.
               </p>
-              <Button variant="outline" onClick={() => setUploadOpen(true)}>
-                <Upload />
-                Upload documents
-              </Button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="outline" onClick={() => setUploadOpen(true)}>
+                  <Upload />
+                  Upload documents
+                </Button>
+                <Button variant="outline" onClick={() => setTrying(true)}>
+                  <Sparkles />
+                  Try one document
+                </Button>
+              </div>
               <Button variant="ghost" size="sm" onClick={() => setFilters({ templateId: null })}>
                 Show all documents
               </Button>
@@ -506,6 +514,20 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
           removeItems([id]);
         }}
       />
+      {filterTemplate ? (
+        <TryOneDocument
+          bookId={bookId}
+          templateId={filterTemplate.id}
+          templateName={filterTemplate.name}
+          lang={undefined}
+          open={trying}
+          onOpenChange={setTrying}
+          onExtracted={() => {
+            void reloadList();
+            router.refresh();
+          }}
+        />
+      ) : null}
       <UploadDialog
         bookId={bookId}
         templates={templates}

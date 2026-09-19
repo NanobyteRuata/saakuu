@@ -20,6 +20,7 @@ type Db = Prisma.TransactionClient;
 
 const CELL_CHUNK = 1000;
 const MAPPING_LIMIT = 1000;
+const TEMPLATE_LIMIT = 200;
 
 const columnSelect = {
   id: true,
@@ -93,6 +94,13 @@ async function computeImpact(
     ]);
   }
 
+  // Naming the templates that could fill a new column is the other half of the table's
+  // "Not filled by any template" chip: added columns are never silently blank (docs/06 Phase 10).
+  const fillableTemplates =
+    sim.creates.length > 0
+      ? await db.template.findMany({ where: { bookId, deletedAt: null }, select: { id: true, name: true }, orderBy: { position: "asc" }, take: TEMPLATE_LIMIT })
+      : [];
+
   const body = {
     severity,
     brokenMappings,
@@ -101,6 +109,7 @@ async function computeImpact(
     affectedCells,
     editedCells,
     reviewedCells,
+    fillableTemplates,
   };
   const hash = impactHash({ action: "columns.apply", bookId, ops, columns: current, ...body });
   return { report: { impactHash: hash, ...body }, sim };
@@ -111,8 +120,14 @@ export async function previewColumnOps(userId: string, bookId: string, ops: Colu
   return (await computeImpact(prisma, bookId, ops)).report;
 }
 
-/** Gives every existing row of the book an empty cell in a new column (one Cell per row × column). */
-async function createEmptyCells(db: Db, bookId: string, outputColumnId: string): Promise<void> {
+/**
+ * Gives every existing row of the book an empty cell in each new column (one Cell per row × column).
+ * The rows are paged once for all the columns: a book being given eleven columns at once would
+ * otherwise walk every row eleven times, inside the transaction that holds the book lock.
+ */
+export async function createEmptyCells(db: Db, bookId: string, outputColumnIds: string | string[]): Promise<void> {
+  const columnIds = typeof outputColumnIds === "string" ? [outputColumnIds] : outputColumnIds;
+  if (columnIds.length === 0) return;
   let cursor: string | undefined;
   for (;;) {
     const rows = await db.row.findMany({
@@ -124,7 +139,7 @@ async function createEmptyCells(db: Db, bookId: string, outputColumnId: string):
     });
     if (rows.length === 0) return;
     await db.cell.createMany({
-      data: rows.map((r) => ({ rowId: r.id, outputColumnId, state: "EMPTY" as const })),
+      data: rows.flatMap((r) => columnIds.map((outputColumnId) => ({ rowId: r.id, outputColumnId, state: "EMPTY" as const }))),
       skipDuplicates: true,
     });
     if (rows.length < CELL_CHUNK) return;

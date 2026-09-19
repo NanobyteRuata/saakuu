@@ -48,6 +48,8 @@ export type TableMeta = {
   templates: { id: string; name: string }[];
   /** templateId → columnId → source. */
   columnSources: Record<string, Record<string, ColumnSource>>;
+  /** Columns no template's working mapping fills: they stay blank until one does (docs/01 §6.3). */
+  unfilledColumnIds: string[];
   confidenceThreshold: number;
   totalRows: number;
 };

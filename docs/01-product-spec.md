@@ -113,12 +113,13 @@ date era, the glossary, validation rules, and the edit-output-table action.
 which templates' mappings break, which columns will be cleared, how many cells are
 affected and how many of those carry human edits — and requires explicit
 confirmation. See §8. A column that no template maps is not silently blank for ever:
-the report names the templates that could fill it, and the table's column header says
-`Not filled by any template` until one does (Phase 10).
+the report and the confirmation name the templates that could fill it, and the table's
+column header carries a `Not filled` chip until one does (Phase 10).
 
 **The book opens where you left it** (Phase 10, decision 60), per user and per book. A
-book with no templates always opens on Templates — Table is the tab that stays empty
-longest for a new user and the slowest to load for a returning one. A `Resume review`
+book nobody has opened yet, and which has no templates, opens on Templates — Table is the
+tab that stays empty longest for a new user and the slowest to load for a returning one —
+while a tab the operator picked themselves always wins over that default. A `Resume review`
 button in the header goes straight to the first unreviewed cell, so coming back to a
 book does not mean loading every row of a table you are about to leave.
 

@@ -33,6 +33,7 @@ export default async function BookDocumentsPage({ params, searchParams }: Props)
         needsReview: filters.needsReview ?? null,
         hasEdits: filters.hasEdits ?? null,
         reviewed: filters.reviewed ?? null,
+        needsReextraction: filters.needsReextraction ?? null,
         q: filters.q ?? "",
       }}
       initialPage={page}

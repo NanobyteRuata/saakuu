@@ -172,7 +172,7 @@ export async function booksDeleteImpact(userId: string, ids: string[], db: Db = 
   const liveDocuments = { bookId: { in: unique }, deletedAt: null } satisfies Prisma.DocumentWhereInput;
   const [documents, photos, rows, editedCells] = await Promise.all([
     db.document.count({ where: liveDocuments }),
-    db.photo.count({ where: { document: liveDocuments } }),
+    db.photo.count({ where: { deletedAt: null, document: liveDocuments } }),
     db.row.count({ where: { deletedAt: null, document: liveDocuments } }),
     db.cell.count({ where: { isEdited: true, row: { deletedAt: null, document: liveDocuments } } }),
   ]);

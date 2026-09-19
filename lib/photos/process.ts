@@ -191,10 +191,14 @@ async function loadLivePhoto(photoId: string) {
       status: true,
       transform: true,
       documentId: true,
+      deletedAt: true,
       document: { select: { bookId: true, deletedAt: true, book: { select: { deletedAt: true } } } },
     },
   });
-  if (!photo || photo.document.deletedAt !== null || photo.document.book.deletedAt !== null) return null;
+  // A page replaced before its ingest ran is no longer a page of the document (Phase 11). Ingesting it
+  // anyway would, for a PDF placeholder, split it into pages at the index the replacement now holds.
+  if (!photo || photo.deletedAt !== null) return null;
+  if (photo.document.deletedAt !== null || photo.document.book.deletedAt !== null) return null;
   return photo;
 }
 
@@ -226,7 +230,7 @@ export async function ingestPhoto(photoId: string): Promise<{ status: string; pa
       });
       if (!current) return null;
       const later = await tx.photo.findMany({
-        where: { documentId: current.documentId, pageIndex: { gt: current.pageIndex } },
+        where: { documentId: current.documentId, deletedAt: null, pageIndex: { gt: current.pageIndex } },
         orderBy: { pageIndex: "desc" },
         select: { id: true, pageIndex: true },
       });

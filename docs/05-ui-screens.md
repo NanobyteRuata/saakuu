@@ -230,12 +230,19 @@ Selection bar: `Extract`, `Re-extract`, `Move to template`, `Delete`.
 Flags surface as inline chips: `possible template mismatch`, `sequence gap`,
 `no rows found`, `has disagreements`.
 
-*Planned (Phase 11):* a **`Changed since last read`** chip joins them, and a
+*As built (Phase 11):* a **`changed since last read`** chip joins them, and a
 **`Needs re-extraction`** filter joins the filter bar. A document earns the chip when a page of
 it was transformed, replaced or added after its last successful run (decision 58). Before this,
 cropping a page of an extracted document left it looking identical to a correct one; the warning
 appeared once at save time and then nothing. Over four hundred documents that is silent bad
-data. The Extract dialog carries the same count.
+data. The Extract dialog states the same count as a warning.
+- The chip is placed high in the chip list: only the first two render, and it is the one with an
+  action behind it.
+- Both sides of the comparison are columns on Document (`contentChangedAt`, `lastExtractedAt`), so
+  the filter stays a two-column test — the list is virtualised and cursor-paginated, and a per-row
+  "max over photos against the latest run" would be a join per visible row.
+- `lastExtractedAt` only advances on a `COMPLETE` run, so a re-extraction that *failed* does not
+  clear the chip while the stale reading is still on screen.
 
 ## 9. Upload & document detail
 **Upload:** drop zone, progress per file, then a staging grid of uploaded photos.
@@ -265,7 +272,7 @@ documents.
 MANUAL-mode field inputs (typed once here, not per cell), run history, and
 `Extract` / `Re-extract`.
 
-*Planned (Phase 11):* **`Replace page`** and **`Add page`** in the drawer.
+*As built (Phase 11):* **`Replace`** on each page card and **`Add page`** in the Pages header.
 
 Until now a page that turned out unreadable during review was a dead end: every upload creates a
 *new* document, no endpoint adds a page to an existing one, and a page of an extracted document
@@ -278,6 +285,12 @@ row's provenance chip still opens an image between the replace and the re-extrac
 cells and edits are untouched, because they hang off Document and Row, never Photo. The document
 is then marked `Changed since last read`, and re-extracting keeps every edited cell under the
 Phase 6 rule. Deleting or reordering a page of an extracted document stays refused.
+
+The Replace dialog states the exact counts before the file picker unlocks ("Its 12 rows and 4 cells
+you edited are kept, and so are your reviewed marks") — what it keeps *is* the point of the feature.
+Replacing takes a single photo; a PDF is several pages, so it is refused there and belongs in
+`Upload documents`. `Add page` accepts a PDF, whose pages are appended in order. Both are refused while
+the document is being extracted, because a run already under way cannot see the swap.
 
 Photo grid has a small/medium size toggle. Collapsed state shows a count badge.
 
@@ -297,9 +310,10 @@ stale for this document.
 - The crop box moves with the arrow keys and resizes with Shift + arrows.
 - The drawer's page cards show `Edited (updating…)` until the new thumbnail is rendered.
 
-*Planned (Phase 11):* the warning shown at save time stops being the only record. Saving a
+*As built (Phase 11):* the warning shown at save time stopped being the only record. Saving a
 transform marks the document `Changed since last read`, so the operator can find every page they
-touched later instead of having to remember them.
+touched later instead of having to remember them. A page card whose page changed since the last
+reading says so too, which is what `Photo.transformedAt` is for.
 
 ## 11. Extract modal
 Shows: document count, page count, model selector (pre-filled from template override,
@@ -336,8 +350,9 @@ Added in Phase 10:
   whether to believe it. Meeting the number unprepared reads as a broken product; being told first reads
   as an honest one. The claim is scoped to **the paper**, never phrased as the product's accuracy.
 
-*Planned (Phase 11):* the dialog states how many of the selected documents are
-`Changed since last read`.
+*As built (Phase 11):* the dialog states how many of the selected documents changed since they
+were last read. It is phrased as a count rather than a caution — re-reading them is the fix, and
+every edited cell is kept.
 
 *Planned (Phase 12):* the estimate is shown **in money, not tokens** — tokens mean nothing to an
 operator — and the dialog says which key the run will use, the user's own or the server's.

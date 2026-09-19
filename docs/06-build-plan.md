@@ -435,6 +435,13 @@ end today, and review is where unreadable pages are found.
 - `Photo.replacedAt DateTime?` + `Photo.deletedAt DateTime?` — a replaced page is soft-deleted, not
   removed, so provenance from existing rows keeps resolving until the document is read again.
 
+Two more columns were added during the build, both because the plan above left a hole (docs/02):
+- `Document.lastExtractedAt DateTime?` — the denormalised right-hand side of the staleness comparison.
+  The existing `lastRunAt` counts failed runs, so it would clear the chip after a failed re-extraction.
+- `Photo.replacesPhotoId String?` — without it a re-extraction leaves the replaced page's raw records in
+  place (supersession is keyed on the run's photo ids, and a re-shot page is a new id), and the document
+  builds two sets of rows from the same page of paper.
+
 **Staleness means "the document changed since it was last read"** (decision 58), not "a crop changed".
 A page replaced or added makes the previous reading wrong in exactly the same way a crop does, and a
 marker that catches only two thirds of staleness is worse than none, because it would be trusted.
@@ -456,7 +463,9 @@ This composes with what already exists: replace → the document is marked stale
 Phase 6 rule keeps every edited cell. Three pieces, no new merge logic.
 
 **Tests (per the testing policy):** unit test that replacing a page keeps the document's rows, cells and
-`isEdited` flags — it is a data-loss path, so it qualifies under the policy.
+`isEdited` flags — it is a data-loss path, so it qualifies under the policy (`lib/photos/replace.test.ts`,
+which asserts the service never touches Row, Cell, CellEdit, RawRecord, RawValue or ExtractionRun at all).
+`lib/extraction/plan.test.ts` gains the supersession case for the replaced page.
 
 **Done when:**
 - A page of an extracted document can be replaced, and the document's rows, edits and reviewed marks are

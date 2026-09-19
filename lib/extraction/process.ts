@@ -105,6 +105,28 @@ function unionBbox(boxes: (Bbox | null)[]): Bbox | null {
   return { x, y, w: right - x, h: bottom - y };
 }
 
+/** Longest chain of re-shoots this walks back; a page replaced more than this many times is pathological. */
+const MAX_REPLACE_CHAIN = 50;
+
+/**
+ * The pages these pages were shot to replace, following the chain back (Phase 11). Their records are
+ * the previous reading of the same page of paper, so this run's results supersede them.
+ */
+async function replacedPageIds(tx: Prisma.TransactionClient, photoIds: string[]): Promise<string[]> {
+  const out = new Set<string>();
+  let frontier = photoIds;
+  for (let i = 0; i < MAX_REPLACE_CHAIN && frontier.length > 0; i++) {
+    const rows = await tx.photo.findMany({
+      where: { id: { in: frontier }, replacesPhotoId: { not: null } },
+      select: { replacesPhotoId: true },
+      take: frontier.length,
+    });
+    frontier = rows.flatMap((r) => (r.replacesPhotoId !== null && !out.has(r.replacesPhotoId) ? [r.replacesPhotoId] : []));
+    for (const id of frontier) out.add(id);
+  }
+  return [...out];
+}
+
 /** One transaction: replace older records on these pages, insert this run's records, complete the run. */
 async function writeRun(
   documentId: string,
@@ -138,6 +160,7 @@ async function writeRun(
       const replaced = supersededRecordIds(
         existing.map((r) => ({ id: r.id, runId: r.runId, photoId: r.photoId, runCreatedAt: r.run.createdAt })),
         run,
+        await replacedPageIds(tx, run.photoIds),
       );
       if (replaced.length > 0) await tx.rawRecord.deleteMany({ where: { id: { in: replaced } } });
 

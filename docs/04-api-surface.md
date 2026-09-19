@@ -234,7 +234,7 @@ layer and derived rows; the document lands in `NEVER_RUN`. Warn hard when edits 
 
 **Phase 4 as built** (supersedes the lines above where they differ):
 ```
-GET    /api/books/:id/documents            ?templateId&runState&needsReview&hasEdits&q&cursor&limit
+GET    /api/books/:id/documents            ?templateId&runState&needsReview&hasEdits&reviewed&needsReextraction&q&cursor&limit
                                            ordered by position (code-unit collation); cursor is opaque
 POST   /api/templates/:id/documents        { photoIds[] } -> { documentId, removedDocuments }
 PATCH  /api/documents/:id                  { label?, manualValues?: { fieldId: string | null } }
@@ -279,6 +279,8 @@ GET    /api/photos/status?ids=a,b,c        poll processing state + image URLs
 
 ### Photo editing
 ```
+POST   /api/photos/:id/replace             { key, filename } -> { photo }        Phase 11: re-shoot this page
+POST   /api/documents/:id/pages            { key, filename } -> { photo }        Phase 11: add a page at the end
 PATCH  /api/photos/:id/transform           { crop?, rotate?, deskew? }  non-destructive
 POST   /api/photos/:id/transform/reset
 POST   /api/photos/:id/autodeskew          { rotate } -> { deskew }   suggestion for that turn; nothing saved
@@ -296,6 +298,23 @@ DELETE /api/photos/:id                     { impactHash, confirm } -> { document
 - Marking a document's last run stale is Phase 5: the idempotency key includes the transform hash.
 - `DELETE` removes the row and renumbers the pages; deleting the only page soft-deletes the document.
   Stored files stay until the Phase 9 storage cleanup.
+
+**Phase 11 — replace and add:** both take a key from the usual `presign` + browser `PUT`; only the
+*complete* step differs, so nothing about uploading changes.
+- `replace` puts the new photo at the same `documentId` and `pageIndex` and soft-deletes the old one
+  (`replacedAt`, `deletedAt`), linking the new one back with `replacesPhotoId`. Rows, cells, edits and
+  reviewed marks are untouched. `assertNoExtractionOutput` is **not** applied to replace or add — that is
+  the whole point; it still refuses delete, reorder, group and split. Replacing with a PDF is refused.
+- `add` appends at `max(live pageIndex) + 1`, up to `MAX_DOCUMENT_PAGES`. A PDF is split as on upload.
+- Both set `Document.contentChangedAt`, as does saving a transform, which is what earns the document its
+  `Needs re-extraction` state. Completing the same key twice returns the existing photo and replaces once;
+  a key already consumed by a *different* page or document is refused rather than silently ignored.
+- Both are refused with `CONFLICT` while the document's `runState` is `QUEUED` or `RUNNING`. A run in
+  flight holds the old page ids and cannot notice a swap, so it would finish reading the page that was
+  replaced and stamp `lastExtractedAt` after `contentChangedAt` — leaving the document looking freshly
+  read when it is not. A page replaced before its ingest job runs is skipped by ingest for the same reason.
+- A replaced page's row is kept so provenance from existing rows still resolves to an image; its files age
+  out through the normal tombstone path once it is older than the grace period.
 
 ## Extraction
 ```

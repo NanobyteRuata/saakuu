@@ -22,6 +22,7 @@ import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
 
 import { assertNoExtractionOutput, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
 import { isProblem, planGroup, planReorder, planSplit, type RestructurePlan } from "./restructure";
+import { isStale, STALE_SQL } from "./staleness";
 import {
   MAX_DOCUMENT_PAGES,
   type ContentState,
@@ -54,12 +55,18 @@ export type DocumentSummary = {
   transformFlags: DocumentFlag[];
   rowCount: number;
   unreviewedCells: number;
+  reviewedCells: number;
   /** Has cells to review and every one is reviewed (docs/01 §6.10). */
   reviewed: boolean;
   errorCells: number;
   hasEdits: boolean;
+  editedCells: number;
   hasDisagreements: boolean;
+  /** A page was transformed, replaced or added after the last successful reading (decision 58). */
+  changedSinceLastRead: boolean;
   lastRunAt: string | null;
+  /** When the document was last read successfully; null means it never was. */
+  lastExtractedAt: string | null;
   lastModel: string | null;
   createdAt: string;
 };
@@ -101,7 +108,7 @@ const RUN_SCAN_LIMIT = 500;
 
 // ---------- reads ----------
 
-type CellStats = { documentId: string; rows: number; cells: number; unreviewed: number; errors: number; edited: boolean; disagreements: boolean };
+type CellStats = { documentId: string; rows: number; cells: number; unreviewed: number; errors: number; edited: number; disagreements: boolean };
 
 async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> {
   if (ids.length === 0) return [];
@@ -118,20 +125,22 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
         needsReview: true,
         templateMatchScore: true,
         transformFlags: true,
+        contentChangedAt: true,
+        lastExtractedAt: true,
         lastRunAt: true,
         lastModel: true,
         createdAt: true,
-        photos: { orderBy: { pageIndex: "asc" }, take: 1, select: { thumbKey: true } },
+        photos: { where: { deletedAt: null }, orderBy: { pageIndex: "asc" }, take: 1, select: { thumbKey: true } },
       },
     }),
-    db.photo.groupBy({ by: ["documentId", "status"], where: { documentId: { in: ids } }, _count: { _all: true } }),
+    db.photo.groupBy({ by: ["documentId", "status"], where: { documentId: { in: ids }, deletedAt: null }, _count: { _all: true } }),
     db.$queryRaw<CellStats[]>`
       SELECT r."documentId" AS "documentId",
              count(DISTINCT r.id)::int AS rows,
              count(c.id)::int AS cells,
              count(c.id) FILTER (WHERE NOT c."isReviewed")::int AS unreviewed,
              count(c.id) FILTER (WHERE c."validationState" = 'ERROR')::int AS errors,
-             coalesce(bool_or(c."isEdited"), false) AS edited,
+             count(c.id) FILTER (WHERE c."isEdited")::int AS edited,
              coalesce(bool_or(c.disagreement), false) AS disagreements
       FROM "Row" r
       LEFT JOIN "OutputColumn" oc ON oc."bookId" = r."bookId" AND oc."deletedAt" IS NULL
@@ -180,11 +189,15 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
       transformFlags: parseDocumentFlags(d.transformFlags),
       rowCount: s?.rows ?? 0,
       unreviewedCells: s?.unreviewed ?? 0,
+      reviewedCells: (s?.cells ?? 0) - (s?.unreviewed ?? 0),
       reviewed: (s?.cells ?? 0) > 0 && s?.unreviewed === 0,
       errorCells: s?.errors ?? 0,
-      hasEdits: s?.edited ?? false,
+      hasEdits: (s?.edited ?? 0) > 0,
+      editedCells: s?.edited ?? 0,
       hasDisagreements: s?.disagreements ?? false,
+      changedSinceLastRead: isStale(d),
       lastRunAt: d.lastRunAt?.toISOString() ?? null,
+      lastExtractedAt: d.lastExtractedAt?.toISOString() ?? null,
       lastModel: d.lastModel,
       createdAt: d.createdAt.toISOString(),
     });
@@ -232,6 +245,9 @@ export async function listDocuments(userId: string, bookId: string, input: ListD
         ? Prisma.sql`EXISTS (${rowsToReview}) AND NOT EXISTS (${unreviewed})`
         : Prisma.sql`(NOT EXISTS (${rowsToReview}) OR EXISTS (${unreviewed}))`,
     );
+  }
+  if (input.needsReextraction !== undefined) {
+    conds.push(input.needsReextraction ? STALE_SQL : Prisma.sql`NOT ${STALE_SQL}`);
   }
   if (input.q) {
     const pattern = `%${input.q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
@@ -291,7 +307,7 @@ async function loadDetail(db: Db, documentId: string): Promise<DocumentDetail> {
       bookId: true,
       manualValues: true,
       template: { select: { languageHint: true } },
-      photos: { orderBy: [{ pageIndex: "asc" }, { id: "asc" }], select: photoSelect, take: MAX_DOCUMENT_PAGES },
+      photos: { where: { deletedAt: null }, orderBy: [{ pageIndex: "asc" }, { id: "asc" }], select: photoSelect, take: MAX_DOCUMENT_PAGES },
     },
   });
   // Current runs are worked out over many runs, not just the history shown: a page's latest run can be
@@ -488,7 +504,7 @@ export async function updateDocument(userId: string, documentId: string, input: 
 
 async function applyPlan(tx: Db, plan: RestructurePlan): Promise<void> {
   const current = await tx.photo.findMany({
-    where: { id: { in: plan.assignments.map((a) => a.photoId) } },
+    where: { id: { in: plan.assignments.map((a) => a.photoId) }, deletedAt: null },
     select: { id: true, documentId: true, pageIndex: true },
   });
   const byId = new Map(current.map((p) => [p.id, p]));
@@ -506,7 +522,7 @@ async function applyPlan(tx: Db, plan: RestructurePlan): Promise<void> {
 
 async function pagesOf(tx: Db, documentIds: string[]): Promise<{ documentId: string; photoIds: string[] }[]> {
   const photos = await tx.photo.findMany({
-    where: { documentId: { in: documentIds } },
+    where: { documentId: { in: documentIds }, deletedAt: null },
     orderBy: [{ pageIndex: "asc" }, { id: "asc" }],
     select: { id: true, documentId: true },
   });
@@ -530,7 +546,7 @@ export async function groupPhotos(
     await lockBook(tx, bookId);
     const unique = [...new Set(input.photoIds)];
     const photos = await tx.photo.findMany({
-      where: { id: { in: unique } },
+      where: { id: { in: unique }, deletedAt: null },
       select: { id: true, documentId: true, document: { select: { bookId: true, templateId: true, deletedAt: true } } },
     });
     if (photos.length !== unique.length || photos.some((p) => p.document.bookId !== bookId || p.document.deletedAt !== null)) {

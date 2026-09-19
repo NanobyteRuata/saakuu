@@ -63,7 +63,7 @@ export async function requirePhotoAccess(
 ): Promise<{ id: string; documentId: string; bookId: string }> {
   const uid = requireUserId(userId);
   const photo = await db.photo.findFirst({
-    where: { id: photoId, document: liveOwnedDocument(uid) },
+    where: { id: photoId, deletedAt: null, document: liveOwnedDocument(uid) },
     select: { id: true, documentId: true, document: { select: { bookId: true } } },
   });
   if (!photo) throw new AppError("NOT_FOUND", PHOTO_NOT_FOUND);

@@ -63,9 +63,17 @@ export type RecordLite = { id: string; runId: string; runCreatedAt: Date; photoI
  * Raw records a run's results replace: records of this document from older runs on the same pages
  * (or with no page). Records on other pages stay, so retrying one failed chunk keeps the rest.
  * Records from newer runs are never removed by an older one.
+ *
+ * `replacedPages` are the pages this run's pages were shot to replace (Phase 11). A re-shot page is a
+ * new photo id, so without this the old page's records would survive the re-extraction and the
+ * document would end up holding two readings of the same page.
  */
-export function supersededRecordIds(records: RecordLite[], run: { id: string; photoIds: string[]; createdAt: Date }): string[] {
-  const pages = new Set(run.photoIds);
+export function supersededRecordIds(
+  records: RecordLite[],
+  run: { id: string; photoIds: string[]; createdAt: Date },
+  replacedPages: string[] = [],
+): string[] {
+  const pages = new Set([...run.photoIds, ...replacedPages]);
   return records
     .filter((r) => r.runId !== run.id && r.runCreatedAt.getTime() <= run.createdAt.getTime() && (r.photoId === null || pages.has(r.photoId)))
     .map((r) => r.id);

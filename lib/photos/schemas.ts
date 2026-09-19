@@ -49,6 +49,16 @@ export const completeUploadSchema = z.object({
 });
 export type CompleteUploadInput = z.infer<typeof completeUploadSchema>;
 
+/** Re-shooting a page, and adding one to an existing document (Phase 11). Same upload, new target. */
+export const replacePhotoSchema = z.object({
+  key: z.string().min(1).max(500),
+  filename: z.string().trim().min(1).max(255),
+});
+export type ReplacePhotoInput = z.infer<typeof replacePhotoSchema>;
+
+export const addPageSchema = replacePhotoSchema;
+export type AddPageInput = z.infer<typeof addPageSchema>;
+
 export const updateTransformSchema = z.object({
   crop: cropSchema.nullable().optional(),
   rotate: z.number().min(-360).max(360).optional(),

@@ -37,6 +37,7 @@ import { formatBytes, PHOTO_STATUS_LABELS } from "@/lib/documents/labels";
 import type { DocumentDetail } from "@/lib/documents/service";
 import { plural } from "@/lib/format";
 import { MAX_UPLOAD_BYTES, mimeTypeFromFilename, UPLOAD_MIME_TYPES } from "@/lib/photos/schemas";
+import { putWithProgress } from "@/lib/photos/upload-client";
 import type { PhotoView } from "@/lib/photos/views";
 import type { TemplateKind } from "@/lib/templates/schemas";
 import { cn } from "@/lib/utils";
@@ -143,36 +144,6 @@ export function UploadDialog({ templates, initialTemplateId, lockTemplate = fals
       </AlertDialog>
     </>
   );
-}
-
-function putWithProgress(
-  url: string,
-  file: File,
-  contentType: string,
-  onProgress: (fraction: number) => void,
-  track: (xhr: XMLHttpRequest) => () => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const untrack = track(xhr);
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", contentType);
-    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-    xhr.onload = () => {
-      untrack();
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`storage responded ${xhr.status}`));
-    };
-    xhr.onerror = () => {
-      untrack();
-      reject(new Error("network"));
-    };
-    xhr.onabort = () => {
-      untrack();
-      reject(new Error("aborted"));
-    };
-    xhr.send(file);
-  });
 }
 
 async function fetchDetails(ids: string[]): Promise<Map<string, DocumentDetail | null>> {

@@ -5,6 +5,9 @@ import { confirmSchema, idListSchema, idSchema, labelSchema, PAGE_LIMIT_DEFAULT,
 export const RUN_STATES = ["NEVER_RUN", "QUEUED", "RUNNING", "PARTIAL", "FAILED", "COMPLETE"] as const;
 export type RunState = (typeof RUN_STATES)[number];
 
+/** A run is on its way or under way: the document's pages must not change under it. */
+export const ACTIVE_RUN_STATES: RunState[] = ["QUEUED", "RUNNING"];
+
 export const CONTENT_STATES = ["UNKNOWN", "HAS_CONTENT", "EMPTY", "NO_ROWS_FOUND"] as const;
 export type ContentState = (typeof CONTENT_STATES)[number];
 
@@ -18,6 +21,8 @@ export const listDocumentsSchema = z.object({
   needsReview: booleanParam.optional(),
   hasEdits: booleanParam.optional(),
   reviewed: booleanParam.optional(),
+  /** Phase 11: a page was transformed, replaced or added after the last successful reading. */
+  needsReextraction: booleanParam.optional(),
   q: z.string().trim().max(200).optional(),
 });
 export type ListDocumentsInput = z.infer<typeof listDocumentsSchema>;

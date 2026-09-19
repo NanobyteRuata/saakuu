@@ -14,10 +14,15 @@ export const photoSelect = {
   height: true,
   byteSize: true,
   transform: true,
+  transformedAt: true,
+  replacedAt: true,
+  replacesPhotoId: true,
+  deletedAt: true,
   status: true,
   errorMessage: true,
   workingKey: true,
   thumbKey: true,
+  createdAt: true,
   document: { select: { bookId: true } },
 } satisfies Prisma.PhotoSelect;
 
@@ -32,6 +37,13 @@ export type PhotoView = {
   height: number;
   byteSize: number;
   transform: PhotoTransform;
+  /** When the crop/rotate/deskew last changed; null means untouched since upload (Phase 11). */
+  transformedAt: string | null;
+  /** When a re-shot page took this one's place; null for a live page (Phase 11). */
+  replacedAt: string | null;
+  /** Set together with `replacedAt`: this page is kept only so old provenance still resolves. */
+  deletedAt: string | null;
+  createdAt: string;
   status: PhotoStatus;
   /** Why processing failed (status FAILED), or why the last edit couldn't be applied (status DONE). */
   errorMessage: string | null;
@@ -59,6 +71,10 @@ export async function toPhotoView(p: PhotoRow): Promise<PhotoView> {
     height: p.height,
     byteSize: p.byteSize,
     transform: normalizeTransform(p.transform),
+    transformedAt: p.transformedAt?.toISOString() ?? null,
+    replacedAt: p.replacedAt?.toISOString() ?? null,
+    deletedAt: p.deletedAt?.toISOString() ?? null,
+    createdAt: p.createdAt.toISOString(),
     status: p.status,
     errorMessage: p.errorMessage,
     thumbUrl,

@@ -698,6 +698,15 @@ third of the cases while being trusted for all of them.
 - `Photo.transformedAt` answers *which* page changed, for the drawer. `Document.contentChangedAt` is the
   denormalised copy the Documents list actually queries: that list is virtualised and cursor-paginated,
   and "max over this document's photos, compared against its latest run" would be a join per visible row.
+- **`Document.lastExtractedAt`** is the other side of that comparison, denormalised for the same reason.
+  It is *not* `lastRunAt`: `lastRunAt` is the newest `finishedAt` of the current runs whether they
+  succeeded or failed, so a re-extraction that failed would clear the marker while the stale reading is
+  still on screen — the "trusted but wrong" marker decision 58 exists to prevent. `lastExtractedAt` is
+  written only from `COMPLETE` runs and only ever moves forward.
+- **`Photo.replacesPhotoId`** links a re-shot page to the page it replaced. A replacement is a new photo
+  id, and `supersededRecordIds` drops older records only for the pages a run covered, so without this
+  link the old page's `RawRecord`s would survive the re-extraction and the document would build two sets
+  of rows from the same page of paper. `writeRun` follows the link back and supersedes those records too.
 - **Replacing a page** writes a new `Photo` at the same `documentId` and `pageIndex` and sets the old
   one's `replacedAt` and `deletedAt`. The old row stays so that provenance from existing cells keeps
   resolving to an image between the replace and the re-extraction; its files age out through the normal

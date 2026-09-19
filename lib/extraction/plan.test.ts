@@ -20,6 +20,22 @@ describe("supersededRecordIds", () => {
   it("never replaces the run's own records", () => {
     expect(supersededRecordIds(records, { id: "old", photoIds: ["p1"], createdAt: at(0) })).toEqual(["r5"]);
   });
+
+  // Phase 11: a re-shot page is a new photo id, so without the replaced page the document would keep
+  // both readings and build two sets of rows from the same page of paper.
+  it("replaces the records of a page that this run's page was shot to replace", () => {
+    const reshot = [
+      { id: "r1", runId: "old", runCreatedAt: at(0), photoId: "p1" },
+      { id: "r2", runId: "old", runCreatedAt: at(0), photoId: "p2" },
+    ];
+    // p1new replaces p1; p2 is a different page and its reading must survive.
+    expect(supersededRecordIds(reshot, { id: "after", photoIds: ["p1new"], createdAt: at(5) }, ["p1"])).toEqual(["r1"]);
+  });
+
+  it("keeps a newer run's records even on a replaced page", () => {
+    const reshot = [{ id: "r4", runId: "newer", runCreatedAt: at(9), photoId: "p1" }];
+    expect(supersededRecordIds(reshot, { id: "after", photoIds: ["p1new"], createdAt: at(5) }, ["p1"])).toEqual([]);
+  });
 });
 
 describe("currentRuns", () => {

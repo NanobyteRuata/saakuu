@@ -263,7 +263,7 @@ export async function templatesDeleteImpact(userId: string, ids: string[], db: D
   }
   const liveDocuments = { templateId: { in: unique }, deletedAt: null } satisfies Prisma.DocumentWhereInput;
   const documents = await db.document.count({ where: liveDocuments });
-  const photos = await db.photo.count({ where: { document: liveDocuments } });
+  const photos = await db.photo.count({ where: { deletedAt: null, document: liveDocuments } });
   const rows = await db.row.count({ where: { deletedAt: null, document: liveDocuments } });
   const editedCells = await db.cell.count({ where: { isEdited: true, row: { deletedAt: null, document: liveDocuments } } });
   const counts = { templates: unique.length, documents, photos, rows, editedCells };

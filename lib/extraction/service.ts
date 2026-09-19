@@ -6,7 +6,8 @@ import { providerStatus } from "@/lib/ai/status";
 import { requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import { requireDocumentsAccess, type Db } from "@/lib/documents/access";
-import { MAX_DOCUMENT_PAGES, type ContentState, type RunState } from "@/lib/documents/schemas";
+import { isStale } from "@/lib/documents/staleness";
+import { ACTIVE_RUN_STATES, MAX_DOCUMENT_PAGES, type ContentState, type RunState } from "@/lib/documents/schemas";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
 import { normalizeTransform, outputSize, transformHash, WORKING_MAX_EDGE } from "@/lib/photos/transform";
@@ -35,7 +36,7 @@ import { MAX_TEMPLATE_EXTRACT_DOCUMENTS, MISMATCH_THRESHOLD, type EstimateInput,
 
 const PROMPT_BASE_TOKENS = 2500;
 const PROMPT_TOKENS_PER_FIELD = 120;
-const ACTIVE: RunState[] = ["QUEUED", "RUNNING"];
+const ACTIVE = ACTIVE_RUN_STATES;
 
 // ---------- targets ----------
 
@@ -47,9 +48,12 @@ async function loadTargets(db: Db, documentIds: string[]) {
       label: true,
       runState: true,
       templateMatchScore: true,
+      contentChangedAt: true,
+      lastExtractedAt: true,
       template: { select: { id: true, name: true, kind: true, configState: true, modelOverride: true } },
       book: { select: { id: true, defaultModel: true } },
       photos: {
+        where: { deletedAt: null },
         orderBy: [{ pageIndex: "asc" }, { id: "asc" }],
         take: MAX_DOCUMENT_PAGES,
         select: { id: true, pageIndex: true, status: true, transform: true, workingKey: true, width: true, height: true },
@@ -190,6 +194,15 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   if (conflicted.length > 0) {
     warnings.push(`${conflicted.map((name) => `“${name}”`).join(", ")} ${conflicted.length === 1 ? "has" : "have"} broken mappings. Extraction still works, but some columns won't fill until they are fixed.`);
   }
+  // Phase 11: a page was transformed, replaced or added since these were last read, so their rows no
+  // longer match their pages. Reading them again is exactly the fix, so this states the count rather
+  // than cautioning against it.
+  const stale = ready.filter(isStale).length;
+  if (stale > 0) {
+    warnings.push(
+      `${n(stale, "document")} changed since ${stale === 1 ? "it was" : "they were"} last read. Reading ${stale === 1 ? "it" : "them"} again updates ${stale === 1 ? "its" : "their"} rows, and every cell you edited is kept.`,
+    );
+  }
   // Never a blocker: extracting before mapping is the correct order, because the preview needs real
   // values (docs/06 Phase 10). The wording teaches that order rather than forbidding it.
   const draft = [...new Set(ready.filter((t) => t.template.configState === "DRAFT").map((t) => t.template.name))];
@@ -233,8 +246,9 @@ export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<
     where: { id: documentId },
     select: {
       transformFlags: true,
+      lastExtractedAt: true,
       template: { select: { anchors: true } },
-      photos: { select: { id: true }, orderBy: { pageIndex: "asc" }, take: MAX_DOCUMENT_PAGES },
+      photos: { where: { deletedAt: null }, select: { id: true }, orderBy: { pageIndex: "asc" }, take: MAX_DOCUMENT_PAGES },
     },
   });
   if (!doc) return;
@@ -263,6 +277,14 @@ export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<
     data.needsReview = extractionNeedsReview(contentState, score) || parseDocumentFlags(doc.transformFlags).length > 0;
     data.lastRunAt = finished.length > 0 ? new Date(Math.max(...finished)) : null;
     data.lastModel = current[0]?.model ?? null;
+    // When the document was last *successfully* read, which is what staleness compares against
+    // (decision 58). Only COMPLETE runs count and it only ever moves forward: a failed re-extraction
+    // must not clear the `Changed since last read` chip while the old reading is still on screen.
+    const read = current.flatMap((r) => (r.state === "COMPLETE" && r.finishedAt ? [r.finishedAt.getTime()] : []));
+    if (read.length > 0) {
+      const latest = new Date(Math.max(...read));
+      if (doc.lastExtractedAt === null || latest > doc.lastExtractedAt) data.lastExtractedAt = latest;
+    }
   }
   await tx.document.update({ where: { id: documentId }, data });
 }
@@ -385,7 +407,7 @@ export async function retryExtraction(userId: string, input: RetryInput): Promis
   } else {
     const photoIds = [...new Set(input.photoIds ?? [])];
     const photos = await prisma.photo.findMany({
-      where: { id: { in: photoIds }, document: { deletedAt: null, template: { deletedAt: null }, book: { userId: uid, deletedAt: null } } },
+      where: { id: { in: photoIds }, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null }, book: { userId: uid, deletedAt: null } } },
       select: { id: true, documentId: true },
       take: photoIds.length,
     });
@@ -442,6 +464,9 @@ export type ExtractionStatus = {
   templateMatchScore: number | null;
   lastRunAt: string | null;
   lastModel: string | null;
+  /** Phase 11: so the `Changed since last read` chip clears on the poll after a re-extraction. */
+  changedSinceLastRead: boolean;
+  lastExtractedAt: string | null;
   pages: { total: number; done: number; failed: number };
 };
 
@@ -462,9 +487,11 @@ export async function getExtractionStatus(userId: string, documentIds: string[])
       contentState: true,
       needsReview: true,
       templateMatchScore: true,
+      contentChangedAt: true,
+      lastExtractedAt: true,
       lastRunAt: true,
       lastModel: true,
-      photos: { select: { id: true }, take: MAX_DOCUMENT_PAGES },
+      photos: { where: { deletedAt: null }, select: { id: true }, take: MAX_DOCUMENT_PAGES },
       runs: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100, select: { id: true, state: true, photoIds: true, createdAt: true } },
     },
     take: documentIds.length,
@@ -487,6 +514,8 @@ export async function getExtractionStatus(userId: string, documentIds: string[])
       templateMatchScore: d.templateMatchScore,
       lastRunAt: d.lastRunAt?.toISOString() ?? null,
       lastModel: d.lastModel,
+      changedSinceLastRead: isStale(d),
+      lastExtractedAt: d.lastExtractedAt?.toISOString() ?? null,
       pages: { total: d.photos.length, done: pagesIn("COMPLETE"), failed: pagesIn("FAILED") },
     });
   }

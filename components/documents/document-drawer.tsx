@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, horizontalListSortingStrategy, SortableContext, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Crop, GripVertical, RotateCcw, Sparkles, Split, Trash2 } from "lucide-react";
+import { Crop, GripVertical, ImageUp, Plus, RotateCcw, Sparkles, Split, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 
 import { DeleteDocumentsDialog } from "./delete-documents-dialog";
 import { DeletePhotoDialog } from "./delete-photo-dialog";
+import { PageUploadDialog, type PageUploadTarget } from "./page-upload-dialog";
 
 type Props = {
   documentId: string | null;
@@ -86,6 +87,7 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
   const [selectedPages, setSelectedPages] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState<PhotoView | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState<{ photo: PhotoView; page: number } | null>(null);
+  const [pageUpload, setPageUpload] = useState<PageUploadTarget | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -235,6 +237,11 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                 {detail.templateName} · {plural(pageCount, "page")} · {RUN_STATE_LABELS[detail.runState]} ·{" "}
                 {CONTENT_STATE_LABELS[detail.contentState]}
               </SheetDescription>
+              {detail.changedSinceLastRead ? (
+                <Badge variant="outline" className="w-fit font-normal">
+                  Changed since last read
+                </Badge>
+              ) : null}
             </SheetHeader>
 
             <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-4">
@@ -248,13 +255,21 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                   <h3 id="pages-heading" className="text-sm font-semibold">
                     Pages
                   </h3>
-                  <Button size="sm" variant="outline" disabled={!canSplit || busy} onClick={splitSelected}>
-                    <Split />
-                    Split selected into a new document
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => setPageUpload({ kind: "add" })}>
+                      <Plus />
+                      Add page
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={!canSplit || busy} onClick={splitSelected}>
+                      <Split />
+                      Split selected into a new document
+                    </Button>
+                  </div>
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  Drag pages to put them in paper order. Select pages to move them into their own document.
+                  Drag pages to put them in paper order. Select pages to move them into their own document. A page that
+                  came out unreadable can be re-shot with <span className="text-foreground">Replace</span> — the
+                  document&apos;s rows, your edits and your reviewed marks all stay.
                 </p>
                 <PageStrip
                   photos={detail.photos}
@@ -270,6 +285,17 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                   onReorder={reorder}
                   onEdit={setEditing}
                   onDelete={(photo, page) => setDeletingPhoto({ photo, page })}
+                  onReplace={(photo, page) =>
+                    setPageUpload({
+                      kind: "replace",
+                      photoId: photo.id,
+                      page,
+                      rows: detail.rowCount,
+                      editedCells: detail.editedCells,
+                      reviewed: detail.reviewedCells > 0,
+                    })
+                  }
+                  lastExtractedAt={detail.lastExtractedAt}
                 />
               </section>
 
@@ -358,6 +384,20 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
             }
           }}
         />
+        {detail ? (
+          <PageUploadDialog
+            target={pageUpload}
+            documentId={detail.id}
+            documentLabel={detail.label}
+            templateId={detail.templateId}
+            onOpenChange={(open) => !open && setPageUpload(null)}
+            onDone={() => {
+              // Reload rather than patch: the new page is QUEUED, and the document is now marked changed.
+              void load(detail.id);
+              onChanged(detail.id);
+            }}
+          />
+        ) : null}
         <ExtractDialog
           target={extractOpen && detail ? { documentIds: [detail.id] } : null}
           verb={detail && detail.runs.length > 0 ? "Re-extract" : "Extract"}
@@ -383,6 +423,8 @@ function PageStrip({
   onReorder,
   onEdit,
   onDelete,
+  onReplace,
+  lastExtractedAt,
 }: {
   photos: PhotoView[];
   selected: Set<string>;
@@ -390,6 +432,8 @@ function PageStrip({
   onReorder: (ids: string[]) => void;
   onEdit: (photo: PhotoView) => void;
   onDelete: (photo: PhotoView, page: number) => void;
+  onReplace: (photo: PhotoView, page: number) => void;
+  lastExtractedAt: string | null;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -418,6 +462,8 @@ function PageStrip({
               onSelect={(on) => onSelect(p.id, on)}
               onEdit={() => onEdit(p)}
               onDelete={() => onDelete(p, i + 1)}
+              onReplace={() => onReplace(p, i + 1)}
+              changed={changedSince(p, lastExtractedAt)}
             />
           ))}
         </ol>
@@ -426,22 +472,37 @@ function PageStrip({
   );
 }
 
+/**
+ * This page has changed since the document was last read successfully, so it is one of the pages the
+ * chip on the row is about. `Photo.transformedAt` answers *which* page changed (docs/02 Phase 11).
+ */
+function changedSince(photo: PhotoView, lastExtractedAt: string | null): boolean {
+  if (lastExtractedAt === null) return false;
+  const read = Date.parse(lastExtractedAt);
+  const touched = photo.transformedAt ?? photo.createdAt;
+  return Date.parse(touched) > read;
+}
+
 function PageCard({
   photo,
   page,
   draggable,
   selected,
+  changed,
   onSelect,
   onEdit,
   onDelete,
+  onReplace,
 }: {
   photo: PhotoView;
   page: number;
   draggable: boolean;
   selected: boolean;
+  changed: boolean;
   onSelect: (on: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onReplace: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: photo.id, disabled: !draggable });
   const ready = photo.status === "DONE";
@@ -488,12 +549,17 @@ function PageCard({
         {edited ? (
           <span className="text-foreground">Edited{ready && !photo.workingUrl && !photo.errorMessage ? " (updating…)" : ""}</span>
         ) : null}
+        {changed ? <span className="text-foreground">Changed since last read</span> : null}
       </div>
       {ready && photo.errorMessage ? <p className="text-destructive text-[11px]">{photo.errorMessage}</p> : null}
       <div className="flex gap-1">
         <Button size="sm" variant="outline" className="h-7 flex-1 px-2 text-xs" onClick={onEdit} disabled={!ready}>
           <Crop />
           Edit
+        </Button>
+        <Button size="sm" variant="outline" className="h-7 flex-1 px-2 text-xs" onClick={onReplace} aria-label={`Replace page ${page}`}>
+          <ImageUp />
+          Replace
         </Button>
         <Button size="icon" variant="ghost" className="size-7" onClick={onDelete} aria-label={`Delete page ${page}`}>
           <Trash2 />

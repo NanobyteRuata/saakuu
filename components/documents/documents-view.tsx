@@ -38,6 +38,7 @@ export type DocumentFilters = {
   needsReview: boolean | null;
   hasEdits: boolean | null;
   reviewed: boolean | null;
+  needsReextraction: boolean | null;
   q: string;
 };
 
@@ -85,18 +86,35 @@ function query(filters: DocumentFilters, cursor?: string): string {
   if (filters.needsReview !== null) params.set("needsReview", String(filters.needsReview));
   if (filters.hasEdits !== null) params.set("hasEdits", String(filters.hasEdits));
   if (filters.reviewed !== null) params.set("reviewed", String(filters.reviewed));
+  if (filters.needsReextraction !== null) params.set("needsReextraction", String(filters.needsReextraction));
   if (filters.q) params.set("q", filters.q);
   if (cursor) params.set("cursor", cursor);
   return params.toString();
 }
 
 function isFiltered(f: DocumentFilters): boolean {
-  return f.templateId !== null || f.runState !== null || f.needsReview !== null || f.hasEdits !== null || f.reviewed !== null || f.q !== "";
+  return (
+    f.templateId !== null ||
+    f.runState !== null ||
+    f.needsReview !== null ||
+    f.hasEdits !== null ||
+    f.reviewed !== null ||
+    f.needsReextraction !== null ||
+    f.q !== ""
+  );
 }
 
 /** Arrived from a template card: the list is that template's documents and nothing else is narrowing it. */
 function onlyTemplateFilter(f: DocumentFilters): boolean {
-  return f.templateId !== null && f.runState === null && f.needsReview === null && f.hasEdits === null && f.reviewed === null && f.q === "";
+  return (
+    f.templateId !== null &&
+    f.runState === null &&
+    f.needsReview === null &&
+    f.hasEdits === null &&
+    f.reviewed === null &&
+    f.needsReextraction === null &&
+    f.q === ""
+  );
 }
 
 /** Documents tab (docs/05 §8): filter bar, virtualised list, selection bar, detail drawer. */
@@ -136,7 +154,17 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
           prev.map((d) => {
             const s = byId.get(d.id);
             return s
-              ? { ...d, runState: s.runState, contentState: s.contentState, needsReview: s.needsReview, templateMatchScore: s.templateMatchScore, lastRunAt: s.lastRunAt, lastModel: s.lastModel }
+              ? {
+                  ...d,
+                  runState: s.runState,
+                  contentState: s.contentState,
+                  needsReview: s.needsReview,
+                  templateMatchScore: s.templateMatchScore,
+                  changedSinceLastRead: s.changedSinceLastRead,
+                  lastRunAt: s.lastRunAt,
+                  lastExtractedAt: s.lastExtractedAt,
+                  lastModel: s.lastModel,
+                }
               : d;
           }),
         );
@@ -290,6 +318,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
         <TriState label="Needs review" value={filters.needsReview} onChange={(v) => setFilters({ needsReview: v })} />
         <TriState label="Has edits" value={filters.hasEdits} onChange={(v) => setFilters({ hasEdits: v })} />
         <TriState label="Reviewed" value={filters.reviewed} onChange={(v) => setFilters({ reviewed: v })} />
+        <TriState label="Needs re-extraction" value={filters.needsReextraction} onChange={(v) => setFilters({ needsReextraction: v })} />
         {isFiltered(filters) ? (
           <Button
             variant="ghost"
@@ -583,6 +612,8 @@ function DocumentFlags({ d }: { d: DocumentSummary }) {
   const flags: { text: string; tone: "warn" | "error" | "info" }[] = [];
   if (d.processingPages > 0) flags.push({ text: `${plural(d.processingPages, "page")} processing`, tone: "info" });
   if (d.failedPages > 0) flags.push({ text: `${plural(d.failedPages, "page")} failed`, tone: "error" });
+  // High on purpose: only the first two chips are shown, and this is the one with an action behind it.
+  if (d.changedSinceLastRead) flags.push({ text: "changed since last read", tone: "warn" });
   if (d.templateMatchScore !== null && d.templateMatchScore < MISMATCH_THRESHOLD) flags.push({ text: "possible template mismatch", tone: "warn" });
   if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in details", tone: "error" });
   if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });

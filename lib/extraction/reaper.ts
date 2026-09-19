@@ -142,6 +142,7 @@ async function reapStuckPhotos(now: Date, counts: Counter): Promise<{ requeued: 
   const stuck = await prisma.photo.findMany({
     where: {
       status: "PROCESSING",
+      deletedAt: null,
       createdAt: { lt: new Date(now.getTime() - PHOTO_STUCK_MS) },
       document: { deletedAt: null, book: { deletedAt: null } },
     },

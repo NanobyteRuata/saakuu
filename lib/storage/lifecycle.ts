@@ -132,24 +132,34 @@ async function loadRefs(db: Db, keys: string[]): Promise<ObjectRefs> {
 export type CleanupOptions = { dryRun?: boolean; now?: Date };
 export type CleanupResult = { purgedPhotos: number; dueDeletions: number; deletedObjects: number; sweptObjects: number; scanned: number };
 
-/** Tombstones and removes photos of documents or books deleted longer ago than the grace period. */
-export async function purgeDeletedDocumentPhotos({ dryRun = false, now = new Date() }: CleanupOptions = {}): Promise<number> {
+/**
+ * Tombstones and removes photos deleted longer ago than the grace period: those of a deleted document
+ * or book, and pages replaced by a re-shot one (Phase 11). A replaced page's row is kept until now so
+ * that provenance from existing rows still resolves to an image; past the grace period it ages out
+ * through the same tombstone path as any other deletion.
+ */
+export async function purgeDeletedPhotos({ dryRun = false, now = new Date() }: CleanupOptions = {}): Promise<number> {
   const cutoff = new Date(now.getTime() - graceMs());
   const where: Prisma.PhotoWhereInput = {
-    OR: [{ document: { deletedAt: { lt: cutoff } } }, { document: { book: { deletedAt: { lt: cutoff } } } }],
+    OR: [{ deletedAt: { lt: cutoff } }, { document: { deletedAt: { lt: cutoff } } }, { document: { book: { deletedAt: { lt: cutoff } } } }],
   };
   if (dryRun) return prisma.photo.count({ where });
   let purged = 0;
   for (;;) {
     const photos = await prisma.photo.findMany({
       where,
-      select: { id: true, originalKey: true, document: { select: { bookId: true } } },
+      select: { id: true, originalKey: true, deletedAt: true, document: { select: { bookId: true } } },
       orderBy: { id: "asc" },
       take: BATCH,
     });
     if (photos.length === 0) return purged;
+    // A page deleted or replaced on its own belongs to a document that is still alive, so it is not a purge.
+    const tombstone = (p: (typeof photos)[number]) => ({ id: p.id, originalKey: p.originalKey, bookId: p.document.bookId });
+    const own = photos.filter((p) => p.deletedAt !== null);
+    const withDocument = photos.filter((p) => p.deletedAt === null);
     await prisma.$transaction(async (tx) => {
-      await scheduleDeletion(tx, photos.map((p) => ({ id: p.id, originalKey: p.originalKey, bookId: p.document.bookId })), "DOCUMENT_PURGED", now);
+      await scheduleDeletion(tx, own.map(tombstone), "PHOTO_DELETED", now);
+      await scheduleDeletion(tx, withDocument.map(tombstone), "DOCUMENT_PURGED", now);
       await tx.photo.deleteMany({ where: { id: { in: photos.map((p) => p.id) } } });
     });
     purged += photos.length;
@@ -213,7 +223,7 @@ export async function sweepOrphans({ dryRun = false, now = new Date() }: Cleanup
 
 /** The daily `storage.cleanup` job: purge → due deletions → sweep. */
 export async function runStorageCleanup(options: CleanupOptions = {}): Promise<CleanupResult> {
-  const purgedPhotos = await purgeDeletedDocumentPhotos(options);
+  const purgedPhotos = await purgeDeletedPhotos(options);
   const due = await runDueDeletions(options);
   const sweep = await sweepOrphans(options);
   const result = {

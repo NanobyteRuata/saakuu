@@ -342,8 +342,9 @@ export function PhotoEditor({ photo, open, onOpenChange, onSaved }: Props) {
         </div>
 
         <p className="text-muted-foreground text-xs">
-          Saving changes what the AI reads for this page. If this document was already extracted, extract it again to use
-          the edited version.
+          Saving changes what the AI reads for this page, so the document is marked{" "}
+          <span className="text-foreground">Changed since last read</span> until you extract it again. You don&apos;t have
+          to remember which pages you edited — the Documents tab can filter for them.
         </p>
         {error ? <FormMessage tone="error">{error}</FormMessage> : null}
 

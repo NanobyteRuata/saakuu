@@ -23,11 +23,15 @@ export type CellVisualInput = Pick<
   isSkipSourced: boolean;
 };
 
-export type BookCtx = { confidenceThreshold: number };
-
+/**
+ * Below this, an extracted value nobody has touched gets a dotted underline (docs/08 §3). A constant
+ * since Phase 14: it was a per-book setting, but it asked an operator for a percentage over the
+ * model's own self-reported confidence, which is an uncalibrated signal with no feedback loop
+ * (decision 77).
+ */
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.75;
 
-export function resolveCellVisual(cell: CellVisualInput, ctx: BookCtx): CellVisual {
+export function resolveCellVisual(cell: CellVisualInput): CellVisual {
   // A — authorship, by precedence
   const authorship: CellVisual["authorship"] =
     cell.isEdited || cell.isManual ? "human" : cell.inherited ? "inherited" : cell.isSkipSourced && !cell.value ? "awaiting" : "extracted";
@@ -37,7 +41,7 @@ export function resolveCellVisual(cell: CellVisualInput, ctx: BookCtx): CellVisu
     cell.state === "ILLEGIBLE" ? "illegible" : cell.state === "DASH" ? "dash" : cell.state === "NOT_APPLICABLE" ? "na" : !cell.value ? "empty" : "ok";
 
   // B — low confidence, suppressed once a human is involved
-  const lowConfidence = cell.confidence != null && cell.confidence < ctx.confidenceThreshold && !cell.isEdited && !cell.isReviewed;
+  const lowConfidence = cell.confidence != null && cell.confidence < DEFAULT_CONFIDENCE_THRESHOLD && !cell.isEdited && !cell.isReviewed;
 
   // C — attention, by precedence
   const attention: CellVisual["attention"] =

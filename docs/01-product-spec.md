@@ -101,11 +101,12 @@ Settings as a gear. A workspace is a mode with its own layout, not a view of a r
   ("Delete 2 books, 47 documents and 1,203 rows?"). Soft delete.
 
 ### 6.2 Create Book
-A two-step flow:
-1. **Name** and **default AI model**.
-2. **Define output table columns**: ordered list, each with key, label, data type.
+One step since Phase 14: a **name**. On save, navigate to the book's Templates workspace.
 
-On save, navigate to the book detail page.
+The model is not asked for — it has a sensible default and is overridden where the choice matters
+(per template, and again in the Extract dialog). Columns are not asked for either: step 2 was schema
+authoring demanded of an operator about data they had not read yet, and `Create columns from this
+template` (§6.5) proposes them from the first template's fields.
 
 ### 6.3 Book detail
 Tabbed: **Table** | **Templates** | **Documents** | **Settings**.
@@ -405,7 +406,10 @@ Burmese digits `၀–၉` collide visually with Latin and punctuation (`၀` vs
 
 **Rule: the model transcribes glyphs as written. Normalisation happens
 deterministically in the transform layer**, where it is inspectable and re-runnable.
-Numeral system and era are book-level settings.
+Numeral system and era are book-level values, but they are never *configured*: they default to
+`AUTO` / `GREGORIAN` and are offered on the column whose values did not convert, with the fix in
+place (Phase 14, decision 76). They describe the paper, and the evidence that answers the question
+only exists once a page has been read.
 
 ### 11.9 Geometry
 Handwriting drifting across column lines, values landing between columns, fold lines
@@ -486,13 +490,21 @@ overridden per template.
 Kinds: `REQUIRED`, `TYPE`, `RANGE` (min/max), `LENGTH`, `REGEX`, `ENUM`,
 `UNIQUE` (within book), `CROSS_COLUMN` (e.g. dateB ≥ dateA), `MONOTONIC` (sequence).
 
+*As built (Phase 14):* the editor offers **`REQUIRED`, `RANGE` and `UNIQUE`**, which is what a
+data-entry operator uses, and keeps `LENGTH`, `REGEX`, `ENUM`, `CROSS_COLUMN` and `MONOTONIC` behind
+**Advanced** — developer features that were sitting at the same altitude. `TYPE` is never offered:
+every value is always checked against its column's type. The split is presentation only. Every kind
+is still evaluated, still rendered in the saved list, and an existing rule of any kind opens for
+editing with Advanced already expanded.
+
 Severity: `ERROR` or `WARNING`. Neither blocks export; both surface in the UI and in
 per-column counts.
 
 ## 17. Book glossary
 
 Book-level list of conventions in human language, injected into every prompt for that
-book. Examples: "1 1/2 means 1 year 6 months"; "4/12 means 4 months old";
+book. One of the three things Settings still holds (Phase 14); it reaches every prompt and earns its
+place. Examples: "1 1/2 means 1 year 6 months"; "4/12 means 4 months old";
 "a dash means not applicable, not zero". This belongs at book level because the
 convention applies to every template, not one field.
 

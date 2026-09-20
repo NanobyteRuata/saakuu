@@ -75,21 +75,55 @@ export function compareCells(a: TableCell | undefined, b: TableCell | undefined,
   return av.localeCompare(bv);
 }
 
-export type ColumnCounts = { errors: number; unreviewed: number };
+export type ColumnCounts = { errors: number; unreviewed: number; unparsed: number };
 
 export type TableCounts = { cells: number; unreviewed: number; errors: number; byColumn: Map<string, ColumnCounts> };
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/u;
+const NUMERIC = /^-?\d+(\.\d+)?$/u;
+
+/** Column types whose values are converted, so a whole column of them can fail on one book setting. */
+export const CONVERTED_TYPES = new Set<ColumnType>(["DATE", "NUMBER", "INTEGER"]);
+
+/**
+ * A value the transform kept as written because it would not coerce to the column's type. Coercion never
+ * discards data (lib/transform/coerce.ts), so a flagged cell still holding text the type would not accept
+ * is a parse failure rather than a rule failure. Read structurally rather than by matching the message,
+ * so rewording an error can never silently turn the column's era offer off (decision 76).
+ *
+ * Edited cells don't count. The offer asks a question about the paper, and one operator mistyping a date
+ * is not evidence about the paper — it would raise "is this paper using the Myanmar era?" over their own
+ * slip. Only what the machine read can answer that.
+ */
+export function isUnparsed(cell: TableCell, dataType: ColumnType): boolean {
+  if (cell.validationState !== "ERROR" || cell.isEdited || !cell.value) return false;
+  if (dataType === "DATE") return !ISO_DATE.test(cell.value);
+  if (dataType === "NUMBER" || dataType === "INTEGER") return !NUMERIC.test(cell.value);
+  return false;
+}
+
+/** One column's unparsed count, for watching a rebuild land without recounting the whole table. */
+export function countUnparsed(rows: TableRow[], columnId: string, dataType: ColumnType): number {
+  let n = 0;
+  for (const row of rows) {
+    if (row.isVoid) continue;
+    const cell = row.cells[columnId];
+    if (cell && isUnparsed(cell, dataType)) n++;
+  }
+  return n;
+}
+
 /** Counts over rows that count: not void. Deleted rows never reach the browser. */
-export function countCells(rows: TableRow[], columnIds: string[]): TableCounts {
-  const byColumn = new Map<string, ColumnCounts>(columnIds.map((id) => [id, { errors: 0, unreviewed: 0 }]));
+export function countCells(rows: TableRow[], columns: { id: string; dataType: ColumnType }[]): TableCounts {
+  const byColumn = new Map<string, ColumnCounts>(columns.map((c) => [c.id, { errors: 0, unreviewed: 0, unparsed: 0 }]));
   let cells = 0;
   let unreviewed = 0;
   let errors = 0;
   for (const row of rows) {
     if (row.isVoid) continue;
-    for (const id of columnIds) {
-      const cell = row.cells[id];
-      const counts = byColumn.get(id);
+    for (const column of columns) {
+      const cell = row.cells[column.id];
+      const counts = byColumn.get(column.id);
       if (!cell || !counts) continue;
       cells++;
       if (!cell.isReviewed) {
@@ -99,6 +133,7 @@ export function countCells(rows: TableRow[], columnIds: string[]): TableCounts {
       if (cell.validationState === "ERROR") {
         errors++;
         counts.errors++;
+        if (isUnparsed(cell, column.dataType)) counts.unparsed++;
       }
     }
   }

@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–13 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–14 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 14.
+Phase 15.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–13
+## Shipped — Phases 0–14
 
 | Phase | What shipped |
 |---|---|
@@ -35,10 +35,11 @@ previous one's criteria pass.
 | **11** | Re-shooting a page: replace page, add page, `Changed since last read`, `Needs re-extraction`, staleness as `contentChangedAt` vs `lastExtractedAt`. |
 | **12** | Before strangers: per-user Gemini keys encrypted at rest, cost in money in the Extract dialog, `rawResponse` retention, `reviewedAt` + `reviewedVia`. |
 | **13** | The shell: four workspaces with live counts replacing the four tabs, Settings as a gear, a resizable `Pane` primitive, no page scroll and no viewport arithmetic, upload-only below 1280px. |
+| **14** | Cutting what nobody needs: `Book.confidenceThreshold` dropped, Settings down to glossary + rules + danger zone, the column editor moved to the Result Table, export tokens owned by the export dialog, era and numerals asked by exception, three rule kinds offered, Create Book one step. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's are below, and its
-reasoning is decisions 66–70.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's and Phase 14's are
+below; their reasoning is decisions 66–70 and 76–77.
 
 ---
 
@@ -158,7 +159,7 @@ judgement; here the job is reading pencil on white paper, and contrast is the wh
 
 ---
 
-## Phase 14 — Cutting what nobody needs
+## Phase 14 — Cutting what nobody needs ✅ shipped
 
 Pure subtraction, no dependencies, the cheapest win in the plan. **Every setting is a question asked of
 the operator instead of answered for them** — the opposite of the product's own thesis that the machine
@@ -218,6 +219,35 @@ Phase 19 gives the glossary the entry point it actually needs.
 - A column whose dates fail to parse offers the era question inline, and accepting it rebuilds the rows.
 - The rules editor offers three kinds; an existing `REGEX` rule still shows and still edits under Advanced.
 - Creating a book takes one step and lands on Templates.
+
+**As built.** The subtraction landed as written. Four notes for the phases after it:
+
+- **The column editor had to become reachable from the empty table, not just the toolbar.** Both of
+  the Result Table's empty states return before the toolbar renders, and a book with no columns is
+  exactly when the editor is needed. It is now mounted in all three states. The `This book has no
+  columns yet` state also stopped pointing at Settings for an editor that is no longer there — it
+  was the sixth of the six empty states named at the top of this document.
+- **Parse failures are detected structurally, not by matching an error message.** `coerceToColumn`
+  keeps the raw text when a value will not convert, so a flagged cell still holding text its column's
+  type would not accept *is* a parse failure (`isUnparsed`, `lib/table/view.ts`). Rewording a
+  coercion error can therefore never silently turn a column's era offer off. **Edited cells are
+  excluded**: the offer asks a question about the paper, and one operator mistyping a date is not
+  evidence about the paper.
+- **Accepting the offer waits on the rebuild's own signal.** The setting change enqueues one
+  transform job per template before the PATCH answers, so the table polls each template's existing
+  `GET /api/templates/:id/retransform` until every one is `idle`, then refreshes once and reports
+  what actually happened — how many values now parse, or that the rebuild finished and these values
+  are still wrong, which is the likeliest outcome of a wrong guess. Waiting on the unparsed count
+  instead would have reported that second case as "still rebuilding" for the full budget. Bounded at
+  20 tries, one watch at a time. Phase 18's run drawer is where a real progress surface belongs.
+- **Five kinds went behind Advanced, not six.** The sixth is `TYPE`, which has never been offered:
+  every value is always checked against its column's type. `OFFERED_RULE_KINDS` is now derived from
+  `BASIC_RULE_KINDS ++ ADVANCED_RULE_KINDS` so the two cannot drift.
+
+Two things the phase touched that were not in its own list: the Buddhist-era warning in
+`lib/transform/normalise.ts` told the operator to "change its date era in Settings", which no longer
+exists, and `createBookSchema` now takes `defaultModel` and `columns` as optional so the one-step
+wizard can send a name alone while the seed script and API keep working.
 
 ---
 
@@ -462,8 +492,9 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 
 ## Decisions to append to docs/07 Part B
 
-Phases 13–20 rest on decisions **66–77**, which need writing up in the decision log with their
-reasoning, in the same form as 1–65:
+Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped and 76–77 when
+Phase 14 did; the rest need writing up in the decision log with their reasoning, in the same form as
+1–65, as their phases ship:
 
 | # | Decision |
 |---|---|
@@ -477,8 +508,6 @@ reasoning, in the same form as 1–65:
 | 73 | The AI proposes flat fields only; groups and selection structure stay manual. |
 | 74 | Cross-book copy now, versioned library never until asked for. |
 | 75 | Jobs is a drawer on Documents, not a workspace. |
-| 76 | Numeral system and era are asked by exception at the point of failure, not configured up front. |
-| 77 | The confidence threshold is deleted rather than defaulted: a knob with no feedback loop over an uncalibrated signal. |
 
 ---
 

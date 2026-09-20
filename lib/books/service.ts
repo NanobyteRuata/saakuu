@@ -33,7 +33,6 @@ export type BookSettings = {
   dateEra: "GREGORIAN" | "BUDDHIST" | "MYANMAR";
   blankToken: string;
   illegibleToken: string;
-  confidenceThreshold: number;
   updatedAt: string;
 };
 
@@ -79,7 +78,6 @@ const settingsSelect = {
   dateEra: true,
   blankToken: true,
   illegibleToken: true,
-  confidenceThreshold: true,
   updatedAt: true,
 } satisfies Prisma.BookSelect;
 
@@ -143,14 +141,16 @@ export async function getBookCounts(userId: string, bookId: string): Promise<Boo
 
 export async function createBook(userId: string, input: CreateBookInput): Promise<{ id: string }> {
   const uid = requireUserId(userId);
-  const positions = generateNKeysBetween(null, null, input.columns.length);
+  const columns = input.columns ?? [];
+  const positions = generateNKeysBetween(null, null, columns.length);
   return prisma.book.create({
     data: {
       userId: uid,
       name: input.name,
-      defaultModel: input.defaultModel,
+      // Left to the schema default when the caller doesn't pick one (Phase 14).
+      ...(input.defaultModel ? { defaultModel: input.defaultModel } : {}),
       columns: {
-        create: input.columns.map((column, i) => {
+        create: columns.map((column, i) => {
           const position = positions[i];
           if (position === undefined) throw new Error("column position missing");
           return { ...column, position };

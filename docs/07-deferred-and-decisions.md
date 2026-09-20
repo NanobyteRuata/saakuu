@@ -366,6 +366,26 @@ contrast is the whole task, so the app stays light. For the same reason the pane
 never shrinks below readable — handwriting at 400px is guesswork — and every other pane yields to
 it. (Phase 13)
 
+**76. Numeral system and era are asked by exception, at the point of failure.** They are real: they
+reach the prompt and the transform, and changing one rebuilds every row. But they describe *the
+paper*, not the book, and an operator asked up front does not know what "Myanmar era" will do to
+their data — the question arrives before the evidence that would answer it. So they default to
+`AUTO` / `GREGORIAN` and are offered on the column that failed: a flag counting the values that did
+not convert, and inside it *"Dates in this column aren't parsing. Is this paper using the Myanmar
+era?"* with the fix in place. The offer is shown from structure rather than from an error message —
+coercion never discards data, so a flagged cell still holding text its column's type would not
+accept is a parse failure — which means rewording an error can never silently switch the offer off.
+(Phase 14)
+
+**77. The confidence threshold is deleted rather than defaulted.** It asked a non-technical operator
+for a percentage controlling a dotted underline, over the model's *self-reported* confidence: the
+prompt literally asks for "your own estimate from 0 to 1", and the settings help text already
+conceded it was "only a hint". A tuning knob with no feedback loop over an uncalibrated signal is
+worse than no knob, because it invites an operator to spend attention where attention buys nothing.
+Defaulting it would have left the column and the question; dropping it leaves a constant in
+`lib/table/cellState.ts` and nobody notices. The general rule the phase applied: every setting has to
+beat "pick a good default and let them fix it where it is wrong." (Phase 14)
+
 ---
 
 ## Part C — Open questions for later

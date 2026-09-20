@@ -76,16 +76,16 @@ Cards or rows: name, column count, document count, row count, updated-at.
 with `Delete (n)`. Empty state explains the concept in two sentences with a CTA.
 
 ## 3. Create Book
-Step 1: name, default model.
-Step 2: output columns — an editable list with add/remove/drag-reorder. Per column:
-label, key (auto-slugged from label, editable), type, and for ENUM a values editor.
+One step (Phase 14): **name**, then `Create book`. It lands on the **Templates** workspace, not
+Table — Table is the workspace that stays empty longest, and the real next action is building a
+template.
 
-Step 2 starts **empty and optional** (Phase 10). The copy says the columns can be left for
-later, because `Create columns from this template` (§7) proposes them from the first template's
-fields, and the button reads `Create book without columns` while none have been added. `Create`
-lands on the **Templates** tab, not Table — Table is the tab that stays empty longest, and the
-real next action is building a template. Asking an operator to author a schema for data they
-have not read yet was the first wall in the product (docs/06 Phase 10).
+Asking an operator to author a schema for data they have not read yet was the first wall in the
+product. Phase 10 softened step 2 to empty-and-optional and was left with a primary button reading
+`Create book without columns` — a button named after an absence. Phase 14 removed the step. Columns
+are authored where they live, on the Result Table (§12) and in Mapping (§7), and `Create columns
+from this template` proposes them from the first template's fields. The default model is not asked
+for either: it has a default and is overridden per template and per extraction.
 
 ## 4. Book workspaces
 One header line: `← Books`, the book name (click to edit inline), the workspace nav with its
@@ -104,16 +104,27 @@ target, because it is a gear rather than a workspace.
 Opening a book never drops anyone into full-screen review by itself.
 
 ## 5. Settings
-Reached from the **gear** in the workspace nav (Phase 13), not as a peer workspace. Sections: General (name, default model, numeral system, date era), Output table
-(opens the column editor), Glossary (term/meaning list), Validation rules, Export
-preferences, Danger zone (delete book).
+Reached from the **gear** in the workspace nav (Phase 13), not as a peer workspace.
+
+*As built (Phase 14):* three sections. **Glossary** (term/meaning list), **Validation rules**, and
+the **Danger zone** (delete book). Nothing else. Each setting had to beat "pick a good default and
+let them fix it where it is wrong", and only these three did:
+
+| Was here | Now |
+|---|---|
+| Book name | Edited inline in the workspace header |
+| Default AI model | A constant default, overridden per template and in the Extract dialog |
+| Numeral system, date era | Offered on the column whose values won't parse (§12, decision 76) |
+| Confidence threshold | Deleted; a constant in `lib/table/cellState.ts` (decision 77) |
+| Export preferences | Set in the export dialog, which remembers them (§14) |
+| Output table | The column editor, on the Result Table (§12) and in Mapping (§7) |
 
 *As built (Phase 12):* the **AI key** lives in the account area, not here — it belongs to the
 person, not to one book. See §5.1.
 
-**Edit output table** opens the column editor in a modal. On save it calls the preview
-endpoint and shows the impact report before applying. Severity drives the styling:
-SAFE applies immediately with a toast; ADDITIVE applies with a notice; DESTRUCTIVE
+**Edit output table** opens the column editor in a modal, from the Result Table or from Mapping. On
+save it calls the preview endpoint and shows the impact report before applying. Severity drives the
+styling: SAFE applies immediately with a toast; ADDITIVE applies with a notice; DESTRUCTIVE
 requires typing nothing but does require an explicit confirm on a screen that shows
 `38 of the 412 affected cells have been edited by you`.
 
@@ -476,7 +487,30 @@ pointed at the mapping it needed.
   legend, Refresh, `Review rows` (disabled until Phase 8). Readout: `24,000 cells · 24,000 unreviewed · 305 errors`.
 - Disagreement cells carry a chevron opening extracted vs yours with `Keep mine` / `Use extracted`.
 - Settings → Validation rules: rule list with how many cells each flags, an inline editor per kind with a live count of
-  failing cells, counted delete, `Re-check all cells`. Settings → General gains the uncertain-reading threshold.
+  failing cells, counted delete, `Re-check all cells`.
+
+*As built (Phase 14):* the toolbar carries **`Edit output table`**, and so do both of this
+workspace's empty states — a book with no columns is exactly when the editor is wanted, and the
+no-columns state used to point at Settings for an editor that is no longer there.
+
+**Values that would not convert** get an offer on their own column (decision 76). A `DATE`,
+`NUMBER` or `INTEGER` column whose cells failed to coerce shows a `3 not parsing` flag beside its
+error and unreviewed counts, and its menu opens with the question rather than the filters:
+
+> **3 dates aren't parsing in this column.**
+> Is this paper using the Myanmar era, or Buddhist-era years? It describes the paper, so it is set
+> for the whole book. Rows rebuild from what the AI already read — no AI cost.
+> `[ Buddhist era (BE) ] [ Myanmar calendar ]`
+
+A number column asks about Burmese digits instead. Accepting saves the book setting, which rebuilds
+every template's rows; the table waits for each template's rebuild to report itself finished and then
+says what changed — `4 values now parse`, or plainly that the rebuild finished and these values are
+still wrong, so a wrong guess is not left looking like a slow one. Nobody has to know a queue was
+involved.
+
+The flag is decided structurally — a flagged cell still holding text its type would not accept — not
+by matching the wording of a coercion error, and **cells you edited are not counted**: the question
+is about the paper, and your own typo is not evidence about the paper.
 
 ## 13. Review workspace (row review)
 Two panes, resizable and remembered (§0). Left: the source photo, zoomable, with the current
@@ -518,8 +552,10 @@ Options: include void rows, include provenance columns, column subset, blank tok
 illegible token. Shows the resulting row count. Warns if unreviewed cells or
 validation errors remain, with counts, but never blocks.
 
-*As built (Phase 8):* opened from `Export CSV` in the book header (disabled with no rows) and in row review. Tokens start
-from Settings and apply to this export only. Shows `240 rows × 8 columns` and, when anything is left, `Not finished: 318 of
+*As built (Phase 8, amended in Phase 14):* opened from `Export CSV` in the book header (disabled with no rows) and in row
+review. The blank and illegible tokens are **set here and remembered**: this dialog is the only place they are edited, and
+the choice is written back to the book, so the next export of it starts where this one finished. Having them here *and* in
+Settings was two places to set one thing, and Settings is the one you forget you touched. Shows `240 rows × 8 columns` and, when anything is left, `Not finished: 318 of
 1,920 cells not reviewed · 12 cells with errors · 3 cells with warnings. You can still export.` The download starts in place.
 
 ## 15. Empty and error states

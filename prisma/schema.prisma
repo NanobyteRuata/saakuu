@@ -92,8 +92,6 @@ model Book {
   // export prefs
   blankToken          String        @default("")
   illegibleToken      String        @default("?")
-  // Phase 7: below this, an extracted value nobody has touched gets a dotted underline (docs/08 §3)
-  confidenceThreshold Float         @default(0.75)
   createdAt           DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt           DateTime      @updatedAt @db.Timestamptz(3)
   deletedAt           DateTime?     @db.Timestamptz(3)

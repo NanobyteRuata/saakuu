@@ -176,7 +176,7 @@ function ExportDialog({ bookId, columns, blankToken, illegibleToken, onClose }: 
               <Label htmlFor="export-dialog-illegible">Illegible cells export as</Label>
               <Input id="export-dialog-illegible" className="font-mono" value={illegible} onChange={(e) => setIllegible(e.target.value)} />
             </div>
-            <p className="text-muted-foreground text-xs sm:col-span-2">Dashes export as - and not-applicable as N/A. Defaults come from Settings.</p>
+            <p className="text-muted-foreground text-xs sm:col-span-2">Dashes export as - and not-applicable as N/A. What you choose here is remembered for this book&apos;s next export.</p>
           </div>
 
           <div aria-live="polite" className="flex flex-col gap-2 text-sm">

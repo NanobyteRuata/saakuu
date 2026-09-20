@@ -12,7 +12,7 @@ export default async function ResultTablePage({ params }: { params: Promise<{ bo
   return (
     <>
       <LandingWorkspaceRedirect bookId={book.id} userId={user.id} templateCount={book.templateCount} />
-      <OutputTable key={book.id} meta={meta} firstPage={firstPage} />
+      <OutputTable key={book.id} meta={meta} firstPage={firstPage} columns={book.columns} />
     </>
   );
 }

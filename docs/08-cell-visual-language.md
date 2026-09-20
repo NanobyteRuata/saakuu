@@ -76,8 +76,10 @@ value text — not on the attention channel. It is far too common (potentially 4
 cells) to justify an edge bar; a table where 40% of cells shout is a table where
 nothing shouts.
 
-Low confidence is shown **only when** `confidence < threshold` (default 0.75,
-configurable per book) **and** the cell is neither edited nor reviewed. Once a human
+Low confidence is shown **only when** `confidence < DEFAULT_CONFIDENCE_THRESHOLD` (0.75) **and**
+the cell is neither edited nor reviewed. It was configurable per book until Phase 14, which deleted
+the setting rather than defaulting it: a knob with no feedback loop over the model's own
+self-reported confidence (decision 77). Once a human
 has touched or confirmed the cell, the model's self-assessment is irrelevant and the
 underline disappears. This single rule removes most of the noise.
 
@@ -153,7 +155,7 @@ type CellVisual = {
   reviewed:   boolean;
 };
 
-export function resolveCellVisual(cell: Cell, ctx: BookCtx): CellVisual {
+export function resolveCellVisual(cell: Cell): CellVisual {
   // A — authorship, by precedence
   const authorship =
     cell.isEdited || cell.isManual        ? "human"
@@ -172,7 +174,7 @@ export function resolveCellVisual(cell: Cell, ctx: BookCtx): CellVisual {
   // B — low confidence, suppressed once a human is involved
   const lowConfidence =
     cell.confidence != null &&
-    cell.confidence < ctx.confidenceThreshold &&
+    cell.confidence < DEFAULT_CONFIDENCE_THRESHOLD &&
     !cell.isEdited &&
     !cell.isReviewed;
 

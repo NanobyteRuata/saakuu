@@ -820,7 +820,6 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
                         cell={row.cells[c.id]}
                         source={document_ ? meta.columnSources[document_.templateId]?.[c.id] : undefined}
                         cellSource={rowSources?.cells[c.id]}
-                        threshold={meta.confidenceThreshold}
                         active={pos?.column === ci}
                         editing={editing !== null && editing.cellId === row.cells[c.id]?.id ? editing.initial : null}
                         onPick={onPick}

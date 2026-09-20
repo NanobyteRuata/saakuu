@@ -81,7 +81,7 @@ export function parseDate(value: string, era: DateEra, options?: DateFieldOption
     year += MYANMAR_ERA_OFFSET;
     issues.push(warn(`Converted from the Myanmar-era year ${parts[0]} to ${year}. Dates before Thingyan (mid-April) belong to ${year + 1}; check it.`));
   } else if (year >= BUDDHIST_ERA_YEAR_FLOOR) {
-    issues.push(warn(`The year ${year} looks like a Buddhist-era year. If the book uses Buddhist-era dates, change its date era in Settings.`));
+    issues.push(warn(`The year ${year} looks like a Buddhist-era year. If this paper uses Buddhist-era dates, say so from this column's menu in the table.`));
   }
   if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
     return { iso: null, issues: [] };

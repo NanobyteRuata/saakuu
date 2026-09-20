@@ -71,14 +71,16 @@ export type ColumnDraft = z.infer<typeof columnDraftSchema>;
 export const createBookSchema = z
   .object({
     name: labelSchema,
-    defaultModel: modelIdSchema,
-    // Columns can wait: `Create columns from this template` proposes them from the first template's
-    // fields, so nobody has to author a schema for data they have not read yet (docs/06 Phase 10).
-    columns: z.array(columnDraftSchema).max(MAX_COLUMNS, { error: `A book can have up to ${MAX_COLUMNS} columns.` }),
+    // Both optional since Phase 14: creating a book asks for a name and nothing else. The model has a
+    // sensible default and is overridden where it matters (per template, per extraction); columns come
+    // from `Create columns from this template`, so nobody authors a schema for data they have not read
+    // yet (docs/06 Phase 10). The API still accepts both, for the seed script and for callers with them.
+    defaultModel: modelIdSchema.optional(),
+    columns: z.array(columnDraftSchema).max(MAX_COLUMNS, { error: `A book can have up to ${MAX_COLUMNS} columns.` }).optional(),
   })
   .superRefine((book, ctx) => {
     const seen = new Map<string, number>();
-    book.columns.forEach((col, i) => {
+    (book.columns ?? []).forEach((col, i) => {
       if (seen.has(col.key)) {
         ctx.addIssue({ code: "custom", path: ["columns", i, "key"], message: "Another column already uses this key." });
       }
@@ -96,8 +98,6 @@ export const updateBookSchema = z
     defaultModel: modelIdSchema.optional(),
     numeralSystem: z.enum(NUMERAL_SYSTEMS).optional(),
     dateEra: z.enum(DATE_ERAS).optional(),
-    /** Below this self-reported confidence an untouched extracted value is underlined (docs/08 §3). */
-    confidenceThreshold: z.number().min(0).max(1).optional(),
     exportPrefs: z
       .object({ blankToken: exportTokenSchema.optional(), illegibleToken: exportTokenSchema.optional() })
       .optional(),

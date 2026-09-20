@@ -24,8 +24,9 @@ import { deleteJson, getJson, patchJson, postJson } from "@/lib/api-client";
 import type { ColumnType } from "@/lib/books/schemas";
 import { formatCount, plural } from "@/lib/format";
 import {
+  ADVANCED_RULE_KINDS,
+  BASIC_RULE_KINDS,
   COMPARE_OPERATORS,
-  OFFERED_RULE_KINDS,
   OPERATOR_LABELS,
   RULE_KIND_LABELS,
   type CompareOperator,
@@ -150,6 +151,9 @@ function toDraft(f: FormState): RuleDraft | string {
 
 function RuleForm({ bookId, columns, rule, onSaved, onCancel }: { bookId: string; columns: Column[]; rule: RuleView | null; onSaved: (rule: RuleView) => void; onCancel: () => void }) {
   const [form, setForm] = useState<FormState>(() => toForm(rule, columns));
+  // Three checks are what a data-entry operator uses; the rest are developer features at the same
+  // altitude, so they sit behind Advanced (Phase 14). Editing one of them opens it already expanded.
+  const [advanced, setAdvanced] = useState<boolean>(() => (ADVANCED_RULE_KINDS as readonly string[]).includes(toForm(rule, columns).kind));
   const [preview, setPreview] = useState<{ failing: number; problem: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -218,13 +222,25 @@ function RuleForm({ bookId, columns, rule, onSaved, onCancel }: { bookId: string
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {OFFERED_RULE_KINDS.map((k) => (
+              {BASIC_RULE_KINDS.map((k) => (
                 <SelectItem key={k} value={k}>
                   {RULE_KIND_LABELS[k]}
                 </SelectItem>
               ))}
+              {advanced
+                ? ADVANCED_RULE_KINDS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {RULE_KIND_LABELS[k]}
+                    </SelectItem>
+                  ))
+                : null}
             </SelectContent>
           </Select>
+          {advanced ? null : (
+            <button type="button" className="text-muted-foreground hover:text-foreground self-start text-xs underline underline-offset-4" onClick={() => setAdvanced(true)}>
+              Advanced checks
+            </button>
+          )}
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="rule-severity">When it fails</Label>

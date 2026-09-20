@@ -21,17 +21,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { FormMessage } from "@/components/auth/form-message";
+import { EditColumnsDialog } from "@/components/books/edit-columns-dialog";
 import { PhotoViewer } from "@/components/photo/photo-viewer";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { patchJson, postJson } from "@/lib/api-client";
+import { getJson, patchJson, postJson } from "@/lib/api-client";
+import type { ColumnState } from "@/lib/books/column-ops";
 import { formatCount, plural } from "@/lib/format";
 import { voidLabel } from "@/lib/table/labels";
 import type { CellChangeResult, CellValidationUpdate, TableCell, TableMeta, TableRow } from "@/lib/table/types";
-import { compareCells, countCells, withCell, withValidation, isToolbarFiltered, matchesColumnFilter, matchesToolbar, NO_TOOLBAR_FILTER, type ColumnFilter, type ToolbarFilter } from "@/lib/table/view";
+import { compareCells, countCells, countUnparsed, withCell, withValidation, isToolbarFiltered, matchesColumnFilter, matchesToolbar, NO_TOOLBAR_FILTER, type ColumnFilter, type ToolbarFilter } from "@/lib/table/view";
 import type { WirePage } from "@/lib/table/wire";
 import { cn } from "@/lib/utils";
 
@@ -48,8 +50,11 @@ const DENSITY_KEY = "saakuu.table.density";
 const HEADER_HEIGHT = 52;
 const SAVE_DEBOUNCE_MS = 400;
 const UNDO_LIMIT = 100;
+const REBUILD_POLL_MS = 2000;
+const REBUILD_POLL_TRIES = 20;
 
-type Props = { meta: TableMeta; firstPage: WirePage };
+/** `columns` is the book's full column state, which the column editor needs and `meta.columns` does not carry. */
+type Props = { meta: TableMeta; firstPage: WirePage; columns: ColumnState[] };
 
 type Focus = { rowId: string; columnId: string };
 
@@ -68,6 +73,13 @@ type Session = {
 
 const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 
+/** Whether every template of the book has finished rebuilding, as each template's own status reports it. */
+async function rebuildIdle(templates: { id: string }[]): Promise<boolean> {
+  const states = await Promise.all(templates.map((t) => getJson<{ state: "idle" | "queued" | "running" }>(`/api/templates/${t.id}/retransform`)));
+  // A status that cannot be read is not evidence the rebuild finished; the try budget ends the wait.
+  return states.every((s) => s.ok && s.data.state === "idle");
+}
+
 function readDensity(): Density {
   try {
     const v = window.localStorage.getItem(DENSITY_KEY);
@@ -82,7 +94,7 @@ function readDensity(): Density {
  * counts cover the whole book; rows are virtualised. Manual order is canonical: dragging writes one row, sorting
  * writes nothing. Edits save as you type (debounced), each editing session is one undo step.
  */
-export function OutputTable({ meta: initialMeta, firstPage }: Props) {
+export function OutputTable({ meta: initialMeta, firstPage, columns }: Props) {
   const { meta, setMeta, rows, setRows, rowsRef, documents, nextCursor, loadError, refreshing, refresh: reload } = useBookRows(initialMeta, firstPage);
   const [density, setDensity] = useState<Density>("default");
   const [toolbar, setToolbar] = useState<ToolbarFilter>(NO_TOOLBAR_FILTER);
@@ -109,6 +121,62 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
     setEditing(null);
     // Sort and filters are the person's view and stay; focus is cleared below if its row is gone.
   }, [reload]);
+
+  // Accepting a column's era or numerals offer changes a book setting, which the server turns into one
+  // transform job per template before it answers, so by the time we get here the jobs are queued. The
+  // watch below waits for every template to go idle — the rebuild's own signal, not a guess from the
+  // data — and only then reads the result. Waiting on the unparsed count instead would misreport a
+  // rebuild that finished and simply did not help, which is the likeliest outcome of a wrong guess.
+  //
+  // One watch at a time: a second accept supersedes the first. `clearTimeout` cannot stop a chain that
+  // is already inside its await, so each chain also carries the generation it started in and drops out
+  // when that is no longer current.
+  const rebuildWatch = useRef<{ timer: ReturnType<typeof setTimeout> | null; generation: number }>({ timer: null, generation: 0 });
+  const stopRebuildWatch = useCallback(() => {
+    if (rebuildWatch.current.timer) clearTimeout(rebuildWatch.current.timer);
+    rebuildWatch.current = { timer: null, generation: rebuildWatch.current.generation + 1 };
+  }, []);
+  useEffect(() => stopRebuildWatch, [stopRebuildWatch]);
+
+  const onBookSettingChanged = useCallback(
+    (columnId: string) => {
+      const dataType = meta.columns.find((c) => c.id === columnId)?.dataType;
+      if (!dataType) return;
+      const before = countUnparsed(rowsRef.current, columnId, dataType);
+      stopRebuildWatch();
+      const generation = rebuildWatch.current.generation;
+      const current = () => rebuildWatch.current.generation === generation;
+      let tries = 0;
+
+      const finish = async (rebuilt: boolean) => {
+        await refresh();
+        if (!current()) return;
+        if (!rebuilt) {
+          toast.info("The rows are still rebuilding. Refresh the table in a moment to see them.");
+          return;
+        }
+        const after = countUnparsed(rowsRef.current, columnId, dataType);
+        if (after < before) {
+          setAnnouncement(`The rows have been rebuilt. ${plural(before - after, "value")} now ${before - after === 1 ? "parses" : "parse"}.`);
+        } else {
+          toast.info("The rows were rebuilt, but these values still don't parse. Something other than the era or the numerals is wrong with them.");
+        }
+      };
+
+      const tick = async () => {
+        tries++;
+        const idle = await rebuildIdle(meta.templates);
+        if (!current()) return;
+        if (idle || tries >= REBUILD_POLL_TRIES) {
+          await finish(idle);
+          return;
+        }
+        rebuildWatch.current.timer = setTimeout(() => void tick(), REBUILD_POLL_MS);
+      };
+      rebuildWatch.current.timer = setTimeout(() => void tick(), REBUILD_POLL_MS);
+    },
+    [meta.columns, meta.templates, refresh, rowsRef, stopRebuildWatch],
+  );
 
   // A focused row that no longer exists (deleted, or gone after a refresh) drops focus once every page is in.
   useEffect(() => {
@@ -152,7 +220,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
   const visibleIds = useMemo(() => visible.map((r) => r.id), [visible]);
   const visibleIndex = useMemo(() => new Map(visibleIds.map((id, i) => [id, i])), [visibleIds]);
   const columnIds = useMemo(() => meta.columns.map((c) => c.id), [meta.columns]);
-  const counts = useMemo(() => countCells(rows, columnIds), [rows, columnIds]);
+  const counts = useMemo(() => countCells(rows, meta.columns), [rows, meta.columns]);
   const unfilledColumnIds = useMemo(() => new Set(meta.unfilledColumnIds), [meta.unfilledColumnIds]);
   const filtered = isToolbarFiltered(toolbar) || Object.keys(columnFilters).length > 0;
   const totalWidth = LEAD_WIDTH + meta.columns.reduce((n, c) => n + columnWidth(c), 0);
@@ -502,20 +570,24 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
   const activeCell = focus && focusRendered ? rows.find((r) => r.id === focus.rowId)?.cells[focus.columnId] : undefined;
   const loaded = rows.length;
 
+  // The column editor is reachable from every state of this workspace, empty ones included: since
+  // Phase 14 this is where the columns are edited, and an empty table is exactly when they are missing.
+  const columnEditor = <EditColumnsDialog bookId={meta.bookId} columns={columns} title="Edit output table" onSaved={() => void refresh()} />;
+
   if (meta.columns.length === 0) {
     return (
-      <EmptyState title="This book has no columns yet">
-        Add the columns you want to export in{" "}
-        <Link className="underline underline-offset-4" href={`/books/${meta.bookId}/settings`}>
-          Settings
-        </Link>
-        , then map template fields to them.
+      <EmptyState title="This book has no columns yet" action={columnEditor}>
+        These are the columns of the spreadsheet you export. Add them here, or build a template in{" "}
+        <Link className="underline underline-offset-4" href={`/books/${meta.bookId}/templates`}>
+          Templates
+        </Link>{" "}
+        and let <span className="font-medium">Create columns from this template</span> propose them from its fields.
       </EmptyState>
     );
   }
   if (meta.totalRows === 0 && rows.length === 0) {
     return (
-      <EmptyState title="No rows yet">
+      <EmptyState title="No rows yet" action={columnEditor}>
         Rows appear here once a template has read your photos. Upload documents in{" "}
         <Link className="underline underline-offset-4" href={`/books/${meta.bookId}/documents`}>
           Documents
@@ -597,6 +669,8 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
             </SelectContent>
           </Select>
           <TableLegend />
+          {/* The column editor lives where the columns are (Phase 14); it is also in Mapping, where a missing column is discovered. */}
+          {columnEditor}
           <Button variant="ghost" size="icon" onClick={() => void refresh()} disabled={refreshing} aria-label="Refresh the table" title="Refresh the table">
             <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
           </Button>
@@ -647,7 +721,12 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
                 width={columnWidth(c)}
                 errors={counts.byColumn.get(c.id)?.errors ?? 0}
                 unreviewed={counts.byColumn.get(c.id)?.unreviewed ?? 0}
+                unparsed={counts.byColumn.get(c.id)?.unparsed ?? 0}
                 unfilled={unfilledColumnIds.has(c.id)}
+                bookId={meta.bookId}
+                numeralSystem={meta.numeralSystem}
+                dateEra={meta.dateEra}
+                onBookSettingChanged={onBookSettingChanged}
                 sort={sort?.columnId === c.id ? sort.direction : false}
                 filter={columnFilters[c.id]}
                 onSort={onSort}
@@ -697,7 +776,6 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
                         sources={doc ? meta.columnSources[doc.templateId] : undefined}
                         document={doc}
                         templateName={doc ? templateNames.get(doc.templateId) : undefined}
-                        threshold={meta.confidenceThreshold}
                         focusedColumnId={focus?.rowId === row.id ? focus.columnId : null}
                         editing={editing?.rowId === row.id ? editing : null}
                         dragDisabled={sort !== null}
@@ -783,11 +861,12 @@ function FilterToggle({ pressed, onClick, children }: { pressed: boolean; onClic
   );
 }
 
-function EmptyState({ title, children }: { title: string; children: React.ReactNode }) {
+function EmptyState({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section aria-label="Output table" className="m-auto max-w-md px-6 py-14 text-center">
       <p className="font-medium">{title}</p>
       <p className="text-muted-foreground mx-auto mt-1 max-w-md text-sm">{children}</p>
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </section>
   );
 }

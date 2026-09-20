@@ -45,7 +45,6 @@ type Props = {
   sources: Record<string, ColumnSource> | undefined;
   document: TableDocument | undefined;
   templateName: string | undefined;
-  threshold: number;
   /** The focused cell's column, only when this row holds focus: other rows skip re-rendering on focus moves. */
   focusedColumnId: string | null;
   editing: EditingCell | null;
@@ -125,7 +124,7 @@ export function CellEditor({ width, initial, actions }: { width: number; initial
 }
 
 /** One virtualised row: drag handle, row number, document or provenance chip, row menu, then its cells. */
-export const GridRow = memo(function GridRow({ row, index, top, height, columns, sources, document, templateName, threshold, focusedColumnId, editing, dragDisabled, actions }: Props) {
+export const GridRow = memo(function GridRow({ row, index, top, height, columns, sources, document, templateName, focusedColumnId, editing, dragDisabled, actions }: Props) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: row.id, disabled: dragDisabled });
 
   return (
@@ -192,7 +191,6 @@ export const GridRow = memo(function GridRow({ row, index, top, height, columns,
               rowId={row.id}
               cell={row.cells[column.id]}
               source={sources?.[column.id]}
-              threshold={threshold}
               width={columnWidth(column)}
               focused={focusedColumnId === column.id}
               numeric={column.dataType === "NUMBER" || column.dataType === "INTEGER"}

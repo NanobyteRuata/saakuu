@@ -146,7 +146,9 @@ export function EditColumnsDialog({ bookId, columns, open: openProp, onOpenChang
     <Dialog open={open} onOpenChange={handleOpenChange}>
       {showTrigger ? (
         <DialogTrigger asChild>
-          <Button variant="outline">Edit output table</Button>
+          <Button variant="outline" size="sm">
+            Edit output table
+          </Button>
         </DialogTrigger>
       ) : null}
       <DialogContent

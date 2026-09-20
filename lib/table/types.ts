@@ -1,4 +1,4 @@
-import type { ValidationState, ValueState } from "@/lib/transform/types";
+import type { DateEra, NumeralSystem, ValidationState, ValueState } from "@/lib/transform/types";
 
 /**
  * The output table as the browser holds it (docs/05 §12). Client-safe. The wire format is compact
@@ -50,7 +50,9 @@ export type TableMeta = {
   columnSources: Record<string, Record<string, ColumnSource>>;
   /** Columns no template's working mapping fills: they stay blank until one does (docs/01 §6.3). */
   unfilledColumnIds: string[];
-  confidenceThreshold: number;
+  /** How the transform reads numerals and years, so a column whose values won't parse can offer the fix (decision 76). */
+  numeralSystem: NumeralSystem;
+  dateEra: DateEra;
   totalRows: number;
 };
 

@@ -69,11 +69,25 @@ export async function exportPreview(userId: string, bookId: string, options: Exp
   };
 }
 
-/** Checks the options and returns a short-lived download link for them. */
+/**
+ * Checks the options and returns a short-lived download link for them.
+ *
+ * The chosen tokens are saved back to the book, so the next export of it starts where this one
+ * finished. Since Phase 14 the export dialog is the only place they are set: having them here *and*
+ * in Settings was two places to set one thing, and Settings is the one you forget you touched.
+ * Written here rather than from the browser so the preference survives a tab that goes away.
+ */
 export async function createExport(userId: string, bookId: string, options: ExportOptions): Promise<{ downloadUrl: string }> {
   const uid = requireUserId(userId);
   await requireBookAccess(uid, bookId);
   await exportColumns(bookId, options);
+  // Only when they actually differ: `Book.updatedAt` is what the books list sorts on, so writing on
+  // every export would reorder that list each time someone downloads a CSV.
+  const stored = await prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: { blankToken: true, illegibleToken: true } });
+  const prefs: Prisma.BookUpdateInput = {};
+  if (options.blankToken !== undefined && options.blankToken !== stored.blankToken) prefs.blankToken = options.blankToken;
+  if (options.illegibleToken !== undefined && options.illegibleToken !== stored.illegibleToken) prefs.illegibleToken = options.illegibleToken;
+  if (Object.keys(prefs).length > 0) await prisma.book.update({ where: { id: bookId }, data: prefs });
   return { downloadUrl: `/api/exports/${issueExportLink(bookId, uid, options)}` };
 }
 

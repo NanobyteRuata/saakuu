@@ -48,7 +48,6 @@ type Props = {
   rowId: string;
   cell: TableCell | undefined;
   source: ColumnSource | undefined;
-  threshold: number;
   width: number;
   focused: boolean;
   numeric: boolean;
@@ -60,11 +59,11 @@ type Props = {
  * value semantics with the low-confidence underline, one attention bar, the reviewed dot, and the focus ring.
  * Memoised on the cell object, so an edit re-renders only the cell it changed.
  */
-export const TableCellView = memo(function TableCellView({ rowId, cell, source, threshold, width, focused, numeric, actions }: Props) {
+export const TableCellView = memo(function TableCellView({ rowId, cell, source, width, focused, numeric, actions }: Props) {
   if (!cell) {
     return <div role="gridcell" aria-disabled className="bg-muted/40 h-full shrink-0 border-r" style={{ width }} />;
   }
-  const visual = resolveCellVisual({ ...cell, isManual: source === "MANUAL", isSkipSourced: source === "SKIP" }, { confidenceThreshold: threshold });
+  const visual = resolveCellVisual({ ...cell, isManual: source === "MANUAL", isSkipSourced: source === "SKIP" });
   const title = attentionTitle(cell, visual);
   const text = cellText(cell);
 

@@ -20,7 +20,6 @@ type Props = {
   cell: TableCell | undefined;
   source: ColumnSource | undefined;
   cellSource: CellSource | undefined;
-  threshold: number;
   active: boolean;
   /** Initial text when this field is being edited. */
   editing: string | null;
@@ -34,7 +33,7 @@ const VALUE_STATE_LABEL: Record<string, string> = { ILLEGIBLE: "unreadable", DAS
  * One cell of the row under review as a form field: label, where it was read, the value rendered with the cell
  * channels of docs/08, confidence, validation messages and whether it's reviewed.
  */
-export const ReviewField = memo(function ReviewField({ column, cell, source, cellSource, threshold, active, editing, onPick, editor }: Props) {
+export const ReviewField = memo(function ReviewField({ column, cell, source, cellSource, active, editing, onPick, editor }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });
@@ -47,7 +46,7 @@ export const ReviewField = memo(function ReviewField({ column, cell, source, cel
       </div>
     );
   }
-  const visual = resolveCellVisual({ ...cell, isManual: source === "MANUAL", isSkipSourced: source === "SKIP" }, { confidenceThreshold: threshold });
+  const visual = resolveCellVisual({ ...cell, isManual: source === "MANUAL", isSkipSourced: source === "SKIP" });
   const title = attentionTitle(cell, visual);
   const extractedText = cellText({ value: cell.extractedValue, state: cell.extractedState });
   const paths = cellSource?.paths ?? [];

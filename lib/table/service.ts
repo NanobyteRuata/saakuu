@@ -164,7 +164,7 @@ export async function listRows(userId: string, bookId: string, input: ListRowsIn
 export async function getTableMeta(userId: string, bookId: string): Promise<TableMeta> {
   await requireBookAccess(userId, bookId);
   const [book, columns, templates, totalRows] = await Promise.all([
-    prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: { confidenceThreshold: true } }),
+    prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: { numeralSystem: true, dateEra: true } }),
     loadColumns(prisma, bookId),
     prisma.template.findMany({ where: { bookId, deletedAt: null }, select: { id: true, name: true, position: true }, take: MAX_TEMPLATES }),
     prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
@@ -191,7 +191,8 @@ export async function getTableMeta(userId: string, bookId: string): Promise<Tabl
     templates: templates.map((t) => ({ id: t.id, name: t.name })),
     columnSources,
     unfilledColumnIds: columns.filter((c) => !filled.has(c.id)).map((c) => c.id),
-    confidenceThreshold: book.confidenceThreshold,
+    numeralSystem: book.numeralSystem,
+    dateEra: book.dateEra,
     totalRows,
   };
 }

@@ -21,8 +21,16 @@ import { idSchema } from "@/lib/validation";
 export const RULE_KINDS = ["REQUIRED", "TYPE", "RANGE", "LENGTH", "REGEX", "ENUM", "UNIQUE", "CROSS_COLUMN", "MONOTONIC"] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
 
-/** `TYPE` isn't offered: every value is always checked against its column's type. */
-export const OFFERED_RULE_KINDS = ["REQUIRED", "RANGE", "LENGTH", "REGEX", "ENUM", "UNIQUE", "CROSS_COLUMN", "MONOTONIC"] as const;
+/**
+ * What the rules editor puts in front of a data-entry operator, and what it keeps behind Advanced
+ * (Phase 14). The split is presentation only: `RULE_KINDS` is untouched, so rules of every kind keep
+ * working, keep being checked and keep rendering in the saved list.
+ */
+export const BASIC_RULE_KINDS = ["REQUIRED", "RANGE", "UNIQUE"] as const;
+export const ADVANCED_RULE_KINDS = ["LENGTH", "REGEX", "ENUM", "CROSS_COLUMN", "MONOTONIC"] as const;
+
+/** Everything a person can choose. `TYPE` isn't offered: every value is always checked against its column's type. */
+export const OFFERED_RULE_KINDS = [...BASIC_RULE_KINDS, ...ADVANCED_RULE_KINDS] as const;
 
 export const RULE_KIND_LABELS: Record<RuleKind, string> = {
   REQUIRED: "Required",

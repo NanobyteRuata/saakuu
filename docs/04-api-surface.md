@@ -411,7 +411,9 @@ at ~400ms, and no-op when the value is unchanged.
 **Phase 7 as built** (supersedes the lines above where they differ):
 ```
 GET    /api/books/:id/table-meta           -> { columns, templates, columnSources: { templateId: { columnId: "MANUAL" | "SKIP" } },
-                                                confidenceThreshold, totalRows }
+                                                numeralSystem, dateEra, totalRows }
+                                           Phase 14: confidenceThreshold is gone (a constant); the era and numerals are
+                                           here so a column whose values won't parse can offer the fix (decision 76).
 GET    /api/books/:id/rows                 ?cursor&limit (≤ 500) -> { columnIds, items: WireRow[], documents, nextCursor }
 PATCH  /api/cells/:id                      { value, state?, editId? } -> CellChangeResult
 POST   /api/cells/:id/revert               -> CellChangeResult

@@ -31,7 +31,7 @@ type Props = {
 
 /**
  * `Create columns from this template` and `Edit output columns` (docs/05 §7, decision 52). Setting up
- * the output table belongs where the operator discovers they need it, not only in Settings.
+ * the output table belongs where the operator discovers they need it: here, and on the Result Table.
  */
 export function ColumnSetupBar({ bookId, templateId, lang, onApplied }: Props) {
   const [proposal, setProposal] = useState<ColumnProposal | null>(null);

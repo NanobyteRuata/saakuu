@@ -639,7 +639,8 @@ One additive migration:
 - `CellEdit.kind CellEditKind` (`EDIT | REVERT | UNDO`, default `EDIT`) and `CellEdit.flags Json?`
   (`{ before, after }`, each `{ state, isEdited, disagreement }`), so a logged change can be undone exactly.
 - `Row.deletedAt DateTime?`.
-- `Book.confidenceThreshold Float` (default 0.75), docs/08 §3.
+- ~~`Book.confidenceThreshold Float`~~ — dropped in Phase 14 (decision 77). It is the constant
+  `DEFAULT_CONFIDENCE_THRESHOLD` in `lib/table/cellState.ts`, docs/08 §3.
 
 Rules:
 - **Validation state is derived, never typed.** A cell's `validationState/validationMsgs` = its `buildIssues` (or, once

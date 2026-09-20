@@ -20,8 +20,7 @@ test("sign in → book → template → upload → extract → review → export
   // Book with no columns: they are proposed from the template's fields further down (Phase 10).
   await page.getByRole("link", { name: "Create your first book" }).click();
   await page.getByLabel("Book name").fill("E2E ledger");
-  await page.getByRole("button", { name: "Next: columns" }).click();
-  await page.getByRole("button", { name: "Create book without columns" }).click();
+  await page.getByRole("button", { name: "Create book" }).click();
   await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}\/templates$/);
   const bookUrl = new URL(page.url()).pathname.replace(/\/templates$/, "");
 

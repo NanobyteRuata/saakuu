@@ -11,9 +11,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect("/sign-in");
   }
   return (
-    <div className="flex min-h-screen flex-col">
+    // The app shell fills the viewport and the page itself never scrolls (docs/05 §0, Phase 13):
+    // workspaces scroll inside their panes, and document-shaped pages inside a `PageScroll`.
+    <div className="flex h-dvh flex-col overflow-hidden">
       <TopBar user={user} />
-      <main className="flex-1">{children}</main>
+      <main className="flex min-h-0 flex-1 flex-col">{children}</main>
     </div>
   );
 }

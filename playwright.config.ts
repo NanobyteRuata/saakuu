@@ -16,7 +16,9 @@ export default defineConfig({
     baseURL,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Desktop Chrome defaults to exactly 1280, which is the two-pane threshold itself (docs/05 §0);
+  // testing on the boundary is a flake waiting to happen.
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } }],
   // Reuses a server already running (e.g. `docker compose up`); otherwise starts `next dev`.
   webServer: {
     command: "pnpm dev",

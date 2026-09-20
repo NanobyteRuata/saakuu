@@ -530,7 +530,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
   }
 
   return (
-    <section aria-label="Output table" className="flex flex-col gap-3">
+    <section aria-label="Output table" className="flex min-h-0 flex-1 flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <FilterToggle pressed={toolbar.attention} onClick={() => setToolbar((t) => ({ ...t, attention: !t.attention }))}>
           Needs attention
@@ -633,7 +633,7 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
         tabIndex={0}
         onKeyDown={onGridKeyDown}
         onMouseDown={onGridMouseDown}
-        className="focus-visible:ring-ring/50 relative h-[calc(100vh-19rem)] min-h-[24rem] overflow-auto rounded-lg border outline-none focus-visible:ring-[3px]"
+        className="focus-visible:ring-ring/50 relative min-h-0 flex-1 overflow-auto rounded-lg border outline-none focus-visible:ring-[3px]"
       >
         <div style={{ width: totalWidth }}>
           <div role="row" className="bg-muted sticky top-0 z-[5] flex border-b" style={{ height: HEADER_HEIGHT }}>
@@ -785,7 +785,7 @@ function FilterToggle({ pressed, onClick, children }: { pressed: boolean; onClic
 
 function EmptyState({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section aria-label="Output table" className="rounded-lg border px-6 py-14 text-center">
+    <section aria-label="Output table" className="m-auto max-w-md px-6 py-14 text-center">
       <p className="font-medium">{title}</p>
       <p className="text-muted-foreground mx-auto mt-1 max-w-md text-sm">{children}</p>
     </section>

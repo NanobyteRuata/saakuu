@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { FormMessage } from "@/components/auth/form-message";
 import { ExportButton, type ExportColumn } from "@/components/export/export-dialog";
+import { Pane, PaneGroup, PaneHandle } from "@/components/shell/pane";
 import { RegionImage, type RegionBox } from "@/components/photo/region-image";
 import { cellText } from "@/components/table/table-cell";
 import { useBookRows } from "@/components/table/use-book-rows";
@@ -27,7 +28,8 @@ import { ReviewField, type FieldEditorActions } from "./review-field";
 type Props = {
   meta: TableMeta;
   firstPage: WirePage;
-  bookName: string;
+  /** Pane sizes are remembered per workspace per user (docs/05 §0). */
+  userId: string;
   /** Row to open at; otherwise the first row with an unreviewed cell. */
   startRowId: string | null;
   exportSettings: { columns: ExportColumn[]; blankToken: string; illegibleToken: string };
@@ -38,6 +40,12 @@ type Position = { rowId: string; column: number };
 /** An editing session: debounced saves of one cell; the first save's log entry is extended, so it undoes as one step. */
 type Session = { rowId: string; cellId: string; serverCell: TableCell; editId: string | null; lastQueued: string; draft: string; timer: ReturnType<typeof setTimeout> | null };
 
+const PHOTO_PANE = "photo";
+const CELLS_PANE = "cells";
+/** Below this the photo stops being readable, which is the rule every layout yields to (decision 70). */
+const PHOTO_MIN_PX = 560;
+/** 22rem, the floor the pre-pane grid used for the values column. */
+const CELLS_MIN_PX = 352;
 const SAVE_DEBOUNCE_MS = 400;
 /** Moving faster than this through rows loads no photo or regions for the rows passed over. */
 const SETTLE_MS = 120;
@@ -59,7 +67,7 @@ function markReviewed(rows: TableRow[], rowId: string, cellIds: Set<string> | nu
  * Row review (docs/05 §13): the source photo on the left with the row's region boxed and the active cell's region
  * boxed more strongly; the row's cells as a form on the right. Keyboard first: every action has a key.
  */
-export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, exportSettings }: Props) {
+export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, exportSettings }: Props) {
   const router = useRouter();
   const { meta, rows, setRows, rowsRef, documents, nextCursor, loadError, refresh } = useBookRows(initialMeta, firstPage);
   const bookId = meta.bookId;
@@ -643,14 +651,9 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
   const zoom = zoomHeld && focusBox ? clamp(0.3 / Math.max(focusBox.w, 0.02), 2.5, 6) : fitPage || !recordBox ? 1 : clamp(0.95 / Math.max(recordBox.w, 0.05), 1, 3);
 
   const header = (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2">
-      <Link href={`/books/${bookId}`} className="text-muted-foreground hover:text-foreground text-sm">
-        ← Table
-      </Link>
+    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2">
       <div className="flex min-w-0 flex-col">
-        <p className="truncate text-sm font-medium">
-          {bookName} · Row review
-        </p>
+        <p className="truncate text-sm font-medium">Row review</p>
         <p className="text-muted-foreground text-xs tabular-nums" aria-live="polite">
           {row && docIndex >= 0 ? `Document ${formatCount(docIndex + 1)} of ${formatCount(order.documents.length)} · Row ${formatCount(rowInDoc + 1)} of ${formatCount(rowsInDoc.length)}` : "Finding where to start…"}
           {allLoaded ? "" : ` · loading rows ${formatCount(rows.length)} of ${formatCount(meta.totalRows)}`}
@@ -676,16 +679,15 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
         <Button variant="outline" size="sm" onClick={nextUnreviewed} disabled={!pos} title="N">
           Next unreviewed
         </Button>
-        <ExportButton bookId={bookId} columns={exportSettings.columns} blankToken={exportSettings.blankToken} illegibleToken={exportSettings.illegibleToken} rowCount={meta.totalRows} size="sm" />
       </div>
     </div>
   );
 
   if (meta.columns.length === 0 || (meta.totalRows === 0 && rows.length === 0)) {
     return (
-      <div className="flex flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         {header}
-        <div className="mx-auto max-w-md px-6 py-16 text-center">
+        <div className="m-auto max-w-md px-6 py-16 text-center">
           <p className="font-medium">Nothing to review yet</p>
           <p className="text-muted-foreground mt-1 text-sm">
             Rows appear once documents are extracted and their templates are mapped to columns. Start in{" "}
@@ -700,7 +702,7 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
   }
 
   return (
-    <div className="flex h-[calc(100vh-var(--top-bar-height))] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {header}
       {loadError ? (
         <div className="flex items-center gap-3 px-4 py-2">
@@ -720,107 +722,121 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
         onBlur={() => setZoomHeld(false)}
-        className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] outline-none md:grid-cols-[minmax(0,3fr)_minmax(22rem,2fr)] md:grid-rows-1"
+        className="flex min-h-0 flex-1 flex-col outline-none"
       >
-        <section aria-label="Source photo" className="flex min-h-0 flex-col gap-2 p-3">
-          {!row ? (
-            <div className="bg-muted h-full animate-pulse rounded-md" />
-          ) : !photoId ? (
-            <p className="text-muted-foreground m-auto text-sm">This row has no source photo recorded.</p>
-          ) : photoEntry?.error ? (
-            <FormMessage tone="error">{photoEntry.error}</FormMessage>
-          ) : !photoUrl ? (
-            <div className="bg-muted h-full animate-pulse rounded-md" aria-busy="true">
-              <span className="sr-only">Loading photo…</span>
-            </div>
-          ) : (
-            <RegionImage url={photoUrl} alt={`Source photo of ${document_?.label ?? "this document"}`} boxes={boxes} zoom={zoom} center={focusBox} className="min-h-0 flex-1" />
-          )}
-          <div className="text-muted-foreground flex items-center justify-between gap-2 text-xs">
-            <span className="truncate">
-              {document_?.label ?? "Document"}
-              {document_ ? ` · ${templateNames.get(document_.templateId) ?? ""}` : ""}
-              {cellBox ? " · the solid box is the active cell" : recordBox ? " · no region recorded for this cell; the dashed box is the row" : ""}
-            </span>
-            {recordBox ? (
-              <Button variant="ghost" size="sm" onClick={() => setFitPage((f) => !f)} onMouseDown={(e) => e.preventDefault()}>
-                {fitPage ? "Zoom to row" : "Show whole page"}
-              </Button>
-            ) : null}
-          </div>
-        </section>
+        {/*
+          Two panes, at 1280 and at 1600 alike (docs/05 §0). The photo pane's `minSize` is the rule
+          that decides this layout, and it is stated in **pixels** on purpose: handwriting is
+          readable or not at a real size, not at a share of whatever screen this is. Everything else
+          yields to it. The values pane keeps the 22rem floor the old grid had.
+        */}
+        <PaneGroup workspace="review" userId={userId}>
+          <Pane id={PHOTO_PANE} defaultSize="60%" minSize={PHOTO_MIN_PX}>
+            <section aria-label="Source photo" className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+              {!row ? (
+                <div className="bg-muted h-full animate-pulse rounded-md" />
+              ) : !photoId ? (
+                <p className="text-muted-foreground m-auto text-sm">This row has no source photo recorded.</p>
+              ) : photoEntry?.error ? (
+                <FormMessage tone="error">{photoEntry.error}</FormMessage>
+              ) : !photoUrl ? (
+                <div className="bg-muted h-full animate-pulse rounded-md" aria-busy="true">
+                  <span className="sr-only">Loading photo…</span>
+                </div>
+              ) : (
+                <RegionImage url={photoUrl} alt={`Source photo of ${document_?.label ?? "this document"}`} boxes={boxes} zoom={zoom} center={focusBox} className="min-h-0 flex-1" />
+              )}
+              <div className="text-muted-foreground flex items-center justify-between gap-2 text-xs">
+                <span className="truncate">
+                  {document_?.label ?? "Document"}
+                  {document_ ? ` · ${templateNames.get(document_.templateId) ?? ""}` : ""}
+                  {cellBox ? " · the solid box is the active cell" : recordBox ? " · no region recorded for this cell; the dashed box is the row" : ""}
+                </span>
+                {recordBox ? (
+                  <Button variant="ghost" size="sm" onClick={() => setFitPage((f) => !f)} onMouseDown={(e) => e.preventDefault()}>
+                    {fitPage ? "Zoom to row" : "Show whole page"}
+                  </Button>
+                ) : null}
+              </div>
+            </section>
+          </Pane>
 
-        <section aria-label="Row cells" className="flex min-h-0 flex-col border-t md:border-t-0 md:border-l">
-          {finished ? (
-            <div className="m-auto flex max-w-sm flex-col items-center gap-3 px-6 text-center">
-              <p className="font-medium">{progress.reviewedCells === progress.cells ? "Every cell is reviewed" : "You reached the end"}</p>
-              <p className="text-muted-foreground text-sm">
-                {progress.reviewedCells === progress.cells
-                  ? `${plural(progress.cells, "cell")} across ${plural(progress.documents, "document")}. Export when you're ready.`
-                  : `${plural(progress.cells - progress.reviewedCells, "cell")} still unreviewed.`}
+          <PaneHandle />
+
+          <Pane id={CELLS_PANE} defaultSize="40%" minSize={CELLS_MIN_PX} collapsible>
+            <section aria-label="Row cells" className="flex min-h-0 flex-1 flex-col">
+              {finished ? (
+                <div className="m-auto flex max-w-sm flex-col items-center gap-3 px-6 text-center">
+                  <p className="font-medium">{progress.reviewedCells === progress.cells ? "Every cell is reviewed" : "You reached the end"}</p>
+                  <p className="text-muted-foreground text-sm">
+                    {progress.reviewedCells === progress.cells
+                      ? `${plural(progress.cells, "cell")} across ${plural(progress.documents, "document")}. Export when you're ready.`
+                      : `${plural(progress.cells - progress.reviewedCells, "cell")} still unreviewed.`}
+                  </p>
+                  <div className="flex gap-2">
+                    {progress.reviewedCells < progress.cells ? (
+                      <Button onClick={nextUnreviewed}>Next unreviewed</Button>
+                    ) : (
+                      <ExportButton bookId={bookId} columns={exportSettings.columns} blankToken={exportSettings.blankToken} illegibleToken={exportSettings.illegibleToken} rowCount={meta.totalRows} variant="default" />
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setFinished(false);
+                        goTo(0, 0);
+                      }}
+                    >
+                      Back to the first row
+                    </Button>
+                  </div>
+                </div>
+              ) : !row ? (
+                <p className="text-muted-foreground m-auto text-sm">Loading rows…</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
+                    <p className="truncate text-sm">
+                      Row {formatCount((index ?? 0) + 1)} of {formatCount(order.rows.length)}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        // An open edit is saved with the row, as ⌘Enter does while typing.
+                        const open = session.current;
+                        if (open) editor.commit(open.draft, "row");
+                        else markRowAndNext(row.id);
+                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      Mark row reviewed ⌘↵
+                    </Button>
+                  </div>
+                  <div role="listbox" aria-label="Cells" aria-activedescendant={cell ? `review-cell-${cell.id}` : undefined} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+                    {meta.columns.map((c, ci) => (
+                      <ReviewField
+                        key={c.id}
+                        column={c}
+                        cell={row.cells[c.id]}
+                        source={document_ ? meta.columnSources[document_.templateId]?.[c.id] : undefined}
+                        cellSource={rowSources?.cells[c.id]}
+                        threshold={meta.confidenceThreshold}
+                        active={pos?.column === ci}
+                        editing={editing !== null && editing.cellId === row.cells[c.id]?.id ? editing.initial : null}
+                        onPick={onPick}
+                        editor={editor}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+              <p id="review-keys" className={cn("text-muted-foreground border-t px-4 py-2 text-xs leading-relaxed")}>
+                Enter accepts and moves on · Tab / Shift+Tab move · ⌘↵ / Ctrl+Enter marks the row reviewed · I unreadable · R revert · [ ] documents · N next unreviewed · hold Space to zoom
+                · type or F2 to edit · ⌘Z undo · Esc back to the table
               </p>
-              <div className="flex gap-2">
-                {progress.reviewedCells < progress.cells ? (
-                  <Button onClick={nextUnreviewed}>Next unreviewed</Button>
-                ) : (
-                  <ExportButton bookId={bookId} columns={exportSettings.columns} blankToken={exportSettings.blankToken} illegibleToken={exportSettings.illegibleToken} rowCount={meta.totalRows} variant="default" />
-                )}
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setFinished(false);
-                    goTo(0, 0);
-                  }}
-                >
-                  Back to the first row
-                </Button>
-              </div>
-            </div>
-          ) : !row ? (
-            <p className="text-muted-foreground m-auto text-sm">Loading rows…</p>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
-                <p className="truncate text-sm">
-                  Row {formatCount((index ?? 0) + 1)} of {formatCount(order.rows.length)}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    // An open edit is saved with the row, as ⌘Enter does while typing.
-                    const open = session.current;
-                    if (open) editor.commit(open.draft, "row");
-                    else markRowAndNext(row.id);
-                  }}
-                  onMouseDown={(e) => e.preventDefault()}
-                >
-                  Mark row reviewed ⌘↵
-                </Button>
-              </div>
-              <div role="listbox" aria-label="Cells" aria-activedescendant={cell ? `review-cell-${cell.id}` : undefined} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
-                {meta.columns.map((c, ci) => (
-                  <ReviewField
-                    key={c.id}
-                    column={c}
-                    cell={row.cells[c.id]}
-                    source={document_ ? meta.columnSources[document_.templateId]?.[c.id] : undefined}
-                    cellSource={rowSources?.cells[c.id]}
-                    threshold={meta.confidenceThreshold}
-                    active={pos?.column === ci}
-                    editing={editing !== null && editing.cellId === row.cells[c.id]?.id ? editing.initial : null}
-                    onPick={onPick}
-                    editor={editor}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-          <p id="review-keys" className={cn("text-muted-foreground border-t px-4 py-2 text-xs leading-relaxed")}>
-            Enter accepts and moves on · Tab / Shift+Tab move · ⌘↵ / Ctrl+Enter marks the row reviewed · I unreadable · R revert · [ ] documents · N next unreviewed · hold Space to zoom
-            · type or F2 to edit · ⌘Z undo · Esc back to the table
-          </p>
-        </section>
+            </section>
+          </Pane>
+        </PaneGroup>
       </div>
       <p className="sr-only" aria-live="polite">
         {announcement}

@@ -7,6 +7,53 @@ in one action from anywhere.
 UI language is English. Data values may be Burmese — render values with
 `font-family: "Noto Sans Myanmar", ...` and `lang="my"` where known.
 
+## 0. The frame (Phase 13)
+
+**The app shell fills the viewport and the page itself never scrolls.** Every scroll happens
+inside a pane. No layout computes its height from the viewport: there is no `calc(100vh - …)`
+anywhere outside dialogs and overlays, which *are* the viewport. The top bar is a fixed row in a
+`h-dvh` flex column; everything below it is `min-h-0 flex-1`, and a document-shaped page
+(books list, create wizard, account, settings) gets its own scroll from `PageScroll`.
+
+**A workspace is a mode with its own layout, not a view of a record** (decision 67) — the same
+reason a video editor has pages rather than tabs. The four workspaces replace the four tabs and are
+listed in working order, each carrying a live count:
+
+```
+Templates    Documents 60    Review 412 left    Result Table 900 rows    ⚙
+```
+
+**The counts are the spine.** They turn a flat bar into a sequence at almost no cost: an operator
+who sees `Review 412 left` does not need to be told where to go next, and `Review` is where
+`Resume review` used to go. One aggregate endpoint (`GET /api/books/:id/counts`) serves all of
+them; it is seeded server-side on first paint, refreshed on navigation, and polled only while an
+extraction is running. Because the seed comes from the server layout, **any action that starts a run
+must `router.refresh()`** — that is what tells the nav to start polling. Settings is a **gear**, not
+a peer (decision 68); its route still works by URL.
+
+**Panes are layout; routes are navigation** (decision 68). A pane's size and collapsed state never
+enter the URL, so deep links and the back button keep working — which is why Mapping was moved to a
+route in the first place. The `Pane` primitive (`components/shell/pane.tsx`) resizes by drag,
+collapses, and remembers its sizes per workspace per user in `localStorage`. Storage can be empty,
+cleared or throw, so every read is wrapped and the computed default renders on its own — the same
+rule as the landing memory.
+
+**Layout targets** (decision 69). Not responsive in the fluid sense; three targeted layouts,
+because breakpoint-switched layouts are far cheaper than fluid ones and honest about what each
+device can do:
+
+| Width | Layout |
+|---|---|
+| `< 1280px` | **Upload only.** Choose a template, shoot or pick photos. Everything else says, in plain language, that reviewing needs a wider screen. Standing at the filing cabinet with a phone is a real use; reviewing handwriting on one is not. The workspaces are not rendered at all at this width, so a phone never mounts the virtualised table. |
+| `1280–1599px` | Two panes. |
+| `≥ 1600px` | Three panes, or two with more density. |
+
+**The rule that decides every layout: the pane holding the photo never shrinks below readable.**
+Burmese handwriting at 400px is guesswork, so the photo pane carries a `minSize` and everything
+else yields to it. For the same reason the app stays **light-first** (decision 70): a video editor
+is dark to stop a bright surround biasing colour judgement; here the job is reading pencil on white
+paper, and contrast is the whole task.
+
 ## Global
 
 **Top bar** (sticky): `SaaKuu` wordmark left; nav (`Books`) and avatar right.
@@ -40,25 +87,24 @@ lands on the **Templates** tab, not Table — Table is the tab that stays empty 
 real next action is building a template. Asking an operator to author a schema for data they
 have not read yet was the first wall in the product (docs/06 Phase 10).
 
-## 4. Book detail shell
-Header: book name (click to edit inline), row count, `Export CSV`.
-Tabs: **Table** · **Templates** · **Documents** · **Settings**.
+## 4. Book workspaces
+One header line: `← Books`, the book name (click to edit inline), the workspace nav with its
+counts, and `Export CSV`. The nav is described in §0. The header carries no counts of its own and
+no `Resume review` button — the nav says both, and every rem of header is a rem the photo pane does
+not get.
 
-The book **remembers which tab you were on** (Phase 10), per user and per book, in
-`localStorage` (decision 60). A book nobody has opened before, and which has no templates, opens
-on Templates; a tab you picked yourself always wins over that default, including Table. The
-redirect runs once per browser session per book, so the back button is never caught in it.
-Storage can be empty or throw — private windows, cleared site data — so every read is wrapped
-and the computed default renders on its own.
+The book **remembers which workspace you were in** (Phase 10, extended in Phase 13), per user and
+per book, in `localStorage` (decision 60). A book nobody has opened before, and which has no
+templates, opens on Templates; a workspace you picked yourself always wins over that default,
+including the Result Table. The redirect runs once per browser session per book, so the back button
+is never caught in it. Storage can be empty or throw — private windows, cleared site data — so
+every read is wrapped and the computed default renders on its own. Settings is not a landing
+target, because it is a gear rather than a workspace.
 
-A **`Resume review`** button sits in the header whenever the book has unreviewed cells, going
-straight to the first of them. Without it a returning operator loads every row of a
-virtualised table only to leave it again, which is two clicks and a full page of loading in
-front of the one thing they came back to do. Opening a book never drops anyone into
-full-screen review by itself.
+Opening a book never drops anyone into full-screen review by itself.
 
-## 5. Settings tab
-Sections: General (name, default model, numeral system, date era), Output table
+## 5. Settings
+Reached from the **gear** in the workspace nav (Phase 13), not as a peer workspace. Sections: General (name, default model, numeral system, date era), Output table
 (opens the column editor), Glossary (term/meaning list), Validation rules, Export
 preferences, Danger zone (delete book).
 
@@ -85,7 +131,7 @@ the section says so plainly instead of offering a field that cannot work.
 models' list prices, with the document and reading counts beside it. It is stated as an estimate, not
 a bill. There is no quota and no cap (decision 55) — what exists is a number the operator can see.
 
-## 6. Templates tab
+## 6. Templates workspace
 List of template cards. Each card:
 
 ```
@@ -231,7 +277,7 @@ Added in Phase 10:
 Per-template overrides of the book's rules. Not built in v1: the tab is not shown. The per-column rule list with
 add/edit/remove, severity selector and live failing-cell count is built at book level, in Settings (Phase 7).
 
-## 8. Documents tab
+## 8. Documents workspace
 Virtualised table. Columns: checkbox, thumbnail, label, template, pages, run state,
 content state, rows produced, unreviewed, errors, last run, model.
 Filter bar: template, run state, needs review, has edits, free-text search.
@@ -372,8 +418,9 @@ the user's own (with its last four characters) or the server's — because the o
 pay for it and should know whose account it lands on before they confirm, not after. Below a cent
 it says "less than $0.01" rather than "$0.00", which would read as free.
 
-## 12. Table tab (output table)
-Virtualised grid. Sticky header, sticky first column optional.
+## 12. Result Table workspace (output table)
+Virtualised grid filling the workspace. Sticky header, sticky first column optional. The grid is the
+scroll container; it takes its height from the frame rather than from the viewport (§0).
 
 **Cell states** — governed entirely by `docs/08-cell-visual-language.md`. Do not
 invent cell styling here or in components; call `resolveCellVisual()` and render the
@@ -431,8 +478,9 @@ pointed at the mapping it needed.
 - Settings → Validation rules: rule list with how many cells each flags, an inline editor per kind with a live count of
   failing cells, counted delete, `Re-check all cells`. Settings → General gains the uncertain-reading threshold.
 
-## 13. Row review mode
-Split view. Left: the source photo, zoomable, with the current record's region boxed
+## 13. Review workspace (row review)
+Two panes, resizable and remembered (§0). Left: the source photo, zoomable, with the current
+record's region boxed
 and the active cell's region highlighted more strongly. Right: that row's cells as a
 vertical form, each with its label, value input, confidence indicator, and validation
 message.

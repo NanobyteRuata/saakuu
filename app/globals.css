@@ -4,6 +4,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* The three layout targets (docs/05 §0, decision 69). `xl` is already 1280px, the two-pane
+     threshold; below it the app is upload-only. `3xl` is where a third pane fits. */
+  --breakpoint-3xl: 1600px;
+
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Myanmar",
     "Myanmar Text", "Myanmar Sangam MN", sans-serif;
   --font-value: "Noto Sans Myanmar", "Myanmar Text", "Myanmar Sangam MN", ui-sans-serif, system-ui,
@@ -35,7 +39,8 @@
 }
 
 :root {
-  /* Top bar height; sticky elements below it offset by this. */
+  /* Top bar height. The shell is a fixed-height column (docs/05 §0), so this sizes the bar itself
+     rather than being an offset for sticky elements further down the page. */
   --top-bar-height: 3.5rem;
   --radius: 0.5rem;
   --background: oklch(1 0 0);

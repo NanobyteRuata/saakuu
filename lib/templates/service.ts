@@ -22,12 +22,14 @@ import {
   type DeleteTemplatesInput,
   type DuplicateTemplateInput,
   type TemplateKind,
+  MAX_TEMPLATES,
   type UpdateTemplateInput,
 } from "./schemas";
 import { buildTree, flattenTree } from "./tree";
 import { fieldSelect, groupSelect, toFieldView, type DeletedFieldView, type FieldView, type GroupView } from "./views";
 
-export const MAX_TEMPLATES = 200;
+export { MAX_TEMPLATES };
+
 const DELETED_FIELDS_LIMIT = 200;
 
 export type TemplateSummary = {

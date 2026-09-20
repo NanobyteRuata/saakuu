@@ -79,14 +79,18 @@ an **Extraction** or **Run**. Use these terms consistently in code and UI.
 
 ## 5. Navigation shell
 
-Top bar, persistent once signed in.
+Top bar, persistent once signed in. The shell fills the viewport and **the page itself never
+scrolls**; panes scroll internally (docs/05 §0, Phase 13).
 
 - **Left:** `SaaKuu` wordmark, links to the book list.
 - **Right:** nav items (v1: `Books`), then a user avatar.
 - Avatar click opens a menu: user email, `Sign out`.
 - `Sign out` opens a confirmation modal before signing out.
 
-Body renders the current route.
+Inside a book the shell is a **workspace frame** rather than a tab strip: four workspaces in
+working order — Templates, Documents, Review, Result Table — each carrying a live count, with
+Settings as a gear. A workspace is a mode with its own layout, not a view of a record
+(decision 67). Below 1280px the app is upload-only (decision 69).
 
 ## 6. Screens and behaviour
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { RotateCcw, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -40,6 +41,7 @@ export function TemplateEditor({
   bookDefaultModel: string;
   bookDateEra: DateEra;
 }) {
+  const router = useRouter();
   const [template, setTemplate] = useState(initial);
   const [selected, setSelected] = useState<SiblingRef | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -164,7 +166,7 @@ export function TemplateEditor({
             ) : null}
           </section>
 
-          <section aria-label="Properties" className="rounded-xl border p-4 lg:sticky lg:top-[calc(var(--top-bar-height)+1.5rem)]">
+          <section aria-label="Properties" className="rounded-xl border p-4 lg:sticky lg:top-6">
             {selectedField ? (
               <FieldProperties
                 key={selectedField.id}
@@ -209,7 +211,11 @@ export function TemplateEditor({
         lang={lang}
         open={trying}
         onOpenChange={setTrying}
-        onExtracted={() => void reload()}
+        onExtracted={() => {
+          void reload();
+          // A reading changes the book's row and review counts, which the workspace nav renders.
+          router.refresh();
+        }}
       />
 
       <DeleteFieldDialog

@@ -62,12 +62,19 @@ DELETE /api/account/ai-key                 -> { hint: null }       falls back to
 GET    /api/books                          list
 POST   /api/books                          { name, defaultModel, columns[] }
 GET    /api/books/:id                      book + columns + counts
+GET    /api/books/:id/counts               (Phase 13) -> { documents, rows, unreviewedCells, runActive }
 PATCH  /api/books/:id                      { name?, defaultModel?, numeralSystem?, dateEra?, exportPrefs?: { blankToken?, illegibleToken? } }
 POST   /api/books/delete                   { ids[], impactHash, confirm } soft delete
 POST   /api/books/delete-impact            { ids[] } -> { impactHash, books, documents, photos, rows, editedCells }
 GET    /api/books/:id/delete-impact        same, for one book
 ```
 Every id must be a live book the caller owns, otherwise the whole request is `NOT_FOUND`.
+
+`/counts` feeds the workspace nav (docs/05 §0). It is seeded server-side on first paint, refetched
+on navigation, and polled at 2s **only while `runActive`** — the last poll of a run carries
+`runActive: false` with the finished counts, so the nav is right after an extraction without a
+manual refresh. `unreviewedCells` comes from the same aggregate the review queue reports, so
+`Review N left` and the review screen's progress bar cannot drift apart.
 
 ## Output columns
 ```

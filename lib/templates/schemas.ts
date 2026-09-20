@@ -6,6 +6,9 @@ import { confirmSchema, idListSchema, idSchema, labelSchema } from "@/lib/valida
 
 /** Template source-layer input schemas. Client-safe: shared by forms and handlers. */
 
+/** How many templates one book can hold. Client-safe so a picker can ask for all of them at once. */
+export const MAX_TEMPLATES = 200;
+
 export const TEMPLATE_KINDS = ["FORM", "TABLE"] as const;
 export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
 

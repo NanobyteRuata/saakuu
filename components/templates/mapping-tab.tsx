@@ -795,7 +795,7 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
         ) : null}
       </section>
 
-      <section aria-label="Preview" className="rounded-xl border p-4 lg:sticky lg:top-[calc(var(--top-bar-height)+1.5rem)]">
+      <section aria-label="Preview" className="rounded-xl border p-4 lg:sticky lg:top-6">
         <MappingPreviewPanel
           key={previewKey}
           templateId={template.id}

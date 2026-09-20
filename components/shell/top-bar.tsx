@@ -7,8 +7,9 @@ import { UserMenu } from "./user-menu";
 
 export function TopBar({ user }: { user: SessionUser }) {
   return (
-    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 border-b backdrop-blur">
-      {/* Height comes from --top-bar-height so sticky elements below can offset by it. */}
+    // The shell is a fixed-height column and the page never scrolls (docs/05 §0), so the bar is a
+    // plain row rather than a sticky one, and nothing below it offsets by its height any more.
+    <header className="bg-background z-40 shrink-0 border-b">
       <div className="flex h-(--top-bar-height) items-center justify-between px-4 sm:px-6">
         <Link href="/books" className="text-lg font-semibold tracking-tight">
           SaaKuu

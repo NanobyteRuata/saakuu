@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/client";
 import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
 import { impactHash, type BooksDeleteImpact } from "@/lib/impact";
+import { reviewProgress } from "@/lib/review/service";
 import { requestBookTransform } from "@/lib/transform/triggers";
 import type { PaginationInput } from "@/lib/validation";
 
@@ -38,12 +39,37 @@ export type BookSettings = {
 
 export type BookDetail = BookSettings & {
   columns: ColumnState[];
-  documentCount: number;
-  rowCount: number;
   templateCount: number;
-  /** Whether `Resume review` has anywhere to go (docs/06 Phase 10). A count would scan every cell. */
-  hasUnreviewedCells: boolean;
+  /** The workspace nav's numbers (docs/05 §0), computed alongside the book rather than after it. */
+  counts: BookCounts;
 };
+
+/**
+ * The numbers on the workspace nav (docs/06 Phase 13). They are the spine: an operator who sees
+ * `Review 412 left` does not need to be told where to go next. One aggregate serves all of them.
+ */
+export type BookCounts = {
+  documents: number;
+  rows: number;
+  unreviewedCells: number;
+  /** Whether an extraction is in flight, which is the only time the nav polls for these. */
+  runActive: boolean;
+};
+
+/**
+ * One source for the nav, the book page and the poll endpoint, so they cannot drift apart.
+ * `unreviewedCells` is the review queue's own aggregate rather than a second query that could
+ * disagree with the progress bar on the review screen.
+ */
+async function countsOf(bookId: string): Promise<BookCounts> {
+  const [documents, rows, progress, running] = await Promise.all([
+    prisma.document.count({ where: { bookId, deletedAt: null } }),
+    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
+    reviewProgress(prisma, bookId),
+    prisma.document.count({ where: { bookId, deletedAt: null, runState: { in: ["QUEUED", "RUNNING"] } } }),
+  ]);
+  return { documents, rows, unreviewedCells: progress.cells - progress.reviewedCells, runActive: running > 0 };
+}
 
 const settingsSelect = {
   id: true,
@@ -98,27 +124,21 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
 
 export async function getBook(userId: string, bookId: string): Promise<BookDetail> {
   await requireBookAccess(userId, bookId);
-  const [book, columns, documentCount, rowCount, templateCount, unreviewed] = await Promise.all([
+  const [book, columns, templateCount, counts] = await Promise.all([
     prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: settingsSelect }),
     loadColumns(prisma, bookId),
-    prisma.document.count({ where: { bookId, deletedAt: null } }),
-    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
     prisma.template.count({ where: { bookId, deletedAt: null } }),
-    // Existence, not a count: the review queue orders the same rows when the operator gets there.
-    // Driven from Row, whose `bookId` is indexed: reading from Cell makes the planner scan every
-    // cell in the database when the book happens to be fully reviewed.
-    prisma.row.findFirst({
-      where: {
-        bookId,
-        deletedAt: null,
-        isVoid: false,
-        document: { deletedAt: null, template: { deletedAt: null } },
-        cells: { some: { isReviewed: false, column: { deletedAt: null } } },
-      },
-      select: { id: true },
-    }),
+    // Every book page renders the nav, so the counts are loaded with the book rather than in a
+    // second round trip after it.
+    countsOf(bookId),
   ]);
-  return { ...toSettings(book), columns, documentCount, rowCount, templateCount, hasUnreviewedCells: unreviewed !== null };
+  return { ...toSettings(book), columns, templateCount, counts };
+}
+
+/** The poll endpoint behind the workspace nav; the book pages get the same numbers from `getBook`. */
+export async function getBookCounts(userId: string, bookId: string): Promise<BookCounts> {
+  await requireBookAccess(userId, bookId);
+  return countsOf(bookId);
 }
 
 export async function createBook(userId: string, input: CreateBookInput): Promise<{ id: string }> {

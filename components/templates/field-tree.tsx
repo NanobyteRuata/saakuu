@@ -62,8 +62,11 @@ type AddKind = "field" | "group";
 
 const INDENT = 24;
 const AUTO = "auto";
-/** Rows scrolled into view stop below the top bar and the pinned add bar. */
-const ROW_SCROLL_MARGIN = "scroll-mt-[calc(var(--top-bar-height)+7rem)]";
+/**
+ * Rows scrolled into view stop below the pinned add bar. Offsets are measured from the scroll
+ * container, which is the workspace's own scroll area rather than the page (docs/05 §0).
+ */
+const ROW_SCROLL_MARGIN = "scroll-mt-28";
 
 const keyOf = (ref: SiblingRef) => `${ref.kind}:${ref.id}`;
 
@@ -461,7 +464,7 @@ export function FieldTree({ template, tree, setTemplate, selected, onSelect, onD
         {announcement}
       </div>
 
-      <div className="bg-background sticky top-(--top-bar-height) z-20 -mx-1 flex flex-col gap-2 border-b px-1 py-2">
+      <div className="bg-background sticky top-0 z-20 -mx-1 flex flex-col gap-2 border-b px-1 py-2">
         <form onSubmit={add} className="flex flex-col gap-2" noValidate>
           <div className="flex items-center gap-2">
             <div role="radiogroup" aria-label="What to add" className="flex shrink-0 rounded-md border p-0.5">

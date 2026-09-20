@@ -29,13 +29,15 @@ test("create a book with 5 columns, rename a column, delete a column through the
   await expect(page).toHaveURL(/\/books\/[a-z0-9]{24}\/templates$/);
   const bookId = new URL(page.url()).pathname.split("/").at(-2) ?? "";
   // A new book has no rows, so the table shows its empty state; the columns are checked through the API.
-  await page.getByRole("navigation", { name: "Book sections" }).getByRole("link", { name: "Table" }).click();
+  // The counts are part of each workspace link's accessible name (Phase 13), so match the label.
+  await page.getByRole("navigation", { name: "Book workspaces" }).getByRole("link", { name: /^Result Table/ }).click();
   await expect(page.getByText("No rows yet")).toBeVisible();
   const created = await columnsOf(page, bookId);
   expect(created.map((c) => c.key)).toEqual(["full_name", "date_of_birth", "village", "weight_kg", "doses_given"]);
 
   const dialog = page.getByRole("dialog");
-  await page.getByRole("navigation", { name: "Book sections" }).getByRole("link", { name: "Settings" }).click();
+  // Settings is the gear, not a peer workspace (decision 68).
+  await page.getByRole("navigation", { name: "Book workspaces" }).getByRole("link", { name: "Settings" }).click();
 
   // Rename: safe, no impact screen, key and id unchanged.
   await page.getByRole("button", { name: "Edit output table" }).click();

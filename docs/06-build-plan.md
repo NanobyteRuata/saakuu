@@ -1,597 +1,505 @@
 # 06 — Build Plan
 
-Each phase is independently shippable and has acceptance criteria. Do not start a phase
-before the previous one's criteria pass. Phases 0–9.1 built v1; Phases 10–12 make it
-survive its first hour and its first strangers, and the launch gate sits after Phase 12.
+Phases 0–13 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
+point at them by number. **Phases are never renumbered** (decision 66); new work continues at
+Phase 14.
 
-Phases 3.1, 9.1 and 10–12 were inserted after their predecessors shipped, from looking at
-the real thing: 3.1 from modelling real registers, 9.1 from reviewing the book detail
-screen, 10–12 from walking a new operator through the product end to end. Reasoning for
-10–12 and the decisions behind them: docs/07 Part B, decisions 51–65.
+Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
+(see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
+on screen carries the working order, and the operator holds it in their head. Phase 13 built that
+spine and the phases after it fill it.
 
-## Testing policy (until launch)
+Each phase is independently shippable and has acceptance criteria. Do not start a phase before the
+previous one's criteria pass.
 
-Tests stay minimal until after launch. Acceptance criteria are checked by hand unless listed
-here. Only write automated tests for code where a silent bug loses or corrupts data:
+---
 
-- **Unit:** pure logic that decides what gets written: output-column op simulation and
-  diff (Phase 2), the transform pipeline golden files (Phase 6), and the rule that re-runs
-  never overwrite an edited cell. Auth security tests from Phase 1 stay.
-- **E2E:** one happy-path spec per phase at most: smoke (Phase 0), auth (Phase 1), the
-  books acceptance flow (Phase 2), and the full stubbed flow in Phase 9.
+## Shipped — Phases 0–13
+
+| Phase | What shipped |
+|---|---|
+| **0** | Foundation: Next.js 15 + TS strict, Postgres/Redis/MinIO via Compose, full Prisma schema, BullMQ worker, Vitest + Playwright. |
+| **1** | Auth & shell: Auth.js with Google + credentials, verification, reset, account linking, route protection. |
+| **2** | Books & output table schema: books CRUD, output-column editor as a diff of ops, impact preview with `impactHash`, glossary. |
+| **3** | Templates, source layer: FORM/TABLE templates, groups and fields, drag-reorder, soft delete + restore, anchors, config state. |
+| **3.1** | Paper structure: nested groups, selection groups (`One of` / `Any of`), one shared order per parent, `lib/templates/tree.ts`. |
+| **4** | Documents & photos: presigned upload, HEIC/PDF handling, working copies, grouping, photo editor as non-destructive transform JSON. |
+| **5** | Extraction: `AIProvider` + Gemini, per-template response schema, versioned prompts, BullMQ job per document, raw layer. |
+| **6** | Mapping & transform: mapping CRUD, expression evaluator, the transform pipeline, normalisers, row/cell persistence, `retransform`. |
+| **7** | Output table: virtualised grid, inline editing, cell states, row reorder, provenance chips, validation rules. |
+| **8** | Review mode & export: row review split view, full keyboard map, `isReviewed`, streaming CSV export with BOM. |
+| **9** | Hardening: rate limiting, structured logging, storage lifecycle, stale-run reaper, seed script, the stubbed E2E flow. |
+| **9.1** | Ingestion moved to the Documents tab: template cards lost Upload/Extract, `Extract all in <template>` added. |
+| **10** | The first hour: `Create columns from this template`, `Try one document`, Draft-template warning, stated error rate, Mapping on its own route. |
+| **11** | Re-shooting a page: replace page, add page, `Changed since last read`, `Needs re-extraction`, staleness as `contentChangedAt` vs `lastExtractedAt`. |
+| **12** | Before strangers: per-user Gemini keys encrypted at rest, cost in money in the Extract dialog, `rawResponse` retention, `reviewedAt` + `reviewedVia`. |
+| **13** | The shell: four workspaces with live counts replacing the four tabs, Settings as a gear, a resizable `Pane` primitive, no page scroll and no viewport arithmetic, upload-only below 1280px. |
+
+Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's are below, and its
+reasoning is decisions 66–70.
+
+---
+
+## Testing policy (unchanged)
+
+Tests stay minimal. Acceptance criteria are checked by hand unless listed here. Only write automated
+tests for code where a silent bug loses or corrupts data:
+
+- **Unit:** pure logic that decides what gets written — output-column op simulation and diff (Phase 2),
+  the transform pipeline golden files (Phase 6), the rule that re-runs never overwrite an edited cell,
+  page replacement keeping rows and edits (Phase 11), key encryption round-trip (Phase 12). Auth
+  security tests from Phase 1 stay.
+- **E2E:** one happy-path spec per phase at most.
 - No tests for UI copy, schemas, formatting helpers, or CRUD that the E2E path already covers.
 
----
-
-## Phase 0 — Foundation
-
-- Next.js 15 + TypeScript strict, Tailwind, shadcn/ui
-- Postgres via Docker Compose; Redis via Docker Compose; MinIO for object storage
-- Prisma with the full schema from `docs/02-data-model.md` (all models, including the
-  ones used only by deferred features — no later migration needed)
-- `lib/db`, `lib/auth/guards.ts`, error codes, Zod conventions
-- BullMQ queue + a worker entrypoint that runs a no-op job end to end
-- Vitest + Playwright configured
-
-**Done when:** `docker compose up` gives a running app, a migrated DB, and a worker
-that picks up and completes a test job.
+The E2E flow is repointed as the shell changes, but its meaning stays: sign in → create book →
+template → upload → extract (stubbed) → review → export.
 
 ---
 
-## Phase 1 — Auth & shell
+## What Phases 13–20 are fixing
 
-- Auth.js with Google OAuth and credentials
-- Registration, email verification, password reset
-- Account linking on verified-email match; blocked when the existing password account
-  is unverified
-- Top bar, avatar menu, sign-out confirmation modal
-- Route protection
+Stated once here so each phase does not restate it.
 
-**Done when:** a user can register both ways, verify, reset a password, sign in with
-Google using the same verified email and land on the same account, and sign out
-through the confirmation modal.
-
----
-
-## Phase 2 — Books & output table schema
-
-- Books CRUD, soft delete, batch delete with counted confirmation
-- Create Book two-step flow
-- Output column editor: add/update/delete/move as a diff of ops
-- Impact preview endpoint + impact modal, with `impactHash` enforced server-side
-- Book settings: model, numeral system, date era, export prefs
-- Glossary CRUD
-
-**Done when:** creating a book with 5 columns, renaming a column, and deleting a
-column all behave correctly, and the delete path shows an accurate impact report
-(zero counts at this stage, but wired end to end).
+1. **Flat tabs carry no order and no state.** Four peer tabs, with Table — the tab that is empty
+   longest and slowest to load — first. The working order (fields → upload → extract one → map →
+   extract the rest → review → export) exists only in this document.
+2. **Six differently-worded empty states** each teach a fragment of that order, and one still points
+   at Settings for a column editor that Phase 10 moved.
+3. **The template editor never shows the paper.** The screen where the operator types the most —
+   twenty Burmese labels transcribed from a page on the desk — has no image on it, while the review
+   screen, which types the least, does. This contradicts the product's own measure (docs/01 §1).
+4. **`Try one document` is gated behind having already authored the template**, so the trust moment
+   arrives after the hardest unaided task rather than before it.
+5. **Settings asks an operator to configure things they have not seen**, including a confidence
+   percentage over an unreliable signal, and duplicates two controls that already exist where they
+   are used.
+6. **Nothing is reusable across books.** `duplicateTemplate` resolves the target book from the source
+   template, so the second book — the one a quarterly register actually needs — is a full re-authoring.
+7. **The books list cannot answer "which book has work left in it?"**, though `hasUnreviewedCells` is
+   already computed for the book header.
 
 ---
 
-## Phase 3 — Templates: source layer
+## Phase 13 — The shell ✅ shipped
 
-- Template CRUD within a book, FORM/TABLE at creation, switching blocked
-- Groups and fields, drag-reorder, soft delete + restore
-- Field properties: source label, meaning label, type, mode, note, choices, marks
-- Sequence field designation for TABLE
-- Anchors, language hint, template instructions
-- Config state computed (`DRAFT` until at least one field and one mapping exist)
+**As built.** The frame, the four workspaces and the counts landed as written. Two notes for the
+phases that build on this:
 
-**Done when:** a 12-field Burmese vaccination-card template can be built, grouped,
-reordered, and a field soft-deleted and restored without data loss.
+- Only **Review** is a two-pane workspace so far, at 1280 and at 1600 alike — `docs/05 §0` allows
+  "two with more density" at the wider target, and Review has no third pane until Phase 19. The
+  other three workspaces are single panes inside the frame, exactly as the risk note below
+  requires: internals moved in unchanged and are redone in Phases 15, 18 and 19.
+- The `max-w-[1800px]` cap survives, but **inside the template workspace's own scroll container**
+  rather than on the shell. It is content width, not shell width: the field tree and the properties
+  form stop being readable side by side much past it. Phase 15 replaces it with real panes.
 
----
+The spine. A **workspace** is a mode with its own layout, not a view of a record (decision 67) — the
+same reason a video editor has pages rather than tabs. Screen internals move inside the new frame
+unchanged, so this phase ships and reverts on its own.
 
-## Phase 3.1 — Source layer: paper structure
+**No schema change.**
 
-Inserted after Phase 3 shipped, from modelling real registers. The template must mirror the
-paper's header structure exactly: groups and single fields interleaved in paper order, spanning
-headers nested over sub-headers, and rows of tick columns that encode one answer. Reasoning and
-decisions: docs/01 §6.5 and §11.7, docs/02 invariants 9–12, docs/07 decisions 28–32.
+**The frame:**
+- The app shell fills the viewport. **The page itself never scrolls; panes scroll internally.** Review
+  already does this (`row-review.tsx`); the table fakes it with `h-[calc(100vh-19rem)]`, a magic number
+  that breaks whenever the header changes; the book shell is `max-w-6xl` while the template editor opts
+  out to `max-w-[1800px]`. Three approaches to one problem. All three go.
+- A `Pane` primitive: resizable by drag, collapsible, with sizes remembered per workspace per user in
+  `localStorage`. Storage can be empty or throw, so every read is wrapped and the computed default
+  renders on its own — the same rule as the Phase 10 landing tab.
+- **Panes are layout; routes are navigation** (decision 68). A pane's size and collapsed state never
+  enter the URL. Deep links and the back button keep working, which is why Phase 10 moved Mapping to a
+  route in the first place.
 
-Example it must represent (a TABLE register):
+**The four workspaces**, in working order, replacing the four tabs:
 
 ```
-| No. | Name | Sex   | Age | RDT Test              | Remarks |
-|     |      | M | F |     | Positive     | Neg.   |         |
-|     |      |   |   |     | A | B | C    |        |         |
+Templates    Documents 60    Review 412 left    Result Table 900 rows    ⚙
 ```
 
-```
-No.                         field  (INTEGER, sequence)
-Name                        field  (TEXT, Manual)
-▾ Sex                       group  selection: One of · nothing ticked: Normal blank
-    M                       field  (MARK)
-    F                       field  (MARK)
-Age                         field  (AGE)
-▾ RDT Test                  group  selection: One of · nothing ticked: Flag for review
-    ▾ Positive              group  selection: Header only
-        A                   field  (MARK)
-        B                   field  (MARK)
-        C                   field  (MARK)
-    Neg.                    field  (MARK)
-Remarks                     field  (TEXT, Skip)
-```
+- Settings becomes a **gear**, not a peer (decision 68). Phase 14 is what makes it small enough.
+- **The counts are the spine.** They turn a flat bar into a sequence at almost no cost: an operator who
+  sees `Review 412 left` does not need to be told where to go next. One aggregate endpoint serves all
+  of them; it is polled only while a run is active, and otherwise refreshed on navigation.
+- Mapping stays inside the template (decision 62, unchanged). Extraction stays on Documents (Phase 9.1,
+  unchanged) — Phase 18 gives it a drawer, not a workspace.
+- The Phase 10 landing memory stays, and now remembers a workspace. A book with no templates still
+  always opens on Templates.
 
-**Schema (first change since Phase 0, additive):**
-- `FieldGroup`: `label` renamed to `labelSource`; add `labelMeaning`, `parentGroupId`
-  (self-relation, `onDelete: Restrict`), `selection` (`NONE | ONE_OF | ANY_OF`, default `NONE`),
-  `noneMarked` (`BLANK | REVIEW | ERROR`, default `REVIEW`), `multipleMarked`
-  (`REVIEW | ERROR`, default `ERROR`), `note`; index on `parentGroupId`. See docs/02.
-- One-off, idempotent script that re-spaces each template's top-level positions so existing
-  templates keep their current visual order (ungrouped fields first, then groups) in the new
-  shared order. Run it once after the migration.
+**Layout targets (decision 69).** Not responsive in the fluid sense — three targeted layouts, because
+breakpoint-switched layouts are far cheaper than fluid ones and honest about what each device can do:
 
-**Ordering and nesting:**
-- Under one parent (the template root or a group), child groups and fields share one fractional
-  position space. A move names its new parent and the sibling it goes after
-  (`after: { kind: "field" | "group", id } | null`) and still writes one row, under the template
-  row lock.
-- Groups nest. `MAX_GROUP_DEPTH = 3` is a code constant, not a schema limit; raising it later
-  needs no migration. Refuse moves that exceed it (counting the moved group's own subtree height)
-  and moves of a group under itself or a descendant.
-- A pure tree helper (`lib/templates/tree.ts`) builds the ordered tree and header paths from the
-  flat rows; the editor, the Phase 5 prompt builder and review labels all use it.
+| Width | Layout |
+|---|---|
+| `< 1280px` | **Upload only.** One screen: choose a template, shoot or pick photos. Everything else says, in plain language, that reviewing needs a wider screen. Standing at the filing cabinet with a phone is a real use; reviewing handwriting on one is not. |
+| `1280–1599px` | Two panes. |
+| `≥ 1600px` | Three panes, or two with more density. |
 
-**Group configuration:**
-- Label on the paper, English meaning, note for the AI.
-- Selection: `Header only` / `One of` / `Any of`. A selection group's options are its descendant
-  `MARK` fields in `Extract` or `Manual` mode (Skip fields are not options).
-- When nothing is ticked: `Normal blank` (e.g. blank means "not tested") / `Flag for review` /
-  `Error`. When several are ticked (`One of` only): `Flag for review` / `Error`.
-- Refused: a selection group containing a non-`MARK` field or another selection group; changing a
-  field under a selection group away from `MARK`; `One of`/`Any of` with fewer than 2 options.
-- Stored only in this phase. The prompt uses it in Phase 5; the transform resolves it in Phase 6.
+**The rule that decides every layout: the pane holding the photo never shrinks below readable.**
+Burmese handwriting at 400px is guesswork. Everything else yields to it. For the same reason the app
+stays **light-first** (decision 70) — a video editor is dark to stop a bright surround biasing colour
+judgement; here the job is reading pencil on white paper, and contrast is the whole task.
 
-**Deletes and restores:**
-- Deleting a group (hard delete, as today) moves its child groups and live fields up one level
-  into the group's slot, keeping their order, and re-parents soft-deleted fields to the group's
-  parent. Counted confirmation: "2 fields and 1 group move up into RDT Test. No fields are deleted."
-- A restored field returns to its group, or to the nearest surviving ancestor, at its old
-  position unless a sibling of either kind now holds that key.
+**Docs to update:** docs/01 §5, docs/05 §4 and a new §0 for the pane and layout rules.
 
-**Editor:**
-- One tree with mixed order at every level. Drag vertically to reorder; drag right to nest into
-  the group above, left to move out a level (dnd-kit's sortable tree pattern with depth
-  projection). Keyboard: Space to lift, ↑/↓ move, →/← nest/un-nest, Space to drop.
-- Group properties panel (selection settings explain their effect in one line and list the
-  options); a `Group` select in field and group properties as the non-drag alternative.
-- Quick-add creates the field or group at the end of the chosen parent: one pinned add bar whose
-  parent follows the selection, and a `+` on each group for adding fields inline at its end.
-  Group rows are bordered with guide lines per nesting level (docs/05).
-- Guidance copy in the empty state and Mode help: for Table templates, add every column in paper
-  order and set unwanted ones to Skip; for forms, add look-alike fields as Skip (docs/01 §6.5).
+**Tests:** none new. The Phase 9 E2E is repointed at the workspace nav.
 
-**Tests (per the testing policy):** unit tests for group-delete re-parenting (no field lost or
-orphaned, order kept) and for depth/cycle refusal. Acceptance is checked by hand.
+**Done when (all met):**
+- No workspace scrolls the page; every scroll happens inside a pane, and no layout uses a hard-coded
+  viewport calculation.
+- Panes resize by drag, collapse, and come back the same size after a reload, in a private window too.
+- The nav shows live counts, and they are correct after an extraction finishes without a manual refresh.
+- At 1279px the app shows the upload-only screen; at 1280px the two-pane workspaces render with no
+  horizontal page scroll.
+- Settings is reachable only from the gear, and every route that worked before still works by URL.
 
-**Out of scope, recorded for later phases:** rendering header paths and selection hints in the
-prompt (Phase 5); resolving selection groups in the transform, and the mapping that turns a
-selection group into an output column, including the value exported when nothing is ticked and
-per-option output values (Phase 6).
+---
+
+## Phase 14 — Cutting what nobody needs
+
+Pure subtraction, no dependencies, the cheapest win in the plan. **Every setting is a question asked of
+the operator instead of answered for them** — the opposite of the product's own thesis that the machine
+does the first pass. Each one has to beat "pick a good default and let them fix it where it is wrong."
+
+**Schema (one destructive drop; safe, nothing is launched):**
+- `Book.confidenceThreshold` — **dropped** (decision 77). It asked a non-technical operator for a
+  percentage controlling a dotted underline, over the model's *self-reported* confidence — the prompt
+  literally asks for "your own estimate from 0 to 1", and the settings help text already conceded it is
+  "only a hint". A tuning knob with no feedback loop over an uncalibrated signal. It becomes a constant
+  in `lib/table/cellState.ts`; nobody will notice.
+- `Book.defaultModel`, `numeralSystem`, `dateEra`, `blankToken`, `illegibleToken` — **columns kept**,
+  settings UI removed. They are still read by the prompt, the transform and the export.
+
+**Deleted from the UI:**
+- **Export preferences.** A pure duplicate: `blankToken` and `illegibleToken` are already editable in
+  the export dialog at the moment of export. Two places to set one thing, and Settings is the one you
+  forget you touched. The dialog now **writes its choice back to the book**, so the preference is set
+  where it is used and remembered — one control, no hidden state.
+- **Confidence threshold.** As above.
+- **Book name.** Already edited inline in the header.
+- **Default AI model.** Chosen in the create wizard, overridden per template, overridden again in the
+  Extract dialog: three places to pick something operators do not pick. The column keeps a constant
+  default; the template override and the per-extraction override stay, which is where it is actually
+  useful.
+- **The Output table section.** A read-only table plus the shared `EditColumnsDialog` — a third
+  rendering of column state, and the one Phase 10 superseded. The dialog itself is one component and
+  stays mounted where the operator meets the need: in Mapping, and now also on the Result Table header.
+
+**Asked by exception instead of configured (decision 76):**
+- **Numeral system and date era** are real — they reach the prompt and the transform, and changing them
+  rebuilds rows. But an operator does not know what "Myanmar era" does to their data, and these describe
+  *the paper*, not the book. They default to `AUTO` / `GREGORIAN` and are surfaced at the point of
+  failure instead: when dates or numbers in a column fail to parse, the flag on that column offers
+  *"Dates in this column aren't parsing. Is this paper using the Myanmar era?"* with the fix in place.
+
+**Reduced:**
+- **Validation rules: three offered, six behind Advanced.** `REQUIRED`, `RANGE` and `UNIQUE` are what a
+  data-entry operator uses; `LENGTH`, `REGEX`, `ENUM`, `CROSS_COLUMN` and `MONOTONIC` are developer
+  features sitting at the same altitude. `RULE_KINDS` is untouched, so existing rules keep working and
+  keep rendering.
+- **Create Book becomes one step.** Name, then Templates. Step 2 was schema authoring asked of an
+  operator about data they had not seen; Phase 10 softened its copy to "you can leave this empty" and
+  left the primary button reading `Create book without columns` — a button named after an absence.
+  Columns come from the template, where the app already proposes them.
+
+**Kept, unchanged:** the glossary (it reaches every prompt and earns its place) and the danger zone.
+Phase 19 gives the glossary the entry point it actually needs.
+
+**Docs to update:** docs/01 §16 and §17, docs/05 §3 and §5.
+
+**Tests:** none new.
 
 **Done when:**
-- The register above can be built as a TABLE template in exactly that paper order, and the order
-  and every group setting survive a reload.
-- A 4th nesting level, moving a group into its own descendant, and a `One of` group containing a
-  non-mark field are each refused with a plain message.
-- Nesting and un-nesting work with the keyboard alone.
-- Deleting `RDT Test` moves `Positive` and `Neg.` up into its slot, in order, and deletes no
-  field; a field soft-deleted from `Positive` before `Positive` itself is deleted restores into
-  `Positive`'s parent.
-- Templates built in Phase 3 keep their visual order after the re-space script, and the Phase 3
-  acceptance flow still passes.
+- Settings is the glossary, validation rules and the danger zone, and nothing else.
+- Changing the blank token in the export dialog is still there at the next export of that book.
+- A column whose dates fail to parse offers the era question inline, and accepting it rebuilds the rows.
+- The rules editor offers three kinds; an existing `REGEX` rule still shows and still edits under Advanced.
+- Creating a book takes one step and lands on Templates.
 
 ---
 
-## Phase 4 — Documents & photos
+## Phase 15 — The paper on screen
 
-- Presigned upload, EXIF orientation, HEIC → JPEG, PDF page split
-- Working copy (max 2048px) + thumbnail generation
-- Document grouping UI: one-per-photo default, group/split, page reorder
-- Documents tab with filters and virtualised list
-- Photo editor: crop, rotate, deskew, reset — non-destructive transform JSON
-- Document detail drawer with MANUAL field inputs
-- Move documents to another template, with impact preview
-
-**Done when:** 30 photos upload, 3 are grouped into one document, a photo is cropped
-and deskewed, the transform survives a reload, and the original is untouched in
-storage.
-
----
-
-## Phase 5 — Extraction
-
-- `AIProvider` interface + Gemini implementation
-- Per-template response schema generation; Zod validation with one repair retry
-- Prompt v1 in `lib/ai/prompts/` covering every rule in `docs/03 §3–§5`
-- BullMQ job per document, idempotency key, retries with backoff, rate limiter
-- Raw layer persistence (`ExtractionRun`, `RawRecord`, `RawValue`)
-- Extract modal with estimate and warnings; status polling; per-photo retry
-- Content states (`EMPTY` / `NO_ROWS_FOUND`) and anchor-based mismatch score
-
-**Done when:** a real Burmese form photo produces raw values bound to field IDs, a
-blank page yields `EMPTY` with zero rows and no failure, a double-click on Extract
-produces exactly one run, and a forced provider error marks the document `FAILED`
-with a retryable state.
-
----
-
-## Phase 6 — Mapping & transform
-
-- Mapping CRUD: COPY, CONCAT, SPLIT, CONSTANT, EXPRESSION
-- Expression parser + evaluator (jsep + safe walker), validated at save time
-- Transform pipeline: filter → ditto → dedupe → sequence check → normalise → map →
-  coerce → validate → merge
-- Normalisers: Myanmar numerals, era conversion, AGE, FRACTION, MARK, CHOICE, NFC
-- Row/Cell persistence with fractional index positions
-- `retransform` endpoint as a queued job
-- Mapping preview panel using the latest document's raw values
-- Broken-mapping detection → template `CONFLICTED`
-
-**Done when:** the golden-file test suite passes, including: ditto fill-down across a
-page boundary, duplicate rows deduped via the sequence field, `1 1/2` → 18 months,
-`၇` → 7, a TOTAL row marked void, and a re-run that does not overwrite an edited cell.
-
----
-
-## Phase 7 — Output table
-
-- Virtualised grid, inline editing, debounced saves, CellEdit log, undo
-- All cell states rendered with colour + non-colour cue
-- Row drag-reorder via fractional index; column sort as view-only state
-- Hover provenance chip → photo viewer at the record's region
-- Row actions: review, revert, void, delete
-- Column header counts and filters
-- Validation rules CRUD + revalidate job
-
-**Done when:** 3,000 rows scroll smoothly, an edit persists and is visually distinct
-from extracted values, revert restores the extracted value, reordering 1 row writes
-exactly 1 row, and a range rule flags an out-of-range date immediately.
-
----
-
-## Phase 8 — Review mode & export
-
-- Row review split view with photo region highlighting
-- Full keyboard map from `docs/05 §13`
-- `isReviewed` per cell, document-level completion, review queue endpoint
-- CSV export: streaming, UTF-8 with BOM, void/provenance options, token config
-- Export warnings for unreviewed cells and validation errors
-
-**Done when:** a 40-document book can be reviewed end to end using only the keyboard,
-progress is accurately reported, and the exported CSV opens in Excel with Burmese
-text intact and rows in the manual order.
-
----
-
-## Phase 9 — Hardening
-
-- Rate limiting on auth and extraction endpoints
-- Structured logging with a request/job correlation ID
-- Error boundaries and real empty states everywhere (`docs/05 §15`)
-- Storage lifecycle: orphan cleanup, grace-period photo deletion
-- Backup/restore procedure documented
-- Seed script producing a realistic demo book
-- Playwright E2E: sign in → create book → template → upload → extract (stubbed) →
-  review → export
-
-**Done when:** the E2E test passes in CI without touching Gemini, and a killed worker
-mid-job leaves no document stuck in `RUNNING` (stale-run reaper).
-
----
-
-## Phase 9.1 — Ingestion lives on the Documents tab
-
-Inserted after Phase 9, from reviewing the book detail screen. Upload and Extract existed in two
-places: on each template card and on the Documents tab. No schema change; UI and routing only.
-
-**Why:**
-- The Templates tab describes the shape of the paper; the Documents tab feeds paper in and watches
-  it run. Ingestion buttons on a template card blur the two jobs.
-- Feedback belongs where the polling is. Documents polls run state every 2 s and offers per-photo
-  retry in the drawer; a template card only refreshes a coarse run badge, so an operator who started
-  a long run there saw almost nothing.
-- Two `UploadDialog` and two `ExtractDialog` mounts meant every change to estimates, warnings or
-  rate-limit copy had to land twice.
-
-**Moved:**
-- Template cards lose `Upload documents` and `Extract`. The document count becomes a link to
-  `/books/[bookId]/documents?templateId=<id>`. The run badge and its 2 s refresh stay, read-only.
-
-**Added, so template-wide extract is not lost:** `{ templateId }` extraction already existed in the
-API, but the template card was its only caller, and the Documents tab could only extract the loaded
-page of a cursor-paginated selection. The Documents header now shows `Extract all in <template>`
-when the template filter is the only one narrowing the list and nothing is selected — it covers the whole
-template, so it must not sit next to a run-state or search filter that shows a smaller set. The label carries no count — the list has
-no total — and `ExtractDialog` states the exact document, extractable and blocker counts before the
-operator confirms. A template-wide extract does re-read documents that already completed; the
-dialog's counts and estimate are what the operator decides on, and edited cells are never
-overwritten (Phase 6 rule).
-
-**Also added:** an empty state for "this template has no documents yet", leading with
-`Upload documents` — otherwise arriving from a fresh template dead-ends on "No documents match
-these filters".
-
-**Docs updated:** docs/01 §6.4 and §6.8, docs/05 §6, §9 and §11.
-
-**Tests (per the testing policy):** no new tests. The Phase 9 E2E is repointed at the Documents tab
-and now waits out photo processing before extracting the selection.
-
-**Done when:**
-- No template card shows an Upload or Extract button, and its document count opens the Documents
-  tab filtered to that template.
-- A template with no documents lands on `No documents in <name>` and its `Upload documents` opens
-  the uploader with that template already chosen.
-- With a template filter active and nothing selected, `Extract all in <name>` covers every document
-  of the template, and the run shows live per-document progress in the list.
-- Selecting rows hides that button and restores `Extract` / `Re-extract`.
-- The Phase 9 E2E passes unchanged in meaning.
-
----
-
-## Phase 10 — The first hour
-
-Inserted after Phase 9.1, from walking a new operator through the whole product rather than one screen.
-v1 works well **once you are set up**. Getting set up is the weakest hour in the product, and one mistake
-inside it costs real money. No schema change; UI, copy and service-level checks only, so this phase ships
-and reverts on its own.
-
-**What the walkthrough found**, in the order a new user meets it:
-
-1. Create Book demands output columns at step 2, before the user has read a single document. That is
-   schema authoring, asked of an operator, about data they have not seen.
-2. Creating a book lands on the Table tab — the tab that stays empty longest. Its empty state offers two
-   links and no order between them.
-3. The Mapping tab's "The book has no output columns" state names Settings but does not link there, and
-   cannot add a column in place.
-4. The mapping preview — "the single highest-value affordance in the editor" (docs/05 §7) — reads
-   `No extracted documents yet` on every first visit. Nothing anywhere teaches the working order:
-   fields → upload → **extract one** → map against its real values → extract the rest.
-5. Extraction is never warned on a template with no mappings. The Extract dialog warns for `CONFLICTED`
-   but not `DRAFT`, and `blockerFor` does not look at mappings at all. A first-time user can extract 400
-   documents, pay for every one, and land on an empty table.
-6. An output column added later is silently unfilled: it appears in the table, stays blank forever, and
-   nothing points at the templates that would need a mapping for it.
-7. Returning to a book lands on the Table tab again and loads every row before the operator can reach
-   review — the one thing they came back to do.
-
-**Added:**
-- **`Create columns from this template`**, in the Mapping tab. For every `Extract`-mode field with no
-  mapping, it creates an Output Column (label from `labelMeaning` ?? `labelSource`, key auto-slugged,
-  type from the field's data type) and a `COPY` mapping to it. Counted confirmation first
-  ("Creates 11 columns and 11 mappings"). A first book is almost always 1:1 field → column, so this
-  replaces the hardest part of setup with one click and a round of renaming. It is the cheap half of
-  "let the app propose, the human dispose"; the expensive half is post-v1 (AI proposes the template).
-- **`Edit output columns` in the Mapping tab** — the existing column editor modal, mounted where the
-  operator discovers they need a column, instead of only in Settings.
-- **`Try one document`** as a first-class action, from the template editor and the Documents empty state:
-  upload or pick one document, extract only it, show the result beside the photo. It is the trust moment
-  *and* it fills the mapping preview, so the two problems have one fix.
-- **A Draft-template warning in the Extract dialog** — never a blocker, because extracting before mapping
-  is the correct order. The wording teaches that order rather than forbidding it:
-  *"«Name» has no mappings yet, so no rows will appear until you add them. Extracting one document first
-  is the normal way to set one up — the preview needs real values."*
-- **The expected error rate, stated before the first extraction** (decision 61), scoped to the paper and
-  not to the product: *"On handwriting like this, expect to correct roughly half the cells. Correcting is
-  still much faster than typing."* Discovering a 50% error rate unprepared reads as a broken product;
-  being told first reads as an honest one, and it is the moment a first-time user decides to stay.
-- **An unfilled-column signal**: a column-header chip when no template maps that column, and a line in
-  the column editor's impact report after one is added, naming the templates that could fill it.
-
-**Moved:**
-- **Mapping gets its own route**, `/books/[bookId]/templates/[templateId]/mapping`; Fields stays at the
-  template root. It stops being `useState` in `template-editor.tsx`, so it is deep-linkable, code-split
-  and survives the back button. The template editor opts out of the book layout's `max-w-6xl` and the
-  book header collapses to one breadcrumb line while inside a template, so the preview gets real width.
-  Mapping stays **inside the template**, not a book tab (decision 62).
-- **Creating a book lands on Templates**, not Table.
-
-**Landing tab (decision 60).** The book remembers the tab you were last on, per user and per book, in
-`localStorage`; a book with no templates always opens on Templates. Storage can be empty or throw
-(private windows, cleared site data), so every read is wrapped and the computed default renders on its
-own. A **`Resume review`** button appears in the book header whenever unreviewed cells exist, going
-straight to the first of them — the returning operator no longer loads the whole table to leave it.
-Opening a book never drops the operator into full-screen review by itself.
-
-**Tests (per the testing policy):** none new. The Phase 9 E2E gains the column-creation step in place of
-hand-built columns.
-
-**Done when:**
-- A new book, a 12-field template and a full set of mapped columns can be reached without ever opening
-  Settings, and `Create columns from this template` produces one column and one `COPY` mapping per
-  unmapped Extract field after a counted confirmation.
-- Extracting with a `DRAFT` template shows the warning, and still proceeds.
-- `Try one document` extracts exactly one document and leaves the mapping preview showing its values.
-- Mapping is reachable by URL, survives a reload and a back button, and the preview is wider than it is
-  on the Fields route.
-- A column no template fills is marked as such in the table header.
-- Reopening a book returns to the tab last used, and `Resume review` appears exactly when unreviewed
-  cells exist.
-
----
-
-## Phase 11 — Re-shooting a page
-
-Inserted from the same walkthrough. A page that turns out to be unreadable **during review** is a dead
-end today, and review is where unreadable pages are found.
-
-**Why:**
-- `completeUpload` takes a `templateId` and nothing else (`lib/photos/schemas.ts`, `lib/photos/service.ts`),
-  so every upload creates a **new document**. No endpoint adds a page to an existing one.
-- `assertNoExtractionOutput` refuses to delete a page of a document that has extraction output
-  (`lib/photos/service.ts`), so the bad page cannot be removed either.
-- The only remaining path is deleting the whole document and starting over, which throws away its rows,
-  its human edits and its review state — exactly the work the product exists to protect.
-- Separately, editing a photo's crop already makes the last reading wrong and **nothing records it**. The
-  warning is shown once, at save time, and then the document looks identical to a correct one. Across 400
-  documents that is silent bad data.
-
-**Schema (additive, no backfill):**
-- `Photo.transformedAt DateTime?` — set whenever the transform changes. Null means untouched since upload.
-- `Document.contentChangedAt DateTime?` — set when any page of the document is transformed, replaced or
-  added. Denormalised on purpose: the Documents list is virtualised and cursor-paginated, and per-row
-  "max over photos, compared to the latest run" would be a join per row.
-- `Photo.replacedAt DateTime?` + `Photo.deletedAt DateTime?` — a replaced page is soft-deleted, not
-  removed, so provenance from existing rows keeps resolving until the document is read again.
-
-Two more columns were added during the build, both because the plan above left a hole (docs/02):
-- `Document.lastExtractedAt DateTime?` — the denormalised right-hand side of the staleness comparison.
-  The existing `lastRunAt` counts failed runs, so it would clear the chip after a failed re-extraction.
-- `Photo.replacesPhotoId String?` — without it a re-extraction leaves the replaced page's raw records in
-  place (supersession is keyed on the run's photo ids, and a re-shot page is a new id), and the document
-  builds two sets of rows from the same page of paper.
-
-**Staleness means "the document changed since it was last read"** (decision 58), not "a crop changed".
-A page replaced or added makes the previous reading wrong in exactly the same way a crop does, and a
-marker that catches only two thirds of staleness is worse than none, because it would be trusted.
-A document is stale when `contentChangedAt` is later than the `finishedAt` of the latest successful run.
-
-**Added:**
-- **Replace page.** Upload a new file into an existing `documentId` at an existing `pageIndex`. The old
-  photo is soft-deleted and keeps its storage until the grace period; the document is marked changed.
-  Rows, cells, edits and review state are untouched, because they hang off Document and Row, never Photo.
-  `assertNoExtractionOutput` is relaxed for replace and add.
-- **Add page**, for a multi-page form that was photographed incompletely. Same marking.
-- **A `Changed since last read` chip** on the Documents list row and in the drawer, a
-  **`Needs re-extraction`** filter, and the count carried into the Extract dialog.
-
-Deleting or reordering a page of an already-extracted document stays blocked; those are recorded as an
-open question in docs/07 Part C rather than guessed at here.
-
-This composes with what already exists: replace → the document is marked stale → re-extract → the
-Phase 6 rule keeps every edited cell. Three pieces, no new merge logic.
-
-**Tests (per the testing policy):** unit test that replacing a page keeps the document's rows, cells and
-`isEdited` flags — it is a data-loss path, so it qualifies under the policy (`lib/photos/replace.test.ts`,
-which asserts the service never touches Row, Cell, CellEdit, RawRecord, RawValue or ExtractionRun at all).
-`lib/extraction/plan.test.ts` gains the supersession case for the replaced page.
-
-**Done when:**
-- A page of an extracted document can be replaced, and the document's rows, edits and reviewed marks are
-  all still there afterwards.
-- That document shows `Changed since last read`, the `Needs re-extraction` filter finds it, and
-  re-extracting clears the chip without overwriting an edited cell.
-- Cropping a page of an extracted document marks it the same way.
-- A row's provenance chip still opens a photo between the replace and the re-extraction.
-
----
-
-## Phase 12 — Before strangers
-
-Launch exposes two things that are unbounded today: the AI bill and the database. Neither is visible to
-anyone, including the operator.
-
-**Why:**
-- `ExtractionRun.inputTokens` / `outputTokens` have been recorded since Phase 5 and are **surfaced
-  nowhere**. There is no quota, no per-user cap and no cost readout. One server API key means every
-  user's extraction lands on the owner's bill.
-- `ExtractionRun.rawResponse` stores the full model response for every run, for ever. The Phase 9
-  storage lifecycle covers photo objects, not this JSON, so it grows in Postgres without limit.
-- Marking a cell reviewed writes **no timestamp and no log row** — `CellEditKind` is `EDIT | REVERT | UNDO`
-  and `Cell.updatedAt` is bumped by anything. The product's stated measure of success, seconds per
-  reviewed cell (docs/01 §1), is therefore not computable from the data it stores.
+The biggest fix in the plan. Today an operator authors a description of a document they are holding,
+into a tree-and-properties screen with no image on it, and only afterwards may read a page to see
+whether any of it was right.
 
 **Schema (additive):**
-- `User.aiApiKeyCipher String?`, `User.aiApiKeyHint String?` — a user's own Gemini key, encrypted at rest,
-  plus the last four characters for display. New `lib/crypto` with an `ENCRYPTION_KEY` env var.
-- `Cell.reviewedAt DateTime?` and `Cell.reviewedVia ReviewSource?` (`CELL | ROW | ILLEGIBLE`).
+- `Document.isSpecimen Boolean @default(false)` — a page uploaded to build a template against.
+  A specimen is a **real Document** (decision 71), not a separate object: same upload, same processing,
+  same extraction, same raw layer. It is excluded from the output table, from export and from the
+  template's document count, and it is the natural target of `Try one document`. Clearing the flag
+  promotes it to an ordinary document in one click, because the page an operator reached for to build
+  the template is usually a real page with real data on it.
 
-**Added:**
-- **Both key sources (decision 54).** A user can paste their own Gemini key; the server key remains as the
-  fallback for people the owner invites directly. `providerStatus()` becomes per-user, and the Extract
-  dialog says which key a run will use. BYO removes the owner's cost exposure for self-serve signups;
-  the server key keeps friction at zero for invited users, which matters because the audience is
-  explicitly non-technical and Phase 10 exists to remove exactly this kind of friction.
-- **Cost in the Extract dialog, in money rather than tokens.** Tokens mean nothing to an operator.
-  Per-book and per-user totals come from the token columns already recorded.
-- **`rawResponse` retention (decision 63):** kept for ever on `FAILED` runs, which is when it is wanted;
-  stripped from successful runs older than 30 days by the existing daily `storage.cleanup` job.
-- **A review timestamp, collected from launch (decision 56).** `reviewedAt` is written whenever a cell
-  becomes reviewed, together with **how** it happened (decision 57): a per-cell confirm, a row-level
-  `⌘Enter`, or `I` for illegible. Without the source a single row-mark stamps N cells at one instant and
-  every later "seconds per cell" figure is fiction. **Readouts are deferred** — this phase only collects,
-  because data not collected at launch cannot be recovered afterwards.
+A separate "sample, never extracted" object was rejected: it makes the operator upload the same page
+twice for reasons they cannot be told, and it would have been a **fourth** photo-intake UI.
 
-**Not built: quota.** Recorded in docs/09 §8 with the condition that triggers building it — hosted
-extraction becoming a real cost line, and per-document pricing being known well enough to set a number.
-Guessing a limit before either is true prices the product blind.
+**The workspace:**
+- Two panes at 1280: **the photo, large and zoomable, beside the field tree.** Three at 1600+, the
+  third being properties; below that, properties expand **inline under the selected row**. Config was
+  not given a permanent narrow third column: it is the densest form in the app (source label, meaning,
+  type, mode, note, choices, marks), and a permanent third pane both starves it and puts the photo and
+  the config at opposite edges of the screen — the worst possible pairing for transcribing.
+- Photo and fields side by side is also what the review screen already does, which is the screen that
+  works best.
+- The photo pane carries the existing crop/rotate/deskew editor. Its transform is per-photo and
+  non-destructive, exactly as today.
 
-**Tests (per the testing policy):** unit test that an encrypted key round-trips and is never logged. No
-others.
+**Autosave replaces save-and-discard (decision 72).** The properties pane is dirty-tracked, so switching
+fields while dirty raises `Discard unsaved changes?` — a modal an operator meets once per field while
+building a twenty-field template, because quick-add only sets label and type. A template is owned by one
+user with no concurrent editing, so the modal protects against nothing. Fields save on blur, with the
+existing toast-plus-undo for anything destructive.
+
+**One photo intake.** `Try one document`, the batch `UploadDialog`, the specimen upload and replace/add
+page become one component in four modes. Three of them exist today and look nothing alike, and a
+first-time operator meets two within ten minutes.
+
+**`Try one document` moves to the front.** It no longer requires fields to exist: with a specimen on
+screen and no fields yet, it is the first thing offered. The stated error-rate line stays, but once a
+reading exists it is joined by **that page's actual result** — values read, illegible, blank. A real
+number from the operator's own paper is what the line is for.
+
+**Docs to update:** docs/01 §6.5, docs/05 §7, §9 and §10.
+
+**Tests:** none new. The Phase 9 E2E uploads its first page as a specimen.
 
 **Done when:**
-- A user can save their own key, see its last four characters, and extract with it; removing it falls
-  back to the server key where one is configured, and the dialog says which is in use.
-- The Extract dialog states an estimated cost in money.
-- A failed run keeps its `rawResponse`; a successful run older than 30 days has lost it and nothing else.
-- Reviewing a cell by keystroke, by row and by `I` each writes a timestamp and the right source.
+- A template can be built with the page visible beside the tree the whole time, at 1280 and at 1600.
+- Editing a field's properties and clicking another field saves the first and raises no modal.
+- A specimen document does not appear in the output table, the export or the template's document count,
+  and clearing its flag makes it appear in all three without re-extraction.
+- All four photo-intake entry points render the same component.
+- `Try one document` is offered on a template with zero fields, and its result reports what that page
+  actually produced.
 
 ---
 
-## Launch gate
+## Phase 16 — The AI proposes the template
 
-Launch after **Phase 12**. Earlier is possible and deliberate:
+The product's own thesis — the machine does the first pass, the human reviews — applied to the one place
+the operator still authors from nothing. The provider interface, the versioned prompts and the tree
+editor all exist; the output is a tree.
 
-- **After Phase 10** you can invite people you already know, on the server key, and watch the bill by hand.
-- **Phase 11 and 12 are what make strangers safe** — data that cannot be silently wrong, and a bill that
-  cannot silently grow.
+**No schema change** beyond recording the prompt version on the proposal, as every run already does.
 
-Do not start post-v1 before launching. The post-v1 order below is a guess made before anyone used the
-product, and launching is the only thing that replaces the guess with evidence (decision 64).
+**Added:**
+- `AIProvider.proposeFields(...)`, with `lib/ai/prompts/template-v1.ts`. Versioned under the same rule
+  as every other prompt: never edited in place.
+- The template kind (FORM / TABLE) is required first — it changes the shape of what is asked for.
+- **Flat fields only** (decision 73). Groups, nested headers and selection groups (the Phase 3.1
+  structure) are much harder to infer, and a wrong group is more expensive to undo than a missing one.
+  They stay manual.
+- The result is a **proposal, not a write**: a list with per-field include toggles and a counted
+  confirmation, the same shape as `Create columns from this template`. Accepting creates the fields in
+  the tree, where the human corrects them.
+- It costs money, so it gets the same treatment as extraction: an estimate in money before it runs, and
+  it says which key it will spend.
+
+**Done when:**
+- A photo of a twelve-field Burmese card proposes a field list, and accepting it lands those fields in
+  the tree in paper order.
+- Nothing is written until the proposal is confirmed, and deselected fields are not created.
+- The estimate names a cost in money and the key it will use before anything runs.
+- A TABLE template and a FORM template produce visibly different proposals from the same page.
+- The run records its `promptVersion`.
+
+---
+
+## Phase 17 — The second book
+
+The single worst defect for a returning operator, and the one v1 never addressed: `duplicateTemplate`
+resolves the target book from the source template, so it can only copy within a book. An operator doing
+the same malaria register for the next quarter re-authors twenty fields, their groups, selection rules,
+notes, mappings and the column set **by hand, again**. For clinics, NGOs and research teams working from
+recurring registers, the second book is where the product actually lives.
+
+**No schema change.** Decision 3 already made this possible: the source layer is portable and knows
+nothing about output columns; the mapping layer is book-bound.
+
+**Added:**
+- **Copy a template into another book.** The source layer travels — fields, groups, selection settings,
+  notes, anchors, language hint, instructions. Mappings do not, because they name output columns that
+  belong to the other book. The copy lands as `DRAFT` and the target book's `Create columns from this
+  template` finishes the job in one click. This is not a limitation to apologise for; it is the layering
+  working as designed, and the counted confirmation says exactly what travelled and what did not.
+- **New book from an existing book.** Templates (source layers), output columns, mappings, glossary and
+  validation rules. Not documents, photos or rows. Because the columns come along, the mappings can too,
+  so a repeat book arrives fully configured and empty — which is the whole point.
+- A **versioned portable library** (post-v1) stays deferred (decision 74). Plain copies answer the real
+  need; pinning and diffing a shared definition answers a need nobody has expressed yet.
+
+**The books list stops being a filing cabinet.** It is a name, three counts and a date, and cannot
+answer the returning operator's first question — *which book has work left in it?* — although
+`hasUnreviewedCells` is already computed for the book header. Each row gains reviewed-of-total and its
+own **`Resume review`**, so resuming no longer costs a book open plus a full table load. That was the
+cost Phase 10 set out to remove and only half removed.
+
+**Docs to update:** docs/01 §6.1 and §6.4, docs/05 §2 and §6.
+
+**Tests:** unit test that copying a template across books writes no `Mapping` row and no row outside the
+target book — it is a cross-tenant path, so it qualifies under the testing policy.
+
+**Done when:**
+- A twenty-field template with nested and selection groups copies into another book with its structure
+  and every group setting intact, and no mapping.
+- `Create columns from this template` then completes the copy in one click.
+- A new book from an existing book opens with its templates, columns, mappings, glossary and rules, and
+  zero documents and rows.
+- The books list shows review progress per book, and `Resume review` on a row goes straight to the first
+  unreviewed cell without loading the table.
+
+---
+
+## Phase 18 — Documents, and what the machine is doing
+
+Documents mostly works; this is the workspace treatment plus the one thing operators ask for that has no
+home — *what is happening right now?*
+
+**No schema change.**
+
+- **A run drawer, not a Jobs workspace** (decision 75). Watching extraction deserves a real surface: per
+  document, per page, with retry and the error. It does not deserve a peer workspace, because a queue is
+  plumbing that operators have no mental model for, and because splitting "start the run" from "see the
+  run" undoes Phase 9.1's finding that feedback belongs where the polling is. The drawer opens from the
+  Documents header and from any running row.
+- **The filter bar loses its tri-states.** Seven controls in one flat row, four of them three-position
+  toggles whose meanings overlap (`Needs review` against `Reviewed`). They collapse into one **Status**
+  select with named, mutually exclusive states, plus the template filter and search.
+- **Upload date becomes a filter and a sort.** An operator who uploads sixty photos on Monday and sixty
+  on Tuesday currently cannot tell them apart; `createdAt` is not even filterable. This is the cheap
+  part of Batches (still post-v1) and covers most of what it was wanted for.
+- **The upload-only screen** from Phase 13 gets its real form here: choose a template, shoot or pick,
+  watch processing, done. It is the one thing a phone should do.
+
+**Docs to update:** docs/05 §8 and §9.
+
+**Done when:**
+- A running extraction can be watched per document and per page, with retry, without leaving Documents.
+- One Status select replaces the four tri-states and every previous state is still reachable.
+- Documents can be filtered and sorted by upload date.
+- A phone can upload into a chosen template end to end, and says plainly that review needs a wider screen.
+
+---
+
+## Phase 19 — Review, where the time actually goes
+
+Review is the part of v1 that works. This is polish on the screen the operator spends ninety percent of
+their time on, plus the two entry points it should have had.
+
+**No schema change.**
+
+- **Full-height photo beside values**, inside the Phase 13 frame, with the photo pane obeying the rule
+  that it never shrinks below readable.
+- **Resume at the document, not the tab.** Phase 10 remembers which tab you were on; the unit of
+  returning work is the document you stopped in. Reopening a half-reviewed book offers that document.
+- **Add to glossary from review.** The glossary reaches every prompt and earns its keep, but it lives in
+  a settings page while it is *discovered* mid-review — the moment the operator meets `ဒီ` meaning ditto
+  for the third time. Selecting a value offers to explain it, and the next extraction knows.
+- **The first readout of `reviewedAt` / `reviewedVia`.** Phase 12 collected them deliberately without
+  showing anything, because data not collected cannot be recovered. There is now real data, and
+  seconds-per-reviewed-cell is the product's stated measure of success (docs/01 §1). A per-book readout,
+  split by how the cell was marked, so a row-level `⌘Enter` stamping N cells at one instant does not
+  read as N fast reviews.
+
+**Done when:**
+- Review fills the viewport at 1280 with the photo legible, and the panes remember their split.
+- Reopening a half-reviewed book offers the document review stopped in.
+- A value can be added to the glossary from review, and the next extraction's prompt contains it.
+- The readout reports seconds per reviewed cell, separated by review source.
+
+---
+
+## Phase 20 — Column sweep
+
+Pulled forward from post-v1 (#3 in the old order). One column down all documents, cropped source regions
+side by side: the fastest possible shape for the most repetitive part of the work. It needs no new
+extraction — the bounding boxes have been stored since Phase 5 — and it is a workspace, so it needs the
+Phase 13 frame and the Phase 19 review surface underneath it.
+
+Whether this beats row review for real operators is exactly the kind of question decision 64 says to
+answer from usage rather than guess. It sits last for that reason: by the time it is built, Phases
+13–19 will have produced the evidence.
+
+**Done when:**
+- One column can be reviewed down every document in a book using only the keyboard.
+- Each value shows its own cropped region from its own page.
+- Progress and `reviewedVia` are recorded identically to row review.
+
+---
 
 ## Post-v1
 
-**This order is provisional** (decision 64). It was written before anyone used the product,
-and the ranking of the first three items in particular is a guess about where an operator's
-time actually goes. Re-rank it from real usage after launch rather than building down it.
+**Provisional, as before** (decision 64). Re-rank from real usage rather than building down it. Three
+items from the old list were pulled into Phases 16, 17 and 20; what remains:
 
-1. **AI proposes the template** — upload one photo, the model returns the field list, it
-   lands in the existing tree editor, the human corrects it. The product's own thesis
-   ("the AI does the first pass, the human reviews") applied to setup, which is otherwise
-   the one place the user must author from nothing. The provider interface, the versioned
-   prompts and the tree editor all already exist; the output is just a tree. Propose flat
-   fields first — groups and selection groups (Phase 3.1 structure) are much harder to
-   infer and stay manual. Phase 10's `Create columns from this template` is the cheap half
-   of the same idea and ships before launch.
-2. **Vocabulary autocomplete** — per-column value vocabulary built from existing
-   entries, offered on edit, with near-miss typo flagging and optional controlled
-   vocabulary. Biggest remaining win on typing cost.
-3. **Column sweep review** — one column down all documents with cropped source regions
-   side by side. Needs no new extraction; the bboxes are already stored.
-4. **Batches** — upload sessions with metadata, feeding CONSTANT mappings and giving
-   filter/retry granularity.
-5. **Double extraction** — per-template toggle, two passes, disagreement flags.
-6. **Book duplication** — structure only / + documents / full copy.
-7. **Source-definition library with versioning** — portable source layers, books pin a
-   version, opt-in updates with a diff.
-8. **Edit reasons UI** — the column already exists.
-9. **Team sharing** — ownership model change, roles, then concurrent editing. **Move this up**
-   if the first paying conversations need seats (decision 65): operators do the work, but a
-   clinic, NGO or research manager is who buys.
-10. **Perspective correction** — corner-drag four-point transform.
-11. **Template rule overrides** — a nullable `ValidationRule.templateId` and the template editor's Validation tab,
-    overriding book rules for documents read with that template (docs/01 §16, decision 40). Build when a real
-    form needs a rule the book-level one gets wrong.
+1. **Vocabulary autocomplete** — per-column value vocabulary built from existing entries, offered on
+   edit, with near-miss typo flagging and optional controlled vocabulary. The biggest remaining win on
+   typing cost, and the first candidate to promote once Phases 13–19 have been used in anger.
+2. **Batches** — upload sessions with metadata, feeding CONSTANT mappings and giving filter/retry
+   granularity. Phase 18's upload-date filter covers the cheap half.
+3. **Double extraction** — per-template toggle, two passes, disagreement flags.
+4. **Source-definition library with versioning** — portable source layers, books pin a version, opt-in
+   updates with a diff. Phase 17's plain copy covers the real need first (decision 74).
+5. **Edit reasons UI** — the column already exists.
+6. **Team sharing** — ownership model change, roles, then concurrent editing. **Move this up** if the
+   first paying conversations need seats (decision 65): operators do the work, but a clinic, NGO or
+   research manager is who buys. Note that Phase 15's autosave assumes single-owner editing and will
+   need revisiting here.
+7. **AI proposes groups and selection structure** — the half of Phase 16 deliberately left manual.
+   Build it only if real proposals show flat fields are the bottleneck.
+8. **Perspective correction** — corner-drag four-point transform.
+9. **Template rule overrides** — a nullable `ValidationRule.templateId` and a Validation section in the
+   template workspace (docs/01 §16, decision 40). Build when a real form needs a rule the book-level one
+   gets wrong.
+10. **Quota** — recorded in docs/09 §8 with the condition that triggers building it (decision 55).
+
+---
+
+## Decisions to append to docs/07 Part B
+
+Phases 13–20 rest on decisions **66–77**, which need writing up in the decision log with their
+reasoning, in the same form as 1–65:
+
+| # | Decision |
+|---|---|
+| 66 | Phases are never renumbered; 0–12 freeze as shipped, new work continues at 13. |
+| 67 | A workspace is a mode with its own layout, not a view of a record. |
+| 68 | Settings becomes a gear and most of it is deleted rather than moved; panes are layout, routes are navigation. |
+| 69 | Targeted layouts, not responsive: under 1280 is upload-only, 1280 two panes, 1600+ three. |
+| 70 | Light-first, and the photo pane decides every layout. |
+| 71 | A sample document is a real Document with a specimen flag, not a separate object. |
+| 72 | Autosave replaces save-and-discard in the template editor; single-owner editing makes the modal protect nothing. |
+| 73 | The AI proposes flat fields only; groups and selection structure stay manual. |
+| 74 | Cross-book copy now, versioned library never until asked for. |
+| 75 | Jobs is a drawer on Documents, not a workspace. |
+| 76 | Numeral system and era are asked by exception at the point of failure, not configured up front. |
+| 77 | The confidence threshold is deleted rather than defaulted: a knob with no feedback loop over an uncalibrated signal. |
 
 ---
 
 ## Risks to watch
 
-- **Gemini free-tier limits** will throttle real batches. Make concurrency and RPM
-  single env vars and surface `RATE_LIMITED` clearly rather than as a generic failure.
-- **Prompt drift.** Any prompt change invalidates comparisons between runs. Always bump
-  `promptVersion` and never edit an existing version in place.
-- **Table extraction is much harder than form extraction.** If time is short, ship FORM
-  first and TABLE in a follow-up — the schema supports both from day one.
-- **The transform layer is the product's spine.** Keep it pure and heavily tested; if
-  it is correct, mapping mistakes cost zero AI spend to fix.
-- **The first hour is where users are lost, not the tenth.** Review — the part that works
-  best — is only reached by surviving setup. Any future work that speeds up review while
-  setup is still confusing is optimising a stage people never get to (decision 64).
-- **Extraction is the only thing that costs money per use**, and nothing capped or displayed
-  it before Phase 12. Watch the per-user spend query in docs/09 §8 from the first week; build
-  the quota when the number is real rather than guessed (decision 55).
-- **Trust is spent in session one.** At a 40–50% raw error rate, a user who meets the errors
-  before they meet the explanation concludes the product is broken and leaves. `Try one
-  document` and the stated error rate exist for that minute (decision 61).
+- **Phase 13 touches every screen at once.** It is kept shippable by moving existing internals inside the
+  new frame unchanged and redoing them in later phases. Resist the urge to redesign a workspace's
+  contents while building the frame — that is what turns one revertible phase into four entangled ones.
+- **The first hour is where users are lost, not the tenth** (decision 64). Review is only reached by
+  surviving setup. Phases 13–17 are all setup; 19 and 20 are the part that already works.
+- **Trust is spent in session one.** At a 40–50% raw error rate, a user who meets the errors before the
+  explanation concludes the product is broken. Phase 15 moves that explanation earlier and attaches a
+  real number to it.
+- **AI-proposed templates can be confidently wrong**, and a wrong field list is harder to spot than a
+  missing one — it looks finished. The proposal-with-toggles shape exists for that; never write fields
+  without a confirmation.
+- **Prompt drift.** Any prompt change invalidates comparisons between runs, including the new template
+  prompt. Always bump `promptVersion` and never edit an existing version in place.
+- **The transform layer is the product's spine.** Keep it pure and heavily tested; if it is correct,
+  mapping mistakes cost zero AI spend to fix.
+- **Extraction and template proposal are the only things that cost money per use.** Watch the per-user
+  spend query in docs/09 §8; build the quota when the number is real rather than guessed (decision 55).
+- **Gemini rate limits** will throttle real batches. Keep concurrency and RPM as single env vars and
+  surface `RATE_LIMITED` clearly rather than as a generic failure.

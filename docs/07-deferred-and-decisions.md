@@ -333,6 +333,39 @@ at post-v1 item 9. But operators do the work and operators do not buy software: 
 NGO or research manager. If the first paying conversations need multiple seats, that item is mispriced
 where it sits. Do not move it on a guess — move it on a conversation. (Post-v1)
 
+**66. Phases are never renumbered.** Phases 0–12 freeze as shipped and new work continues at 13.
+63 code comments, 167 lines across docs/01–09 and 91 `decision N` references point at phases by
+number; renumbering would silently invalidate every one of them, and the cost is paid by whoever
+reads the codebase next rather than by whoever renumbers. (Phase 13)
+
+**67. A workspace is a mode with its own layout, not a view of a record.** The four tabs were peers
+carrying no order and no state, with Table — the tab that is empty longest and slowest to load —
+first, so the working order lived only in the build plan. A workspace fills the viewport and owns
+its layout, which is why a video editor has pages rather than tabs. The counts on the nav are what
+make the bar a sequence rather than a list: an operator who sees `Review 412 left` does not need to
+be told where to go next. (Phase 13)
+
+**68. Settings becomes a gear, and panes are layout while routes are navigation.** Settings was a
+peer of the three workspaces where the work actually happens, and Phase 14 is what makes it small
+enough to be an icon; its route still works by URL. Separately, a pane's size and collapsed state
+never enter the URL. Layout state in the URL breaks deep links and fills the back button with
+states nobody navigated to — which is exactly why Phase 10 moved Mapping *to* a route: it is
+navigation, and a pane split is not. (Phase 13)
+
+**69. Targeted layouts, not responsive.** Three widths, three layouts: under 1280 is upload-only,
+1280 is two panes, 1600+ is three or two with more density. Breakpoint-switched layouts are far
+cheaper to build than fluid ones and more honest about what each device can do. Standing at the
+filing cabinet with a phone is a real use; reviewing Burmese handwriting on one is not, so the
+narrow layout offers upload and says plainly that review needs a wider screen rather than shipping
+a version of review that cannot work. The workspaces are not rendered at all below 1280, so a phone
+never mounts the virtualised table. (Phase 13)
+
+**70. Light-first, and the photo pane decides every layout.** A video editor is dark so a bright
+surround does not bias colour judgement. Here the job is reading pencil on white paper, and
+contrast is the whole task, so the app stays light. For the same reason the pane holding the photo
+never shrinks below readable — handwriting at 400px is guesswork — and every other pane yields to
+it. (Phase 13)
+
 ---
 
 ## Part C — Open questions for later

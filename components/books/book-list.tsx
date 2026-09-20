@@ -9,7 +9,7 @@ import { FormMessage } from "@/components/auth/form-message";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getJson } from "@/lib/api-client";
-import { readLastTab } from "@/lib/books/landing-tab";
+import { readLastWorkspace } from "@/lib/books/landing-workspace";
 import type { BookSummary } from "@/lib/books/service";
 import type { Page } from "@/lib/db/pagination";
 import { isoDate, plural } from "@/lib/format";
@@ -25,18 +25,18 @@ export function BookList({ initialPage, userId }: { initialPage: Page<BookSummar
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   /**
-   * Each book opens on the tab it was last used on (docs/06 Phase 10, decision 60). Resolved after
-   * mount, because `localStorage` is not readable while rendering on the server; until then, and
-   * whenever storage is empty or unreadable, the links point at the book itself.
+   * Each book opens on the workspace it was last used in (docs/06 Phase 10 and 13, decision 60).
+   * Resolved after mount, because `localStorage` is not readable while rendering on the server;
+   * until then, and whenever storage is empty or unreadable, the links point at the book itself.
    */
-  const [lastTab, setLastTab] = useState<Record<string, string>>({});
+  const [lastWorkspace, setLastWorkspace] = useState<Record<string, string>>({});
   useEffect(() => {
     const found: Record<string, string> = {};
     for (const book of books) {
-      const tab = readLastTab(userId, book.id);
-      if (tab !== null && tab !== "") found[book.id] = tab;
+      const workspace = readLastWorkspace(userId, book.id);
+      if (workspace !== null && workspace !== "") found[book.id] = workspace;
     }
-    setLastTab(found);
+    setLastWorkspace(found);
   }, [books, userId]);
 
   const selectedBooks = books.filter((b) => selected.has(b.id));
@@ -135,7 +135,7 @@ export function BookList({ initialPage, userId }: { initialPage: Page<BookSummar
                   />
                   <div className="min-w-0 flex-1">
                     <Link
-                      href={lastTab[book.id] ? `/books/${book.id}/${lastTab[book.id]}` : `/books/${book.id}`}
+                      href={lastWorkspace[book.id] ? `/books/${book.id}/${lastWorkspace[book.id]}` : `/books/${book.id}`}
                       className="block truncate font-medium hover:underline"
                     >
                       {book.name}

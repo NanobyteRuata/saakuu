@@ -246,7 +246,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
 
   if (templates.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+      <div className="m-auto flex max-w-lg flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
         <p className="font-medium">No documents yet</p>
         <p className="text-muted-foreground max-w-md text-sm">
           Documents are the photos of your paper forms, grouped so that each document is one record. Create a template
@@ -260,7 +260,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Documents</h2>
         <div className="flex flex-wrap items-center gap-2">
@@ -360,7 +360,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
       ) : null}
 
       {items.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+        <div className="m-auto flex max-w-lg flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
           {onlyTemplateFilter(filters) && filterTemplate ? (
             <>
               <p className="font-medium">No documents in {filterTemplate.name}</p>
@@ -411,7 +411,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
       ) : (
         <div
           ref={scrollRef}
-          className="max-h-[calc(100vh-22rem)] min-h-64 overflow-auto rounded-lg border"
+          className="min-h-0 flex-1 overflow-auto rounded-lg border"
           role="table"
           aria-label="Documents"
           aria-rowcount={items.length + 1}
@@ -575,6 +575,9 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
         onStarted={() => {
           setSelected(new Set());
           void reloadList();
+          // The workspace nav's counts come from the server layout, so a run that has just started
+          // is invisible to it until the route re-renders (docs/06 Phase 13).
+          router.refresh();
         }}
       />
       <DeleteDocumentsDialog open={deleteOpen} onOpenChange={setDeleteOpen} documentIds={[...selected]} onDeleted={removeItems} />

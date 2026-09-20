@@ -8,9 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { patchJson } from "@/lib/api-client";
 import { labelSchema } from "@/lib/validation";
+import { cn } from "@/lib/utils";
 
-/** Book name in the detail header; click to edit, Enter or blur saves, Escape cancels. */
-export function BookNameEditor({ bookId, name }: { bookId: string; name: string }) {
+/**
+ * Book name in the workspace header; click to edit, Enter or blur saves, Escape cancels.
+ * `className` sets the type size, because the frame's header is one line and every rem of it is a
+ * rem the photo pane does not get (docs/05 §0).
+ */
+export function BookNameEditor({ bookId, name, className }: { bookId: string; name: string; className?: string }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(name);
@@ -58,8 +63,8 @@ export function BookNameEditor({ bookId, name }: { bookId: string; name: string 
 
   if (!editing) {
     return (
-      <div className="flex items-center gap-1">
-        <h1 className="cursor-text text-2xl font-semibold tracking-tight" onClick={start}>
+      <div className="flex min-w-0 items-center gap-1">
+        <h1 className={cn("cursor-text truncate text-2xl font-semibold tracking-tight", className)} onClick={start}>
           {name}
         </h1>
         <Button variant="ghost" size="icon" aria-label="Rename book" onClick={start}>
@@ -73,7 +78,7 @@ export function BookNameEditor({ bookId, name }: { bookId: string; name: string 
     <div className="flex flex-col gap-1">
       <Input
         aria-label="New book name"
-        className="h-10 max-w-md text-xl font-semibold md:text-xl"
+        className={cn("h-8 max-w-md text-xl font-semibold md:text-xl", className)}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}

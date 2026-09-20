@@ -40,6 +40,23 @@ POST /api/auth/reset                { token, password }   signs out every sessio
 - `GET /api/test/outbox?to=` returns the latest in-memory email for E2E tests. It returns 404
   unless `EMAIL_TRANSPORT=test`, and that transport is refused in production.
 
+## Account
+
+**Phase 12 as built.** Settings that belong to the person, not to a book (`/account`).
+```
+PUT    /api/account/ai-key                 { key } -> { hint }     saves this user's own Gemini key
+DELETE /api/account/ai-key                 -> { hint: null }       falls back to the server key
+```
+- The key is encrypted at rest (`lib/crypto`, `ENCRYPTION_KEY`) and **never returned, logged or included
+  in an error**. Both responses carry `hint`, the last four characters, which is all the UI shows.
+- Neither endpoint checks the key against the provider: a model call costs money, so a bad key surfaces
+  on the first run as `KEY_REFUSED`, worded to point back at this page.
+- Rate limit `accountAiKey`, 10/minute per user.
+- `PUT` is refused with `VALIDATION` when the deployment has no `ENCRYPTION_KEY`; the page says so
+  rather than offering a field that cannot work.
+- The page also reads total spend, derived from `ExtractionRun.inputTokens`/`outputTokens` priced per
+  model. There is no quota (decision 55, docs/09 §8).
+
 ## Books
 ```
 GET    /api/books                          list
@@ -360,6 +377,13 @@ GET    /api/runs/:id                run detail incl. rawResponse and record coun
 - Phase 9: `estimate` also returns `providerProblem: string | null`, set when the server has no usable AI provider
   (Gemini without an API key); the dialog shows it and disables Extract, and `start` and `retry` refuse with
   `PROVIDER_ERROR`.
+- **Phase 12:** `providerProblem` is resolved **per user**, not per server — someone with their own key can
+  extract where the deployment has none, and a saved key that will not decrypt is a problem for that user
+  alone. `estimate` also returns `keySource: "user" | "server" | "fake" | null` and `keyHint` (last four
+  characters of the user's own key), so the dialog names whose key a run spends, plus `estOutputTokens` and
+  `estCostUsd`. The dialog states the cost **in money**; tokens mean nothing to an operator. Output tokens are
+  averaged from the book's own completed runs where it has any, and from constants on a first reading — a page
+  of a TABLE register holds however many rows the paper holds. A run always uses the **book owner's** key.
 
 ## Output table
 ```
@@ -386,7 +410,7 @@ PATCH  /api/cells/:id                      { value, state?, editId? } -> CellCha
 POST   /api/cells/:id/revert               -> CellChangeResult
 POST   /api/cells/:id/keep                 "Keep mine": clears disagreement -> CellChangeResult
 POST   /api/cell-edits/:id/undo            -> CellChangeResult; CONFLICT once the cell changed again
-POST   /api/cells/review                   { cellIds? , rowIds?, isReviewed } -> { cells }
+POST   /api/cells/review                   { cellIds? , rowIds?, isReviewed, via? } -> { cells }
 POST   /api/rows/reorder                   { rowId, afterRowId | null } -> { position, affected }
 PATCH  /api/rows/:id                       { isVoid } -> { isVoid, affected }
 POST   /api/rows/revert-impact             { ids[] } -> { impactHash, rows, editedCells, disagreements }
@@ -471,6 +495,14 @@ POST   /api/cells/review                   (Phase 7) marks cells or whole rows; 
   all of them are reviewed; the Documents list shows `reviewed` and filters `?reviewed=true|false` on the same rule.
 - A cell's region is the union of the boxes of the fields its column's working mapping reads (a selection group reads its
   option fields), on the record's page. `paths` are those fields' header paths.
+
+**Phase 12:** `POST /api/cells/review` takes `via: "CELL" | "ROW" | "ILLEGIBLE"`, required when `isReviewed` is true and
+ignored when it is false. It records **how** the cell was reviewed alongside `Cell.reviewedAt`: a per-cell confirm
+(`Enter`), a row-level mark (`⌘Enter`, or the table's row menu), or `I` for unreadable. Without the source a single row
+mark stamps N cells at one instant and every later "seconds per cell" figure is fiction (decision 57). Clearing a mark
+nulls both columns. The `isReviewed: !input.isReviewed` filter already there is also what stops a row mark restamping a
+cell the operator had confirmed on its own. Nothing reads these columns yet — the readouts are deliberately later, the
+collection is not (decision 56).
 
 ## Worker-only internals
 

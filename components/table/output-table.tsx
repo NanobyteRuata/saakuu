@@ -437,7 +437,8 @@ export function OutputTable({ meta: initialMeta, firstPage }: Props) {
     const isReviewed = !cells.every((c) => c.isReviewed);
     const snapshot = rowsRef.current;
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, cells: Object.fromEntries(Object.entries(r.cells).map(([k, c]) => [k, { ...c, isReviewed }])) } : r)));
-    const result = await postJson<{ cells: number }>("/api/cells/review", { rowIds: [row.id], isReviewed });
+    // A row menu marks the whole row at once, which is a ROW review however it was reached (decision 57).
+    const result = await postJson<{ cells: number }>("/api/cells/review", { rowIds: [row.id], isReviewed, via: "ROW" });
     if (!result.ok) {
       setRows(snapshot);
       toast.error(result.error.message);

@@ -1,0 +1,17 @@
+import { z } from "zod";
+
+/** Account input schemas (docs/04 → Account). Client-safe: shared by the form and the handler. */
+
+/**
+ * A Gemini key is a long opaque string; the bounds only catch an empty paste or a pasted paragraph.
+ * Whether the key actually works is answered by the first run, not here — checking it would cost a
+ * real model call.
+ */
+export const saveAiKeySchema = z.object({
+  key: z
+    .string()
+    .trim()
+    .min(20, "That doesn't look like an API key. Paste the whole key.")
+    .max(200, "That's longer than an API key. Paste just the key."),
+});
+export type SaveAiKeyInput = z.infer<typeof saveAiKeySchema>;

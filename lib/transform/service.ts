@@ -225,7 +225,10 @@ async function writeCells(tx: Db, plan: MergePlan): Promise<void> {
     await tx.$executeRaw`
       UPDATE "Cell" AS c SET
         "extractedValue" = v.ev, "currentValue" = v.cv, state = v.st::"ValueState", "extractedState" = v.st::"ValueState", "isReviewed" = v.rv,
-        inherited = v.inh, confidence = v.conf, disagreement = v.dis, "buildIssues" = v.bi, "updatedAt" = now()
+        inherited = v.inh, confidence = v.conf, disagreement = v.dis, "buildIssues" = v.bi, "updatedAt" = now(),
+        -- A rebuild only ever clears isReviewed, never sets it, so a cell that stays reviewed keeps the
+        -- stamp it already had and one that loses the mark loses its timing with it (Phase 12).
+        "reviewedAt" = CASE WHEN v.rv THEN c."reviewedAt" END, "reviewedVia" = CASE WHEN v.rv THEN c."reviewedVia" END
       FROM (VALUES ${Prisma.join(values)}) AS v(id, ev, cv, st, rv, inh, conf, dis, bi)
       WHERE c.id = v.id AND NOT c."isEdited"`;
   }
@@ -240,7 +243,8 @@ async function writeCells(tx: Db, plan: MergePlan): Promise<void> {
     await tx.$executeRaw`
       UPDATE "Cell" AS c SET
         "extractedValue" = v.ev, "extractedState" = v.es::"ValueState", inherited = v.inh, confidence = v.conf, "buildIssues" = v.bi,
-        disagreement = v.dis, "isReviewed" = v.rv, "updatedAt" = now()
+        disagreement = v.dis, "isReviewed" = v.rv, "updatedAt" = now(),
+        "reviewedAt" = CASE WHEN v.rv THEN c."reviewedAt" END, "reviewedVia" = CASE WHEN v.rv THEN c."reviewedVia" END
       FROM (VALUES ${Prisma.join(values)}) AS v(id, ev, es, inh, conf, bi, dis, rv)
       WHERE c.id = v.id AND c."isEdited"`;
   }

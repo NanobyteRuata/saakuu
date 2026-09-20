@@ -163,6 +163,24 @@ per user, and the Extract dialog always names which key a run will use.
   cannot be decrypted.
 - A restored backup carries ciphertext. It is only usable with the `ENCRYPTION_KEY` that was live when
   the dump was taken.
+- `ENCRYPTION_KEY` is 32 bytes, base64 or hex (`openssl rand -base64 32`), validated at boot. It is
+  **optional**: without it the app runs, the account page says personal keys can't be stored, and
+  everyone uses `GEMINI_API_KEY`. A key that cannot be decrypted fails that user's run with "save it
+  again" and never falls back to the server key — that fallback would put their spending back on the
+  owner's bill.
+- A run uses the **book owner's** key however it was started, resolved from `Book.userId` in the worker.
+
+### What the estimate is estimating
+
+The Extract dialog's money figure comes from per-million-token list prices held in `lib/ai/models.ts`
+(`inputPricePerMTok` / `outputPricePerMTok`), each with the date it was checked. **They are constants in
+code, not configuration**: changing a price is a commit. Re-check them against the provider's price
+sheet when the bill stops matching the readout, and update the date.
+
+Output tokens are estimated from the book's **own** completed runs (average output tokens per page),
+falling back to constants until a book has read something. That matters most on TABLE registers, where a
+page holds however many rows the paper holds — a single constant is wrong by multiples in both
+directions, and a money figure that is wrong by multiples is worse than showing tokens.
 
 ### Watch the bill
 
@@ -202,6 +220,11 @@ storage lifecycle covers photo **objects**, not this JSON, so it grew in Postgre
 - **Successful runs lose it after 30 days**, in the daily `storage.cleanup`. Nothing else about the run
   changes: the token counts, timings, `photoIds` and raw values all stay, so cost history and provenance
   are unaffected.
+- As built: `stripOldRawResponses` (`lib/storage/lifecycle.ts`, `RAW_RESPONSE_KEEP_DAYS = 30`) removes
+  the `responses` key alone — `rawResponse - 'responses'` — so `summary` survives and with it the
+  document's run state and the run history, which both read it. `pnpm storage:cleanup --dry-run`
+  counts what the next real run would strip, and `--now=<iso>` moves the cutoff, which is how the
+  predicate is checked before it is trusted. The job reports `strippedResponses` in its result line.
 
 Check what it is costing before changing the window:
 

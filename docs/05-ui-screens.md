@@ -62,17 +62,28 @@ Sections: General (name, default model, numeral system, date era), Output table
 (opens the column editor), Glossary (term/meaning list), Validation rules, Export
 preferences, Danger zone (delete book).
 
-*Planned (Phase 12):* an **AI key** section in the account area (not per book): paste your own
-Gemini key, see its last four characters, remove it. A user without one falls back to the
-server key where the deployment has configured one, and the Extract dialog always says which
-is in use (decision 54). The field explains in one line where a key comes from and that it is
-stored encrypted and never shown again.
+*As built (Phase 12):* the **AI key** lives in the account area, not here — it belongs to the
+person, not to one book. See §5.1.
 
 **Edit output table** opens the column editor in a modal. On save it calls the preview
 endpoint and shows the impact report before applying. Severity drives the styling:
 SAFE applies immediately with a toast; ADDITIVE applies with a notice; DESTRUCTIVE
 requires typing nothing but does require an explicit confirm on a screen that shows
 `38 of the 412 affected cells have been edited by you`.
+
+## 5.1 Account page (Phase 12)
+
+`/account`, reached from the avatar menu. Settings that belong to the person, not to a book.
+
+**AI key.** Paste your own Gemini key, see its last four characters, remove it. One line says where a
+key comes from (a link to Google AI Studio) and that it is stored encrypted and never shown again.
+A user without one falls back to the server key where the deployment has configured one, and the
+Extract dialog always says which is in use (decision 54). When the deployment has no `ENCRYPTION_KEY`
+the section says so plainly instead of offering a field that cannot work.
+
+**Reading so far.** One figure: what every completed reading in this user's books has cost, at the
+models' list prices, with the document and reading counts beside it. It is stated as an estimate, not
+a bill. There is no quota and no cap (decision 55) — what exists is a number the operator can see.
 
 ## 6. Templates tab
 List of template cards. Each card:
@@ -354,8 +365,12 @@ Added in Phase 10:
 were last read. It is phrased as a count rather than a caution — re-reading them is the fix, and
 every edited cell is kept.
 
-*Planned (Phase 12):* the estimate is shown **in money, not tokens** — tokens mean nothing to an
-operator — and the dialog says which key the run will use, the user's own or the server's.
+*As built (Phase 12):* the estimate reads **in money, not tokens** — tokens mean nothing to an
+operator: *"12 documents · 14 pages · 2 requests to the model. About $0.05, about 2 minutes."* A
+second, quieter line says it is estimated at list prices and names the key the run will spend —
+the user's own (with its last four characters) or the server's — because the operator is about to
+pay for it and should know whose account it lands on before they confirm, not after. Below a cent
+it says "less than $0.01" rather than "$0.00", which would read as free.
 
 ## 12. Table tab (output table)
 Virtualised grid. Sticky header, sticky first column optional.

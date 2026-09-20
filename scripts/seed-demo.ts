@@ -414,7 +414,7 @@ async function main(): Promise<void> {
     edits++;
   }
   const firstDocRows = firstRows.filter((r) => r.documentId === registerDocs[0]).map((r) => r.id);
-  if (firstDocRows.length > 0) await setCellsReviewed(user.id, { rowIds: firstDocRows, isReviewed: true });
+  if (firstDocRows.length > 0) await setCellsReviewed(user.id, { rowIds: firstDocRows, isReviewed: true, via: "ROW" });
 
   const rows = await prisma.row.count({ where: { bookId: book.id } });
   log.info("seeded demo book", { bookId: book.id, rows, edits, reviewedRows: firstDocRows.length, email: EMAIL, password: PASSWORD });

@@ -9,6 +9,12 @@ import { z } from "zod";
 /** Unset or empty (docker compose passes `${VAR:-}` as ""), so an optional value stays optional. */
 const optional = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
 
+/** Length check only, so a mistyped key fails at boot rather than on the first save. */
+const encryptionKeyBytes = (raw: string): number => {
+  const trimmed = raw.trim();
+  return Buffer.from(trimmed, /^[0-9a-fA-F]+$/.test(trimmed) ? "hex" : "base64").length;
+};
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.url(),
@@ -59,6 +65,11 @@ const envSchema = z.object({
   // Keep it at least as long as database backups are kept, so a restore never points at missing files.
   PHOTO_DELETE_GRACE_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
 
+  // Phase 12: 32 bytes (base64 or hex) wrapping secrets this server must read back — today only a
+  // user's own Gemini key. Optional, like GEMINI_API_KEY: without it the app still runs and everyone
+  // falls back to the server key. Rotating it invalidates every stored user key (docs/09 §8).
+  ENCRYPTION_KEY: optional(z.string().min(1)),
+
   // resend: real delivery. log: write to the server log. test: in-memory outbox for E2E.
   EMAIL_TRANSPORT: z.enum(["resend", "log", "test"]).default("log"),
   RESEND_API_KEY: optional(z.string().min(1)),
@@ -69,6 +80,9 @@ const envSchema = z.object({
   }
   if (env.EMAIL_TRANSPORT === "test" && env.NODE_ENV === "production") {
     ctx.addIssue({ code: "custom", path: ["EMAIL_TRANSPORT"], message: "test transport is not allowed in production" });
+  }
+  if (env.ENCRYPTION_KEY !== undefined && encryptionKeyBytes(env.ENCRYPTION_KEY) !== 32) {
+    ctx.addIssue({ code: "custom", path: ["ENCRYPTION_KEY"], message: "must decode to 32 bytes (base64 or hex)" });
   }
   if (Boolean(env.AUTH_GOOGLE_ID) !== Boolean(env.AUTH_GOOGLE_SECRET)) {
     ctx.addIssue({ code: "custom", path: ["AUTH_GOOGLE_ID"], message: "set both AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET, or neither" });

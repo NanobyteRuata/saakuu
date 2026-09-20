@@ -25,6 +25,8 @@ env:
   AI_PROVIDER: fake
   AI_FAKE_BEHAVIOUR: ok
   EXTRACTION_RPM: "600"
+  # 32 bytes of base64, so the crypto round-trip runs on CI too.
+  ENCRYPTION_KEY: Y2ktb25seS1lbmNyeXB0aW9uLWtleS0wMTIzNDU2Nzg=
   AUTH_SECRET: ci-only-secret-not-for-production-0123456789
   AUTH_URL: http://localhost:3000
   EMAIL_TRANSPORT: test

@@ -17,12 +17,22 @@ import { deleteObjects, listObjects } from "./s3";
  *   photos whose rows vanished without a tombstone.
  *
  * The one rule every path follows: an object any Photo row references is never deleted.
+ *
+ * Phase 12 adds the one step here that touches Postgres rather than object storage: ageing the model
+ * responses off old successful runs (decision 63). It lives here because it is the same daily job and
+ * the same question — what is being kept for ever that nobody will read.
  */
 
 const DAY_MS = 24 * 3600 * 1000;
 /** Objects younger than this are never swept: an upload or render may be in flight. */
 export const SWEEP_MIN_AGE_MS = DAY_MS;
 const BATCH = 200;
+/**
+ * How long a *successful* run keeps the model's full response (decision 63). Failed runs keep theirs
+ * for ever — a failure is when the response is actually wanted. Check what it costs before changing
+ * this; the query is in docs/09 §8.
+ */
+export const RAW_RESPONSE_KEEP_DAYS = 30;
 
 export function graceMs(): number {
   return getEnv().PHOTO_DELETE_GRACE_DAYS * DAY_MS;
@@ -130,7 +140,14 @@ async function loadRefs(db: Db, keys: string[]): Promise<ObjectRefs> {
 // ---------- jobs ----------
 
 export type CleanupOptions = { dryRun?: boolean; now?: Date };
-export type CleanupResult = { purgedPhotos: number; dueDeletions: number; deletedObjects: number; sweptObjects: number; scanned: number };
+export type CleanupResult = {
+  purgedPhotos: number;
+  dueDeletions: number;
+  deletedObjects: number;
+  sweptObjects: number;
+  scanned: number;
+  strippedResponses: number;
+};
 
 /**
  * Tombstones and removes photos deleted longer ago than the grace period: those of a deleted document
@@ -221,17 +238,54 @@ export async function sweepOrphans({ dryRun = false, now = new Date() }: Cleanup
   return { scanned, deleted };
 }
 
-/** The daily `storage.cleanup` job: purge → due deletions → sweep. */
+/**
+ * Drops the stored model responses from successful runs older than `RAW_RESPONSE_KEEP_DAYS`
+ * (decision 63). `rawResponse - 'responses'` removes exactly one key: the run's `summary` stays, and
+ * with it everything that reads it — `parseRunSummary`, the document's run state and the run history.
+ * Token counts, timings, `photoIds` and every raw value are untouched, so cost history and provenance
+ * are unaffected. `state = 'COMPLETE'` is what keeps failed runs' responses for ever.
+ *
+ * The `jsonb_typeof = 'object'` guard is not decoration: `jsonb_exists` also matches a bare string and
+ * an array element, and `- 'responses'` on a scalar raises "cannot delete from scalar", which would
+ * fail the whole nightly job on one malformed row.
+ */
+export async function stripOldRawResponses({ dryRun = false, now = new Date() }: CleanupOptions = {}): Promise<number> {
+  const cutoff = new Date(now.getTime() - RAW_RESPONSE_KEEP_DAYS * DAY_MS);
+  if (dryRun) {
+    const [row] = await prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM "ExtractionRun"
+      WHERE state = 'COMPLETE' AND "finishedAt" < ${cutoff}
+        AND jsonb_typeof("rawResponse") = 'object' AND jsonb_exists("rawResponse", 'responses')`;
+    return row?.count ?? 0;
+  }
+  let stripped = 0;
+  for (;;) {
+    const affected = await prisma.$executeRaw`
+      UPDATE "ExtractionRun" SET "rawResponse" = "rawResponse" - 'responses'
+      WHERE id IN (
+        SELECT id FROM "ExtractionRun"
+        WHERE state = 'COMPLETE' AND "finishedAt" < ${cutoff}
+        AND jsonb_typeof("rawResponse") = 'object' AND jsonb_exists("rawResponse", 'responses')
+        ORDER BY id
+        LIMIT ${BATCH})`;
+    if (affected === 0) return stripped;
+    stripped += affected;
+  }
+}
+
+/** The daily `storage.cleanup` job: purge → due deletions → sweep → age old model responses. */
 export async function runStorageCleanup(options: CleanupOptions = {}): Promise<CleanupResult> {
   const purgedPhotos = await purgeDeletedPhotos(options);
   const due = await runDueDeletions(options);
   const sweep = await sweepOrphans(options);
+  const strippedResponses = await stripOldRawResponses(options);
   const result = {
     purgedPhotos,
     dueDeletions: due.tombstones,
     deletedObjects: due.objects,
     sweptObjects: sweep.deleted,
     scanned: sweep.scanned,
+    strippedResponses,
   };
   log.info(options.dryRun ? "storage cleanup dry run" : "storage cleanup finished", result);
   return result;

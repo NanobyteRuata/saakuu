@@ -16,10 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AI_MODELS, type AIModelId } from "@/lib/ai/models";
+import { AI_MODELS, formatMoney, type AIModelId } from "@/lib/ai/models";
 import { postJson } from "@/lib/api-client";
 import type { ExtractionEstimate, StartResult } from "@/lib/extraction/service";
-import { formatCount, plural } from "@/lib/format";
+import { plural } from "@/lib/format";
 
 export type ExtractTarget = { documentIds: string[] } | { templateId: string };
 
@@ -33,6 +33,21 @@ type Props = {
 
 function newNonce(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}-nonce`;
+}
+
+/**
+ * Which key this run spends (Phase 12, decision 54). The operator is about to pay for it, so the
+ * dialog says whose account it lands on before they confirm, not after.
+ */
+function keyLine(estimate: ExtractionEstimate): string | null {
+  switch (estimate.keySource) {
+    case "user":
+      return `Uses your own AI key${estimate.keyHint ? ` (····${estimate.keyHint})` : ""}.`;
+    case "server":
+      return "Uses this server's AI key.";
+    default:
+      return null;
+  }
 }
 
 function aboutTime(seconds: number): string {
@@ -137,10 +152,16 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
         {loading ? <p className="text-muted-foreground text-sm">Counting pages…</p> : null}
         {estimate ? (
           <div className="flex flex-col gap-3 text-sm">
-            <p>
-              {plural(estimate.extractable, "document")} · {plural(estimate.pages, "page")} · {plural(estimate.requests, "request")} to the
-              model. Roughly {formatCount(Math.round(estimate.estInputTokens / 100) * 100)} input tokens, {aboutTime(estimate.estSeconds)}.
-            </p>
+            <div className="flex flex-col gap-1">
+              <p>
+                {plural(estimate.extractable, "document")} · {plural(estimate.pages, "page")} · {plural(estimate.requests, "request")} to the
+                model. About {formatMoney(estimate.estCostUsd)}, {aboutTime(estimate.estSeconds)}.
+              </p>
+              <p className="text-muted-foreground text-xs">
+                Estimated at the model&apos;s list prices; what it actually costs depends on the pages.{" "}
+                {keyLine(estimate)}
+              </p>
+            </div>
             {estimate.firstExtraction ? (
               <p className="text-muted-foreground bg-muted/50 rounded-md border p-3">
                 On handwriting like this, expect to correct roughly half the cells. Correcting is still much faster than typing.

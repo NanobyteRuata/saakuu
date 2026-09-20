@@ -16,6 +16,7 @@ import { formatCount, plural } from "@/lib/format";
 import type { PhotoView } from "@/lib/photos/views";
 import { firstUnreviewedColumn, nextUnreviewedRow, progressOf, reviewOrder } from "@/lib/review/progress";
 import type { ReviewProgress, ReviewQueuePage, RowSources } from "@/lib/review/types";
+import type { ReviewSource } from "@/lib/table/schemas";
 import type { CellChangeResult, TableCell, TableMeta, TableRow } from "@/lib/table/types";
 import { withCell, withValidation } from "@/lib/table/view";
 import type { WirePage } from "@/lib/table/wire";
@@ -271,14 +272,15 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
     [onCell, applyResult, setRows],
   );
 
+  /** `via` records how it was confirmed: on its own, or as the tail of marking it unreadable (decision 57). */
   const accept = useCallback(
-    (rowId: string, cellId: string) => {
+    (rowId: string, cellId: string, via: ReviewSource = "CELL") => {
       const current = findCell(rowId, cellId);
       if (!current || current.isReviewed) return;
       const ids = new Set([cellId]);
       setRows((prev) => markReviewed(prev, rowId, ids, true));
       void onCell(cellId, async () => {
-        const result = await postJson<{ cells: number }>("/api/cells/review", { cellIds: [cellId], isReviewed: true });
+        const result = await postJson<{ cells: number }>("/api/cells/review", { cellIds: [cellId], isReviewed: true, via });
         // A value save that landed first carried the old mark; put the new one back either way it went.
         setRows((prev) => markReviewed(prev, rowId, ids, result.ok));
         if (!result.ok) toast.error(result.error.message);
@@ -334,7 +336,7 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
         const cellIds = rowsRef.current.filter((r) => marked.has(r.id)).flatMap((r) => Object.values(r.cells).map((c) => c.id));
         // After any value still being saved to those cells.
         await Promise.all(cellIds.map((id) => chains.current.get(id)));
-        const result = await postJson<{ cells: number }>("/api/cells/review", { rowIds: ids, isReviewed: true });
+        const result = await postJson<{ cells: number }>("/api/cells/review", { rowIds: ids, isReviewed: true, via: "ROW" });
         setRows((prev) => prev.map((r) => (marked.has(r.id) ? (markReviewed([r], r.id, null, result.ok)[0] ?? r) : r)));
         if (!result.ok) toast.error(result.error.message);
       }
@@ -495,7 +497,7 @@ export function RowReview({ meta: initialMeta, firstPage, bookName, startRowId, 
         pushUndo(result.data.editId, rowId);
       });
     }
-    accept(rowId, c.id);
+    accept(rowId, c.id, "ILLEGIBLE");
     setAnnouncement("Marked unreadable.");
   };
 

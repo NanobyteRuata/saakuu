@@ -347,7 +347,13 @@ export async function setCellsReviewed(userId: string, input: ReviewCellsInput):
   if (input.cellIds?.length) or.push({ id: { in: input.cellIds } });
   if (input.rowIds?.length) or.push({ rowId: { in: input.rowIds } });
   const where = { OR: or, column: { deletedAt: null }, row: liveRow(uid) } satisfies Prisma.CellWhereInput;
-  const { count } = await prisma.cell.updateMany({ where: { ...where, isReviewed: !input.isReviewed }, data: { isReviewed: input.isReviewed } });
+  // Phase 12: when and how (decision 57). The `isReviewed: !input.isReviewed` filter is also what
+  // keeps a row-level mark from restamping a cell the operator had already confirmed on its own —
+  // which is exactly the distinction that makes recording the source worth anything.
+  const data = input.isReviewed
+    ? { isReviewed: true, reviewedAt: new Date(), reviewedVia: input.via }
+    : { isReviewed: false, reviewedAt: null, reviewedVia: null };
+  const { count } = await prisma.cell.updateMany({ where: { ...where, isReviewed: !input.isReviewed }, data });
   return { cells: count };
 }
 

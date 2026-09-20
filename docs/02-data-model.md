@@ -734,6 +734,24 @@ re-extract → the Phase 6 rule keeps every edited cell. No new merge logic.
 - Nothing reads these yet. They exist because review data not collected at launch cannot be recovered,
   while the readout that uses it can be built at any time (decision 56).
 
+**As built**, two rules that the list above left open:
+
+- **A stored key that will not decrypt resolves to "no key", never to the server key.** A rotated or
+  corrupted `ENCRYPTION_KEY` makes every stored key unreadable; falling back would quietly move that
+  user's spending back onto the owner's bill, which is the exposure bringing your own key exists to
+  close. The run fails with "save it again" and points at the account page.
+- **A run uses the book owner's key, whoever started it.** The worker's job carries only a
+  `documentId`, and `ExtractionRun` has no user column; the key is resolved from `Book.userId` once per
+  claim round. v1 books have exactly one owner (`lib/auth/guards.ts`), so this is the only reading —
+  team sharing (post-v1 item 9) is what would make the question interesting.
+- **Clearing a review mark clears its timing.** A rebuild that changes a cell's reading drops
+  `isReviewed`, and the two bulk updates in `lib/transform/service.ts` null `reviewedAt`/`reviewedVia`
+  with it. A rebuild never sets `isReviewed`, so a cell that stays reviewed keeps the stamp it had.
+- **`ExtractionRun.rawResponse` is aged, not kept** (decision 63): the daily `storage.cleanup` removes
+  the `responses` key from successful runs older than 30 days and keeps `summary`, so the document's
+  run state, the run history, token counts, `photoIds` and every raw value are unaffected. Failed runs
+  keep theirs for ever.
+
 ## Indexing notes
 
 - The output table query is `Row where bookId, order by position` with cells joined.

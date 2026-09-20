@@ -24,6 +24,8 @@ x-app-env: &app-env
   TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
   PHOTO_DELETE_GRACE_DAYS: ${PHOTO_DELETE_GRACE_DAYS:-30}
   PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  # Wraps stored user API keys (Phase 12). Unset means per-user keys are unavailable, not that they leak.
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
   # Auth and email come from the host shell or a root .env; the dev secret is a fallback only.
   AUTH_SECRET: ${AUTH_SECRET:-dev-only-insecure-secret-change-me-0123456789}
   AUTH_URL: ${AUTH_URL:-http://localhost:3000}

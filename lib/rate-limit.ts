@@ -23,6 +23,8 @@ export const RATE_LIMITS = {
   // Per email alone: a looser backstop against guessing one account's password from many addresses.
   signInFailEmail: { max: 50, windowMs: 15 * MINUTE },
   signInFailIp: { max: 100, windowMs: 15 * MINUTE },
+  // Saving or removing a personal API key: a handful of attempts is normal, a hundred is not.
+  accountAiKey: { max: 10, windowMs: MINUTE },
   extractionStart: { max: 20, windowMs: MINUTE },
   extractionEstimate: { max: 120, windowMs: MINUTE },
 } as const;

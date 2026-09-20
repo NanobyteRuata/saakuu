@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -43,6 +44,13 @@ export function UserMenu({ email, name, image }: { email: string; name: string |
             {name ? <span className="truncate">{name}</span> : null}
             <span className="text-muted-foreground truncate text-xs font-normal">{email}</span>
           </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/account">
+              <KeyRound />
+              Account and AI key
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setSignOutOpen(true)}>
             <LogOut />

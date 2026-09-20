@@ -13,17 +13,21 @@ datasource db {
 // ---------- Auth (Auth.js compatible) ----------
 
 model User {
-  id            String     @id @default(cuid(2))
-  email         String     @unique
-  emailVerified DateTime?  @db.Timestamptz(3)
-  name          String?
-  image         String?
-  passwordHash  String? // null for OAuth-only users
-  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
-  accounts      Account[]
-  sessions      Session[]
-  books         Book[]
-  cellEdits     CellEdit[]
+  id             String     @id @default(cuid(2))
+  email          String     @unique
+  emailVerified  DateTime?  @db.Timestamptz(3)
+  name           String?
+  image          String?
+  passwordHash   String? // null for OAuth-only users
+  // Phase 12: this user's own Gemini key, encrypted at rest by lib/crypto. Never logged, never
+  // returned to the client; `aiApiKeyHint` is the last four characters, which is all the UI shows.
+  aiApiKeyCipher String?
+  aiApiKeyHint   String?
+  createdAt      DateTime   @default(now()) @db.Timestamptz(3)
+  accounts       Account[]
+  sessions       Session[]
+  books          Book[]
+  cellEdits      CellEdit[]
 }
 
 model Account {
@@ -401,26 +405,26 @@ model Document {
 }
 
 model Photo {
-  id           String      @id @default(cuid(2))
-  documentId   String
-  pageIndex    Int
-  originalKey  String // immutable object storage key
-  workingKey   String? // max 2048px derived copy sent to the model
-  thumbKey     String?
-  mimeType     String
-  width        Int
-  height       Int
-  byteSize     Int
-  transform    Json? // { crop:{x,y,w,h}, rotate:number, deskew:number }
-  status       PhotoStatus @default(DRAFT)
-  errorMessage String?
+  id              String      @id @default(cuid(2))
+  documentId      String
+  pageIndex       Int
+  originalKey     String // immutable object storage key
+  workingKey      String? // max 2048px derived copy sent to the model
+  thumbKey        String?
+  mimeType        String
+  width           Int
+  height          Int
+  byteSize        Int
+  transform       Json? // { crop:{x,y,w,h}, rotate:number, deskew:number }
+  status          PhotoStatus @default(DRAFT)
+  errorMessage    String?
   // Phase 11: a re-shot page replaces its predecessor, which is soft-deleted rather than removed so
   // provenance from existing rows keeps resolving to an image until the document is read again.
-  transformedAt   DateTime? @db.Timestamptz(3) // null means untouched since upload
-  replacedAt      DateTime? @db.Timestamptz(3) // superseded by a re-shot page
-  deletedAt       DateTime? @db.Timestamptz(3) // soft delete; files age out through the normal tombstone path
+  transformedAt   DateTime?   @db.Timestamptz(3) // null means untouched since upload
+  replacedAt      DateTime?   @db.Timestamptz(3) // superseded by a re-shot page
+  deletedAt       DateTime?   @db.Timestamptz(3) // soft delete; files age out through the normal tombstone path
   replacesPhotoId String? // the page this one was shot to replace; re-extraction supersedes its records
-  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime    @default(now()) @db.Timestamptz(3)
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -588,6 +592,8 @@ model Cell {
   disagreement    Boolean         @default(false) // re-extraction differs from an edit
   validationState ValidationState @default(NONE)
   validationMsgs  String[]        @default([])
+  reviewedAt      DateTime?       @db.Timestamptz(3) // Phase 12: when isReviewed became true
+  reviewedVia     ReviewSource? // Phase 12: how it was reviewed
   updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
 
   row    Row          @relation(fields: [rowId], references: [id], onDelete: Cascade)
@@ -597,6 +603,14 @@ model Cell {
   @@unique([rowId, outputColumnId])
   @@index([outputColumnId, validationState])
   @@index([rowId])
+}
+
+// Phase 12: how a cell came to be reviewed. Without this, one row-level mark stamps every cell in
+// the row at the same instant and no timing figure derived from reviewedAt means anything (decision 57).
+enum ReviewSource {
+  CELL
+  ROW
+  ILLEGIBLE
 }
 
 enum CellEditKind {

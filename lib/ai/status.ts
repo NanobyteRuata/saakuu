@@ -1,16 +1,17 @@
-import { getEnv } from "@/lib/env";
+import { resolveAiKey, type AiKeySource } from "./keys";
 
 /** Kept apart from `lib/ai/index.ts` so request handlers can ask without loading a provider SDK. */
-export type ProviderStatus = { ready: true } | { ready: false; message: string };
+export type ProviderStatus =
+  /** `hint` is the last four characters of the user's own key, for the dialog to name which key runs. */
+  | { ready: true; keySource: AiKeySource; hint: string | null }
+  | { ready: false; message: string };
 
-/** Whether extraction can work on this server at all, so the UI can say so before anything is queued. */
-export function providerStatus(): ProviderStatus {
-  const env = getEnv();
-  if (env.AI_PROVIDER === "gemini" && !env.GEMINI_API_KEY) {
-    return {
-      ready: false,
-      message: "AI reading isn't set up on this server yet, so nothing can be extracted. Ask whoever runs SaaKuu to add a Gemini API key.",
-    };
-  }
-  return { ready: true };
+/**
+ * Whether extraction can work for this user, so the UI can say so before anything is queued. Per-user
+ * since Phase 12: a user with their own key can extract on a server that has none of its own.
+ */
+export async function providerStatus(userId: string): Promise<ProviderStatus> {
+  const resolved = await resolveAiKey(userId);
+  if (resolved.source === "none") return { ready: false, message: resolved.message };
+  return { ready: true, keySource: resolved.source, hint: resolved.source === "user" ? resolved.hint : null };
 }

@@ -26,8 +26,32 @@ export const editCellSchema = z.object({
 });
 export type EditCellInput = z.infer<typeof editCellSchema>;
 
+/**
+ * How a cell came to be reviewed (Phase 12, decision 57). A row-level mark stamps every cell of the
+ * row at one instant; averaged together with per-cell confirms, any later "seconds per cell" figure
+ * is fiction. Deciding it at collection time is free; discovering it later is not.
+ */
+export const REVIEW_SOURCES = ["CELL", "ROW", "ILLEGIBLE"] as const;
+export type ReviewSource = (typeof REVIEW_SOURCES)[number];
+
+const reviewTargetSchema = z.object({
+  cellIds: z.array(idSchema).max(5000).optional(),
+  rowIds: z.array(idSchema).max(500).optional(),
+});
+
+/**
+ * A union rather than an optional `via`, so the *compiler* enforces what the schema enforces: marking
+ * cells reviewed without saying how is unrepresentable. With `via` merely optional, an internal caller
+ * (the seed script, a future job) could pass `{ isReviewed: true }`, Prisma would skip the undefined
+ * field, and the cell would get a fresh `reviewedAt` beside a stale `reviewedVia` — silently wrong
+ * timing data in the one phase that exists to collect it.
+ */
 export const reviewCellsSchema = z
-  .object({ cellIds: z.array(idSchema).max(5000).optional(), rowIds: z.array(idSchema).max(500).optional(), isReviewed: z.boolean() })
+  .discriminatedUnion("isReviewed", [
+    reviewTargetSchema.extend({ isReviewed: z.literal(true), via: z.enum(REVIEW_SOURCES) }),
+    /** Clearing a mark has no source to record: both columns go back to null. */
+    reviewTargetSchema.extend({ isReviewed: z.literal(false) }),
+  ])
   .refine((v) => (v.cellIds?.length ?? 0) + (v.rowIds?.length ?? 0) > 0, "Choose cells or rows.");
 export type ReviewCellsInput = z.infer<typeof reviewCellsSchema>;
 

@@ -2,6 +2,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 
 import { getProvider } from "@/lib/ai";
+import { keyMaterial, resolveAiKey } from "@/lib/ai/keys";
 import { modelIdSchema } from "@/lib/ai/models";
 import { ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog } from "@/lib/ai/provider";
 import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
@@ -261,7 +262,9 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
     select: {
       bookId: true,
       template: { select: { id: true, kind: true, languageHint: true, instructions: true, anchors: true, sequenceFieldId: true } },
-      book: { select: { numeralSystem: true, dateEra: true } },
+      // Phase 12: `userId` is whose key pays for this run. A book has one owner, so the run bills them
+      // however it was started (`lib/auth/guards.ts` already refuses anyone else).
+      book: { select: { numeralSystem: true, dateEra: true, userId: true } },
     },
   });
   if (!doc) {
@@ -290,7 +293,20 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
   ]);
   const snapshot = buildTemplateSnapshot(doc.template, groups, fieldRows.map(toFieldView));
   const sequenceFieldId = snapshot.fields.find((f) => f.isSequence)?.id ?? null;
-  const provider = getProvider();
+
+  // Resolved once per claim round, not per run: the owner's own key when they have saved one,
+  // otherwise the server's (decision 54). A saved key that won't decrypt fails the runs rather than
+  // quietly falling back — the point of BYO is that it is the user's own bill.
+  const { userId: bookOwnerId, ...bookSettings } = doc.book;
+  const aiKey = await resolveAiKey(bookOwnerId);
+  if (aiKey.source === "none") {
+    for (const run of claimed) await failRun(run, aiKey.message);
+    await prisma.$transaction((tx) => recomputeDocumentRun(tx, documentId));
+    // "idle", not "done": the runs are already FAILED, so another claim round would only re-read the
+    // key and find nothing to claim.
+    return { status: "idle", completed: 0, failed: claimed.length };
+  }
+  const provider = getProvider(keyMaterial(aiKey));
 
   let completed = 0;
   let failed = 0;
@@ -311,7 +327,7 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
         images,
         template: snapshot,
         glossary: sortByPosition(glossary).map((g) => ({ term: g.term, meaning: g.meaning })),
-        book: doc.book,
+        book: bookSettings,
         model: model.data,
       });
       if (await writeRun(documentId, run, images, result, sequenceFieldId)) completed++;
@@ -325,7 +341,7 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
           requeue.push(run);
         } else {
           if (err.kind !== "INVALID_RESPONSE") log.warn("extraction provider error", { documentId, runId: run.id, kind: err.kind, error: err.message });
-          await failRun(run, providerErrorMessage(err), { usage: err.usage, responses: err.rawResponse?.responses });
+          await failRun(run, providerErrorMessage(err, aiKey.source), { usage: err.usage, responses: err.rawResponse?.responses });
           failed++;
         }
       } else if (!opts.isLastAttempt) {

@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 
-import { AI_MODELS, DEFAULT_MODEL_ID, modelIdSchema, type AIModelId } from "@/lib/ai/models";
+import { AI_MODELS, DEFAULT_MODEL_ID, estimateCostUsd, modelIdSchema, type AIModelId } from "@/lib/ai/models";
 import { PROMPT_VERSION } from "@/lib/ai/prompts";
+import type { AiKeySource } from "@/lib/ai/keys";
 import { providerStatus } from "@/lib/ai/status";
 import { requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
@@ -36,6 +37,11 @@ import { MAX_TEMPLATE_EXTRACT_DOCUMENTS, MISMATCH_THRESHOLD, type EstimateInput,
 
 const PROMPT_BASE_TOKENS = 2500;
 const PROMPT_TOKENS_PER_FIELD = 120;
+// Phase 12: what the model writes back, for the money estimate. Used only until the book has read
+// something of its own — a page of a TABLE register holds however many rows the paper holds, so a
+// constant is off by multiples and the book's own history is worth far more than a better guess.
+const OUTPUT_BASE_TOKENS = 200;
+const OUTPUT_TOKENS_PER_FIELD = 40;
 const ACTIVE = ACTIVE_RUN_STATES;
 
 // ---------- targets ----------
@@ -117,17 +123,39 @@ function suggestedModel(targets: Target[]): AIModelId {
 
 // ---------- estimate ----------
 
+/**
+ * Output tokens per page, averaged over what this book has actually cost. Returns null until the book
+ * has a completed run, and ignores runs that recorded nothing. Only completed runs count: a failed run
+ * may have produced no output at all.
+ */
+async function measuredOutputTokensPerPage(bookId: string): Promise<number | null> {
+  const [row] = await prisma.$queryRaw<{ perPage: number | null }[]>`
+    SELECT sum(r."outputTokens")::float8 / nullif(sum(cardinality(r."photoIds")), 0) AS "perPage"
+    FROM "ExtractionRun" r
+    JOIN "Document" d ON d.id = r."documentId"
+    WHERE d."bookId" = ${bookId} AND r.state = 'COMPLETE' AND r."outputTokens" IS NOT NULL`;
+  const perPage = row?.perPage ?? null;
+  return perPage !== null && Number.isFinite(perPage) && perPage > 0 ? perPage : null;
+}
+
 export type ExtractionBlocker = { documentId: string; label: string | null; reason: string };
 
 export type ExtractionEstimate = {
-  /** Why nothing can be extracted on this server (no API key), or null. */
+  /** Why nothing can be extracted for this user (no usable API key), or null. */
   providerProblem: string | null;
+  /** Which key the run would use, so the dialog can say so before anyone spends money (decision 54). */
+  keySource: AiKeySource | null;
+  /** Last four characters of the user's own key, when that is the one in use. */
+  keyHint: string | null;
   documentIds: string[];
   documents: number;
   extractable: number;
   pages: number;
   requests: number;
   estInputTokens: number;
+  estOutputTokens: number;
+  /** What the run is expected to cost, in USD at list prices (Phase 12). */
+  estCostUsd: number;
   estSeconds: number;
   model: AIModelId;
   suggestedModel: AIModelId;
@@ -150,6 +178,7 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   let pages = 0;
   let requests = 0;
   let tokens = 0;
+  let guessedOutputTokens = 0;
   const ready: Target[] = [];
   for (const t of targets) {
     const reason = blockerFor(t);
@@ -162,6 +191,7 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
     requests += chunks.length;
     pages += t.photos.length;
     tokens += chunks.length * (PROMPT_BASE_TOKENS + PROMPT_TOKENS_PER_FIELD * t.extractFieldCount);
+    guessedOutputTokens += t.photos.length * (OUTPUT_BASE_TOKENS + OUTPUT_TOKENS_PER_FIELD * t.extractFieldCount);
     for (const p of t.photos) {
       const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
       const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
@@ -216,15 +246,24 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   const bookId = targets[0]?.book.id ?? (await prisma.document.findFirst({ where: { id: { in: documentIds } }, select: { bookId: true } }))?.bookId ?? null;
   const previousRun = bookId === null ? null : await prisma.extractionRun.findFirst({ where: { state: "COMPLETE", document: { bookId } }, select: { id: true } });
 
-  const provider = providerStatus();
+  // Priced from what this book's own runs actually produced where there are any (decision: the money
+  // figure is only worth showing if it is close), and from the constants above on a first reading.
+  const perPage = bookId === null ? null : await measuredOutputTokensPerPage(bookId);
+  const estOutputTokens = Math.round(perPage === null ? guessedOutputTokens : perPage * pages);
+
+  const provider = await providerStatus(userId);
   return {
     providerProblem: provider.ready ? null : provider.message,
+    keySource: provider.ready ? provider.keySource : null,
+    keyHint: provider.ready ? provider.hint : null,
     documentIds,
     documents: targets.length,
     extractable: ready.length,
     pages,
     requests,
     estInputTokens: tokens,
+    estOutputTokens,
+    estCostUsd: estimateCostUsd({ model, inputTokens: tokens, outputTokens: estOutputTokens }),
     estSeconds: pages * modelInfo.secondsPerPage,
     model,
     suggestedModel: suggested,
@@ -349,7 +388,7 @@ function collect(result: StartResult, target: { id: string; label: string | null
  * idempotent: submitting it twice (a double click, a network retry) creates nothing the second time.
  */
 export async function startExtraction(userId: string, input: StartInput): Promise<StartResult> {
-  const provider = providerStatus();
+  const provider = await providerStatus(userId);
   if (!provider.ready) throw new AppError("PROVIDER_ERROR", provider.message);
   const documentIds = await resolveDocumentIds(userId, input);
   const result: StartResult = { queued: 0, alreadyStarted: 0, skipped: [] };
@@ -397,7 +436,7 @@ export async function startExtraction(userId: string, input: StartInput): Promis
  * pages for `photoIds`. The key is derived from the failed runs, so retrying twice creates one run.
  */
 export async function retryExtraction(userId: string, input: RetryInput): Promise<StartResult> {
-  const provider = providerStatus();
+  const provider = await providerStatus(userId);
   if (!provider.ready) throw new AppError("PROVIDER_ERROR", provider.message);
   const uid = requireUserId(userId);
   let requested: Map<string, Set<string> | null>;

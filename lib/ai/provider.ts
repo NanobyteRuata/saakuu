@@ -129,17 +129,27 @@ export class ProviderError extends Error {
   }
 }
 
-/** Plain-language message stored on a failed run and shown next to its pages. */
-export function providerErrorMessage(err: ProviderError): string {
+/**
+ * Plain-language message stored on a failed run and shown next to its pages. `keySource` decides who
+ * is being asked to fix a key problem (Phase 12): the user who brought their own, or whoever runs the
+ * server. Telling a user to "check the server's key" when it is their own key that was refused sends
+ * them to someone who cannot help.
+ */
+export function providerErrorMessage(err: ProviderError, keySource: "user" | "server" | "fake" = "server"): string {
+  const ownKey = keySource === "user";
   switch (err.kind) {
     case "RATE_LIMITED":
       return "The AI service is limiting how fast pages can be sent. Retry these pages in a few minutes.";
     case "UNAVAILABLE":
       return "The AI service didn't respond. Retry these pages.";
     case "NOT_CONFIGURED":
+      // Only reachable for the server key: a `user` source carries a decrypted, non-empty key by
+      // construction, and one that would not decrypt never reaches the provider at all.
       return "The AI service isn't set up on this server: the worker has no API key. Add it and restart the worker.";
     case "KEY_REFUSED":
-      return "The AI service refused this server's API key. Check the key and its access to this model.";
+      return ownKey
+        ? "The AI service refused your own API key. Check it on your account page, including whether it can use this model."
+        : "The AI service refused this server's API key. Check the key and its access to this model.";
     case "BAD_REQUEST":
       return `The AI service refused these pages. ${err.message}`;
     case "INVALID_RESPONSE":

@@ -330,6 +330,23 @@ POST   /api/documents/:id/reorder-photos   { photoIds[] }   must list exactly th
 - Move also clears `manualValues`, `lastRunAt`, `lastModel`, `templateMatchScore`, `needsReview`, and
   keeps run history.
 
+**Phase 18 as built** (supersedes the list filters above):
+```
+GET    /api/books/:id/documents            ?templateId&status&uploadedOn&sort&tz&q&cursor&limit
+GET    /api/books/:id/documents/upload-days ?tz -> [{ day: "YYYY-MM-DD", count }] newest first, at most 366
+```
+- `status` is one of `not-read`, `waiting`, `reading`, `read`, `partly-read`, `failed` (the six run states),
+  `flagged` / `not-flagged` (the stored `needsReview`), `reviewed` / `not-reviewed` (every counted cell reviewed),
+  `edited` / `not-edited`, `changed` / `up-to-date` (decision 58's staleness). One status at a time; each is
+  exactly one of the predicates the old `runState`, `needsReview`, `hasEdits`, `reviewed` and `needsReextraction`
+  params expressed, and those params are gone from the API. The Documents **page** still reads them from an old
+  URL (`lib/documents/status.ts` → `legacyStatus`), so a bookmark lands on the status it meant.
+- `uploadedOn` is a day in `tz`, an IANA zone name; an unknown zone becomes `UTC` rather than an error. The
+  server page reads `tz` from the `saakuu.tz` cookie, which the Documents view keeps in step with the browser.
+- `sort` is `book` (default; `position`), `newest` or `oldest` (`createdAt`, then id). The opaque cursor carries
+  its sort, and a cursor from another sort is refused with `VALIDATION` rather than read as this one's.
+- Upload days count the same documents the unfiltered list shows, specimens included.
+
 ### Upload
 ```
 POST   /api/uploads/batch                  { templateId } -> { batchId }   one implicit batch per upload session
@@ -430,6 +447,15 @@ GET    /api/runs/:id                run detail incl. rawResponse and record coun
   resets its attempts.
 - Moving documents that are extracting is refused with `CONFLICT`.
 - `cancel` is not built (not in the Phase 5 scope).
+- **Phase 18:** `GET /api/books/:id/runs?cursor&limit&documentId` feeds the run drawer on Documents (decision
+  75). It lists documents that are being read, or have failed or partly-read pages, or were read in the last
+  24 hours: being read first, then failed, then finished, newest run first within each. Each item is
+  `{ documentId, label, templateName, runState, lastRunAt, pages[] }`, one page per live photo with
+  `{ photoId, page, state: NOT_READ | QUEUED | RUNNING | COMPLETE | FAILED, error, retryable }`. A page's state
+  is its current run's, worked out by `currentRunByPage` the way the document drawer does it, and `retryable`
+  is the shared `isRetryable` rule, so the two drawers cannot disagree. `summary: { active, failed }` counts
+  documents across the whole book. `documentId` returns just that document, for a row that opens the drawer
+  on itself. Retry is the existing `POST /api/extractions/retry`.
 - Phase 9: `estimate` also returns `providerProblem: string | null`, set when the server has no usable AI provider
   (Gemini without an API key); the dialog shows it and disables Extract, and `start` and `retry` refuse with
   `PROVIDER_ERROR`.

@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–17 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–18 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 18.
+Phase 19.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–17
+## Shipped — Phases 0–18
 
 | Phase | What shipped |
 |---|---|
@@ -39,10 +39,11 @@ previous one's criteria pass.
 | **15** | The paper on screen: `Document.isSpecimen`, the template workspace paned with the photo beside the tree, autosave instead of save-and-discard, one photo intake in four modes, `Try one document` moved to the front as `Read this page`. |
 | **16** | The AI proposes the template: `Propose fields` reads a specimen into a flat field list, priced in money with the key named first, confirmed with per-field toggles and a count; `FieldProposal` records `template-v1`. |
 | **17** | The second book: `Duplicate` copies a template into another book (source layer, never mappings), `New book from this one` copies a book's whole setup and none of its work, and the books list shows review progress with its own `Resume review`. |
+| **18** | Documents, and what the machine is doing: a run drawer per document and per page with the failure reason and retry, one Status select in place of the run-state select and four tri-states, upload date as a column, filter and sort, and the phone's upload screen in full. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 17's are
-below; their reasoning is decisions 66–74 and 76–77.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 18's are
+below; their reasoning is decisions 66–77.
 
 ---
 
@@ -518,7 +519,7 @@ target book — it is a cross-tenant path, so it qualifies under the testing pol
 
 ---
 
-## Phase 18 — Documents, and what the machine is doing
+## Phase 18 — Documents, and what the machine is doing ✅ shipped
 
 Documents mostly works; this is the workspace treatment plus the one thing operators ask for that has no
 home — *what is happening right now?*
@@ -541,11 +542,57 @@ home — *what is happening right now?*
 
 **Docs to update:** docs/05 §8 and §9.
 
-**Done when:**
+**Done when (all met):**
 - A running extraction can be watched per document and per page, with retry, without leaving Documents.
 - One Status select replaces the four tri-states and every previous state is still reachable.
 - Documents can be filtered and sorted by upload date.
 - A phone can upload into a chosen template end to end, and says plainly that review needs a wider screen.
+
+**Tests:** none new under the unit policy. The filters, the sort and the drawer only read, and retry is the
+existing endpoint. One E2E, `e2e/documents.spec.ts`:
+- a phone upload at 390px;
+- a desktop upload through the batch dialog, which takes back the coverage Phase 15 handed over;
+- `Uploaded` today and `Newest upload first`;
+- Status `Not read yet`;
+- extracting both and seeing every page `Read` in the run drawer.
+
+**As built.** Notes for the phases after it:
+
+- **The drawer and the document drawer derive a page's state from one function.** `currentRuns` became a
+  wrapper over `currentRunByPage` (`lib/extraction/plan.ts`), and "retryable" is `isRetryable`, so the two
+  drawers cannot tell different stories about one page. Per-page state needed no schema: it was always
+  derivable from `ExtractionRun.photoIds`. The drawer's list (`GET /api/books/:id/runs`, `lib/extraction/activity.ts`)
+  reads each document's newest 500 runs in one windowed query, the same bound the document drawer uses.
+- **What the drawer lists:**
+  - documents being read, then those with failed or partly-read pages, then those read in the last day;
+  - failed ones stay until they change, because they are the ones with something to do.
+  - Opened from a row's `Running 3/12` or its failure chip, that document is fetched on its own and shown
+    first, however far down it would sort.
+- **Timestamps travel as Postgres text.** Both the upload-time sort and the drawer page by `createdAt`, and a
+  JS `Date` drops the microseconds Postgres keeps, which skips or repeats rows at a page boundary. The
+  cursor therefore carries `createdAt::text`. `Date.parse` refuses that format's `+00` offset, which a
+  first draft used to validate it — every second page came back "out of date" — so it is checked by
+  `PG_TIMESTAMPTZ` instead. Each cursor carries its sort, and a cursor from another sort is refused rather
+  than misread.
+- **"Uploaded on" is the viewer's day.**
+  - The list takes an IANA `tz`; an unknown zone falls back to UTC rather than failing.
+  - The server page reads it from a `saakuu.tz` cookie, which the view writes on mount. It refreshes once
+    if the zone changed while a day filter is set.
+  - Without this, a batch shot in Yangon before 6:30am lands on the previous UTC day.
+- **Status is one predicate per named state, not a new model.** The fourteen statuses are exactly the
+  single states the old controls could express, moved as SQL fragments rather than rewritten. The one
+  thing lost is combining them, which is what made the bar unreadable. An old URL is mapped to its first
+  narrowing control, in bar order. The `needs review` chip became `flagged` so the chip and its filter
+  share a word.
+- **The phone kept the gate, not a route.** Phase 13 expected a route of its own here. Every book URL
+  already lands on the upload screen below 1280px, so a link sent from a computer works on a phone.
+  A route would have needed a redirect each way, keyed on a width the server cannot see.
+- **The phone has its own intake, not the batch dialog.** That dialog is for grouping on a wide screen.
+  The phone has no grouping (one photo, one document; one PDF, one document), a camera button with
+  `capture` next to a picker without it, and a row per file from upload to `Ready`. The processing poll
+  both use is now one hook, `lib/photos/use-photo-processing.ts`. `useIntakeUploads` passes each file's
+  `localId` to `onRegistered` so a row can follow its own document.
+- **Cancel is still not built** (decision 75).
 
 ---
 
@@ -626,7 +673,7 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 ## Decisions to append to docs/07 Part B
 
 Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped, 76–77 when
-Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did and 74 when Phase 17 did; the rest need writing up in the decision log with their reasoning, in the same form as
+Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did, 74 when Phase 17 did and 75 when Phase 18 did; the rest need writing up in the decision log with their reasoning, in the same form as
 1–65, as their phases ship:
 
 | # | Decision |
@@ -640,7 +687,7 @@ Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did and 74 when Phase 
 | 72 | Autosave replaces save-and-discard in the template editor; single-owner editing makes the modal protect nothing. ✅ written up |
 | 73 | The AI proposes flat fields only; groups and selection structure stay manual. ✅ written up |
 | 74 | Cross-book copy now, versioned library never until asked for. ✅ written up |
-| 75 | Jobs is a drawer on Documents, not a workspace. |
+| 75 | Jobs is a drawer on Documents, not a workspace. ✅ written up |
 
 ---
 

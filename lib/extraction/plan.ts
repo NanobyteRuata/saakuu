@@ -46,15 +46,28 @@ function newestFirst(a: RunLite, b: RunLite): number {
   return b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 }
 
-/** For each page, the newest run that covered it. Returned newest first, each run once. */
-export function currentRuns<R extends RunLite>(photoIds: string[], runs: R[]): R[] {
+/** Each page's newest covering run; a page no run has covered is left out. */
+export function currentRunByPage<R extends RunLite>(photoIds: string[], runs: R[]): Map<string, R> {
   const sorted = [...runs].sort(newestFirst);
-  const out: R[] = [];
+  const out = new Map<string, R>();
   for (const photoId of photoIds) {
     const run = sorted.find((r) => r.photoIds.includes(photoId));
-    if (run && !out.includes(run)) out.push(run);
+    if (run) out.set(photoId, run);
   }
-  return out.sort(newestFirst);
+  return out;
+}
+
+/** For each page, the newest run that covered it. Returned newest first, each run once. */
+export function currentRuns<R extends RunLite>(photoIds: string[], runs: R[]): R[] {
+  return [...new Set(currentRunByPage(photoIds, runs).values())].sort(newestFirst);
+}
+
+/**
+ * A run can be retried when it failed, it is still the latest reading of its pages, and nothing else
+ * is reading the document. The document drawer and the run drawer both ask this.
+ */
+export function isRetryable(run: { state: RunState }, isCurrent: boolean, documentActive: boolean): boolean {
+  return !documentActive && run.state === "FAILED" && isCurrent;
 }
 
 export type RecordLite = { id: string; runId: string; runCreatedAt: Date; photoId: string | null };

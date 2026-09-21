@@ -26,10 +26,6 @@ export type StagedDocument = { id: string; label: string; photoIds: string[] };
 
 export type ThumbSize = "small" | "medium";
 
-/** Photos still being processed, or edited and waiting for their new working copy (unless that failed). */
-export function isPending(p: PhotoView): boolean {
-  return (p.status !== "DONE" && p.status !== "FAILED") || (p.status === "DONE" && !p.workingUrl && !p.errorMessage);
-}
 
 export function StagedDocumentCard({
   doc,

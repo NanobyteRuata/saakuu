@@ -430,6 +430,23 @@ pulling updates with a diff — answers a need nobody has expressed: plain copie
 is what operators want, since next quarter's paper is allowed to differ. `sourceDefId` stays reserved.
 (Phase 17)
 
+**75. Jobs is a drawer on Documents, not a workspace.** Operators ask "what is happening right now?" and v1
+had nowhere to answer it. Progress was a `Running 3/12` in a table column, and a failed page's reason was
+two clicks deep in one document's history. Watching extraction deserves a real surface — per document, per
+page, with the error and retry — but not a peer workspace. A queue is plumbing operators have no mental
+model for. Splitting "start the run" (Documents) from "see the run" (Jobs) would also undo Phase 9.1's
+finding that feedback belongs where the polling is.
+
+So it is a drawer. It opens from the Documents header, and from any running or failed row on that document.
+It lists what is being read, then what failed, then what finished in the last day.
+
+A page's state there is its current run's, derived by the same function the document drawer uses, and
+"retryable" is one shared rule. Two surfaces that could describe one page differently would be worse than
+one. It needs no schema: per-page state was always derivable from `ExtractionRun.photoIds`.
+
+Cancel stays unbuilt. Nobody has asked, and a half-cancelled multi-request document has no good meaning yet.
+(Phase 18)
+
 **76. Numeral system and era are asked by exception, at the point of failure.** They are real: they
 reach the prompt and the transform, and changing one rebuilds every row. But they describe *the
 paper*, not the book, and an operator asked up front does not know what "Myanmar era" will do to

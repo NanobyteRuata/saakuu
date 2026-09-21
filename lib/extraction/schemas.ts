@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { modelIdSchema } from "@/lib/ai/models";
-import { idListSchema, idSchema } from "@/lib/validation";
+import { idListSchema, idSchema, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from "@/lib/validation";
 
 /** Extraction input schemas. Client-safe: the extract dialog and the handlers share them. */
 
@@ -38,3 +38,14 @@ export const statusQuerySchema = z.object({
     .transform((s) => s.split(",").filter(Boolean))
     .pipe(z.array(idSchema).min(1).max(200)),
 });
+
+/**
+ * The run drawer (Phase 18): one page of documents being read or read in the last day, or the one
+ * document a row asked the drawer to open on.
+ */
+export const runActivitySchema = z.object({
+  cursor: z.string().max(300).optional(),
+  limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(PAGE_LIMIT_DEFAULT),
+  documentId: idSchema.optional(),
+});
+export type RunActivityInput = z.infer<typeof runActivitySchema>;

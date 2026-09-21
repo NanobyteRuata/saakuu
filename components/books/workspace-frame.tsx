@@ -32,7 +32,10 @@ export function WorkspaceFrame({ bookId, userId, name, counts, exportButton, chi
 
   // Below 1280 the workspace is replaced rather than hidden, so a phone never mounts the virtualised
   // output table or its row fetches (decision 69). The server-rendered children still travel in the
-  // payload; Phase 18 is where the narrow screen gets a route of its own.
+  // payload. Phase 18 kept this gate instead of giving the phone a route: every book URL — a link
+  // sent from a computer, a bookmark, the back button — lands on the upload screen here, where a
+  // route of its own would have needed a redirect in each direction, keyed on a width the server
+  // cannot see.
   if (layout === "narrow") return <NarrowUpload bookId={bookId} name={name} />;
 
   return (

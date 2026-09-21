@@ -1,7 +1,7 @@
 "use client";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowRightLeft, Sparkles, Trash2, Upload } from "lucide-react";
+import { Activity, ArrowRightLeft, Sparkles, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,12 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getJson } from "@/lib/api-client";
 import type { Page } from "@/lib/db/pagination";
 import { CONTENT_STATE_LABELS, RUN_STATE_LABELS } from "@/lib/documents/labels";
-import { RUN_STATES, type RunState } from "@/lib/documents/schemas";
-import type { DocumentSummary } from "@/lib/documents/service";
+import type { DocumentSort, RunState } from "@/lib/documents/schemas";
+import type { DocumentSummary, UploadDay } from "@/lib/documents/service";
+import { DOCUMENT_STATUS_GROUPS, DOCUMENT_STATUS_LABELS, type DocumentStatus } from "@/lib/documents/status";
+import { syncTimeZoneCookie } from "@/lib/documents/time-zone";
 import { MISMATCH_THRESHOLD } from "@/lib/extraction/schemas";
 import type { ExtractionStatus } from "@/lib/extraction/service";
 import { formatCount, isoDate, plural } from "@/lib/format";
@@ -27,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { DeleteDocumentsDialog } from "./delete-documents-dialog";
 import { DocumentDrawer } from "./document-drawer";
 import { MoveDocumentsDialog } from "./move-documents-dialog";
+import { RunDrawer } from "./run-drawer";
 import { TryOneDocument } from "./try-one-document";
 import { UploadDialog, type TemplateOption } from "./upload-dialog";
 
@@ -34,11 +37,10 @@ export type { TemplateOption };
 
 export type DocumentFilters = {
   templateId: string | null;
-  runState: RunState | null;
-  needsReview: boolean | null;
-  hasEdits: boolean | null;
-  reviewed: boolean | null;
-  needsReextraction: boolean | null;
+  status: DocumentStatus | null;
+  /** `YYYY-MM-DD`, in the viewer's time zone. */
+  uploadedOn: string | null;
+  sort: DocumentSort;
   q: string;
 };
 
@@ -46,7 +48,15 @@ type Props = {
   bookId: string;
   templates: TemplateOption[];
   filters: DocumentFilters;
+  /** The zone the server filtered `uploadedOn` in; the client sends the same one. */
+  timeZone: string;
   initialPage: Page<DocumentSummary>;
+};
+
+const SORT_LABELS: Record<DocumentSort, string> = {
+  book: "Book order",
+  newest: "Newest upload first",
+  oldest: "Oldest upload first",
 };
 
 const ROW_HEIGHT = 64;
@@ -71,6 +81,7 @@ const TRACKS: readonly (readonly [number, string?])[] = [
   [4], // errors
   [6], // last run
   [8], // model
+  [6], // uploaded
 ];
 const GAP_REM = 0.75; // gap-3
 const PAD_X_REM = 0.75; // px-3
@@ -79,46 +90,30 @@ const GRID_STYLE = {
 };
 const TABLE_MIN_WIDTH = `${TRACKS.reduce((sum, [min]) => sum + min, 0) + GAP_REM * (TRACKS.length - 1) + PAD_X_REM * 2}rem`;
 
+/** The page URL's query. The API gets the same plus `tz` (see `apiQuery`). */
 function query(filters: DocumentFilters, cursor?: string): string {
   const params = new URLSearchParams();
   if (filters.templateId) params.set("templateId", filters.templateId);
-  if (filters.runState) params.set("runState", filters.runState);
-  if (filters.needsReview !== null) params.set("needsReview", String(filters.needsReview));
-  if (filters.hasEdits !== null) params.set("hasEdits", String(filters.hasEdits));
-  if (filters.reviewed !== null) params.set("reviewed", String(filters.reviewed));
-  if (filters.needsReextraction !== null) params.set("needsReextraction", String(filters.needsReextraction));
+  if (filters.status) params.set("status", filters.status);
+  if (filters.uploadedOn) params.set("uploadedOn", filters.uploadedOn);
+  if (filters.sort !== "book") params.set("sort", filters.sort);
   if (filters.q) params.set("q", filters.q);
   if (cursor) params.set("cursor", cursor);
   return params.toString();
 }
 
+/** Narrowing filters only: a sort shows the same documents. */
 function isFiltered(f: DocumentFilters): boolean {
-  return (
-    f.templateId !== null ||
-    f.runState !== null ||
-    f.needsReview !== null ||
-    f.hasEdits !== null ||
-    f.reviewed !== null ||
-    f.needsReextraction !== null ||
-    f.q !== ""
-  );
+  return f.templateId !== null || f.status !== null || f.uploadedOn !== null || f.q !== "";
 }
 
 /** Arrived from a template card: the list is that template's documents and nothing else is narrowing it. */
 function onlyTemplateFilter(f: DocumentFilters): boolean {
-  return (
-    f.templateId !== null &&
-    f.runState === null &&
-    f.needsReview === null &&
-    f.hasEdits === null &&
-    f.reviewed === null &&
-    f.needsReextraction === null &&
-    f.q === ""
-  );
+  return f.templateId !== null && f.status === null && f.uploadedOn === null && f.q === "";
 }
 
 /** Documents tab (docs/05 §8): filter bar, virtualised list, selection bar, detail drawer. */
-export function DocumentsView({ bookId, templates, filters, initialPage }: Props) {
+export function DocumentsView({ bookId, templates, filters, timeZone, initialPage }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [items, setItems] = useState(initialPage.items);
@@ -133,6 +128,9 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   const [uploadOpen, setUploadOpen] = useState(false);
   const [trying, setTrying] = useState(false);
   const [extract, setExtract] = useState<{ verb: string; target: ExtractTarget } | null>(null);
+  // The run drawer (Phase 18): `null` closed; `focus` is the document a row opened it on.
+  const [runs, setRuns] = useState<{ focus: string | null } | null>(null);
+  const [uploadDays, setUploadDays] = useState<UploadDay[] | null>(null);
   const [progress, setProgress] = useState<Record<string, ExtractionStatus["pages"]>>({});
   const [pollTick, setPollTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -175,6 +173,32 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
     return () => window.clearTimeout(t);
   }, [activeKey, pollTick]);
 
+  const apiQuery = useCallback(
+    (cursor?: string) => {
+      const qs = query(filters, cursor);
+      return `${qs}${qs ? "&" : ""}tz=${encodeURIComponent(timeZone)}`;
+    },
+    [filters, timeZone],
+  );
+
+  // The server filtered by the cookie's zone. A first visit, or a laptop that crossed a border, has a
+  // different one: store the browser's, and re-render if it changed what "uploaded on" means here.
+  useEffect(() => {
+    if (syncTimeZoneCookie(timeZone) && filters.uploadedOn) router.refresh();
+  }, [timeZone, filters.uploadedOn, router]);
+
+  const loadUploadDays = useCallback(async () => {
+    const params = new URLSearchParams({ tz: timeZone });
+    if (filters.templateId) params.set("templateId", filters.templateId);
+    const result = await getJson<UploadDay[]>(`/api/books/${bookId}/documents/upload-days?${params.toString()}`);
+    // Without the list the filter still shows the day it is set to; it just offers nothing else.
+    if (result.ok) setUploadDays(result.data);
+  }, [bookId, timeZone, filters.templateId]);
+
+  useEffect(() => {
+    void loadUploadDays();
+  }, [loadUploadDays]);
+
   const setFilters = useCallback(
     (patch: Partial<DocumentFilters>) => {
       const qs = query({ ...filters, ...patch });
@@ -203,7 +227,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
     setLoadError(null);
-    const result = await getJson<Page<DocumentSummary>>(`/api/books/${bookId}/documents?${query(filters, nextCursor)}`);
+    const result = await getJson<Page<DocumentSummary>>(`/api/books/${bookId}/documents?${apiQuery(nextCursor)}`);
     setLoadingMore(false);
     if (!result.ok) {
       setLoadError(result.error.message);
@@ -211,7 +235,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
     }
     setItems((prev) => [...prev, ...result.data.items]);
     setNextCursor(result.data.nextCursor);
-  }, [bookId, filters, nextCursor, loadingMore]);
+  }, [bookId, apiQuery, nextCursor, loadingMore]);
 
   useEffect(() => {
     if (nextCursor && !loadError && lastIndex >= items.length - 15) void loadMore();
@@ -220,7 +244,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   /** Re-reads the list from the top (as many rows as are loaded, up to one full page) after a change. */
   const reloadList = useCallback(async () => {
     const limit = Math.min(200, Math.max(50, items.length));
-    const result = await getJson<Page<DocumentSummary>>(`/api/books/${bookId}/documents?${query(filters)}&limit=${limit}`);
+    const result = await getJson<Page<DocumentSummary>>(`/api/books/${bookId}/documents?${apiQuery()}&limit=${limit}`);
     if (!result.ok) {
       setLoadError(result.error.message);
       return;
@@ -229,7 +253,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
     setNextCursor(result.data.nextCursor);
     const live = new Set(result.data.items.map((d) => d.id));
     setSelected((prev) => new Set([...prev].filter((id) => live.has(id))));
-  }, [bookId, filters, items.length]);
+  }, [bookId, apiQuery, items.length]);
 
   function removeItems(ids: string[]) {
     const gone = new Set(ids);
@@ -243,6 +267,12 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   // null when no template filter is set, and for a book past MAX_TEMPLATES whose filter points beyond the loaded page:
   // the template-wide extract and the per-template empty state then fall back to the generic ones.
   const filterTemplate = templates.find((t) => t.id === filters.templateId) ?? null;
+  const anyActive = activeKey !== "";
+  // The day the list is filtered to stays offered even when the days list failed or has moved on.
+  const dayOptions =
+    filters.uploadedOn && !uploadDays?.some((d) => d.day === filters.uploadedOn)
+      ? [{ day: filters.uploadedOn, count: null }, ...(uploadDays ?? [])]
+      : (uploadDays ?? []);
 
   if (templates.length === 0) {
     return (
@@ -274,6 +304,10 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
               <span className="max-w-64 truncate">Extract all in {filterTemplate.name}</span>
             </Button>
           ) : null}
+          <Button variant="outline" size="sm" onClick={() => setRuns({ focus: null })}>
+            <Activity className={cn(anyActive && "text-primary animate-pulse")} />
+            {anyActive ? "Runs · reading" : "Runs"}
+          </Button>
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Upload />
             Upload documents
@@ -302,23 +336,50 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
             ))}
           </SelectContent>
         </Select>
-        <Select value={filters.runState ?? ANY} onValueChange={(v) => setFilters({ runState: v === ANY ? null : (v as RunState) })}>
-          <SelectTrigger className="w-40" aria-label="Run state">
+        <Select value={filters.status ?? ANY} onValueChange={(v) => setFilters({ status: v === ANY ? null : (v as DocumentStatus) })}>
+          <SelectTrigger className="w-56" aria-label="Status">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ANY}>Any run state</SelectItem>
-            {RUN_STATES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {RUN_STATE_LABELS[s]}
+            <SelectItem value={ANY}>Any status</SelectItem>
+            {DOCUMENT_STATUS_GROUPS.map((g) => (
+              <SelectGroup key={g.label}>
+                <SelectLabel>{g.label}</SelectLabel>
+                {g.statuses.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {DOCUMENT_STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filters.uploadedOn ?? ANY} onValueChange={(v) => setFilters({ uploadedOn: v === ANY ? null : v })}>
+          <SelectTrigger className="w-64" aria-label="Uploaded">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Uploaded any day</SelectItem>
+            {dayOptions.map((d) => (
+              <SelectItem key={d.day} value={d.day}>
+                <span className="tabular-nums">Uploaded {d.day}</span>
+                {d.count !== null ? <span className="text-muted-foreground"> · {plural(d.count, "document")}</span> : null}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <TriState label="Needs review" value={filters.needsReview} onChange={(v) => setFilters({ needsReview: v })} />
-        <TriState label="Has edits" value={filters.hasEdits} onChange={(v) => setFilters({ hasEdits: v })} />
-        <TriState label="Reviewed" value={filters.reviewed} onChange={(v) => setFilters({ reviewed: v })} />
-        <TriState label="Needs re-extraction" value={filters.needsReextraction} onChange={(v) => setFilters({ needsReextraction: v })} />
+        <Select value={filters.sort} onValueChange={(v) => setFilters({ sort: v as DocumentSort })}>
+          <SelectTrigger className="w-48" aria-label="Sort">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(SORT_LABELS) as DocumentSort[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {SORT_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {isFiltered(filters) ? (
           <Button
             variant="ghost"
@@ -389,7 +450,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                 variant="outline"
                 onClick={() => {
                   setSearch("");
-                  setFilters({ q: "", templateId: null, runState: null, needsReview: null, hasEdits: null, reviewed: null });
+                  setFilters({ q: "", templateId: null, status: null, uploadedOn: null });
                 }}
               >
                 Clear filters
@@ -445,6 +506,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
               <span role="columnheader" className="text-right">Errors</span>
               <span role="columnheader">Last run</span>
               <span role="columnheader">Model</span>
+              <span role="columnheader">Uploaded</span>
             </div>
             <div role="rowgroup">
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -497,13 +559,28 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                         >
                           {d.label ?? "Untitled document"}
                         </button>
-                        <DocumentFlags d={d} />
+                        <DocumentFlags d={d} onOpenRuns={() => setRuns({ focus: d.id })} />
                       </div>
                       <span role="cell" className="truncate">{d.templateName}</span>
                       <span role="cell" className="text-right tabular-nums">{formatCount(d.pageCount)}</span>
                       <span role="cell" className="tabular-nums">
-                        {RUN_STATE_LABELS[d.runState]}
-                        {isActive(d.runState) && pages && pages.total > 1 ? ` ${pages.done}/${pages.total}` : ""}
+                        {isActive(d.runState) ? (
+                          // A running row opens the run drawer on itself: per page, with what failed and why.
+                          <button
+                            type="button"
+                            className="text-primary hover:underline"
+                            aria-label={`Watch ${d.label ?? "this document"} being read`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRuns({ focus: d.id });
+                            }}
+                          >
+                            {RUN_STATE_LABELS[d.runState]}
+                            {pages && pages.total > 1 ? ` ${pages.done}/${pages.total}` : ""}
+                          </button>
+                        ) : (
+                          RUN_STATE_LABELS[d.runState]
+                        )}
                       </span>
                       <span role="cell">{CONTENT_STATE_LABELS[d.contentState]}</span>
                       <span role="cell" className="text-right tabular-nums">{formatCount(d.rowCount)}</span>
@@ -513,6 +590,7 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
                       </span>
                       <span role="cell" className="tabular-nums">{d.lastRunAt ? isoDate(d.lastRunAt) : "—"}</span>
                       <span role="cell" className="truncate">{d.lastModel ?? "—"}</span>
+                      <span role="cell" className="tabular-nums">{isoDate(d.createdAt)}</span>
                     </div>
                   );
                 })}
@@ -565,6 +643,22 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
         onOpenChange={setUploadOpen}
         onClosed={() => {
           void reloadList();
+          void loadUploadDays();
+          router.refresh();
+        }}
+      />
+      <RunDrawer
+        bookId={bookId}
+        open={runs !== null}
+        focusDocumentId={runs?.focus ?? null}
+        onOpenChange={(open) => !open && setRuns(null)}
+        onOpenDocument={(id) => {
+          setRuns(null);
+          setOpenId(id);
+        }}
+        onRetried={() => {
+          void reloadList();
+          // Starts the nav's polling, as any action that starts a run must (docs/05 §0).
           router.refresh();
         }}
       />
@@ -596,23 +690,8 @@ export function DocumentsView({ bookId, templates, filters, initialPage }: Props
   );
 }
 
-function TriState({ label, value, onChange }: { label: string; value: boolean | null; onChange: (v: boolean | null) => void }) {
-  return (
-    <Select value={value === null ? ANY : String(value)} onValueChange={(v) => onChange(v === ANY ? null : v === "true")}>
-      <SelectTrigger className="w-40" aria-label={label}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ANY}>{label}: any</SelectItem>
-        <SelectItem value="true">{label}: yes</SelectItem>
-        <SelectItem value="false">{label}: no</SelectItem>
-      </SelectContent>
-    </Select>
-  );
-}
-
-function DocumentFlags({ d }: { d: DocumentSummary }) {
-  const flags: { text: string; tone: "warn" | "error" | "info" }[] = [];
+function DocumentFlags({ d, onOpenRuns }: { d: DocumentSummary; onOpenRuns: () => void }) {
+  const flags: { text: string; tone: "warn" | "error" | "info"; onClick?: () => void }[] = [];
   if (d.processingPages > 0) flags.push({ text: `${plural(d.processingPages, "page")} processing`, tone: "info" });
   if (d.failedPages > 0) flags.push({ text: `${plural(d.failedPages, "page")} failed`, tone: "error" });
   // High on purpose: only the first two chips are shown, and this is the one with an action behind it.
@@ -625,22 +704,41 @@ function DocumentFlags({ d }: { d: DocumentSummary }) {
    */
   if (d.isSpecimen) flags.push({ text: "specimen", tone: "info" });
   if (d.templateMatchScore !== null && d.templateMatchScore < MISMATCH_THRESHOLD) flags.push({ text: "possible template mismatch", tone: "warn" });
-  if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in details", tone: "error" });
+  if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in runs", tone: "error", onClick: onOpenRuns });
   if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });
   if (d.hasDisagreements) flags.push({ text: "has disagreements", tone: "warn" });
   for (const f of d.transformFlags) {
     if (f.kind !== "CELLS_FLAGGED") flags.push({ text: DOCUMENT_FLAG_CHIPS[f.kind], tone: "warn" });
   }
-  if (d.needsReview) flags.push({ text: "needs review", tone: "warn" });
+  // Named as the Status filter names it, so the chip and the filter that finds it read the same.
+  if (d.needsReview) flags.push({ text: "flagged", tone: "warn" });
   if (d.reviewed) flags.push({ text: "✓ reviewed", tone: "info" });
   if (flags.length === 0) return null;
   return (
     <div className="flex gap-1 overflow-hidden">
-      {flags.slice(0, 2).map((f) => (
-        <Badge key={f.text} variant={f.tone === "error" ? "destructive" : "outline"} className="h-4 px-1.5 text-[10px] font-normal">
-          {f.text}
-        </Badge>
-      ))}
+      {flags.slice(0, 2).map((f) => {
+        const badge = (
+          <Badge key={f.text} variant={f.tone === "error" ? "destructive" : "outline"} className="h-4 px-1.5 text-[10px] font-normal">
+            {f.text}
+          </Badge>
+        );
+        const { onClick } = f;
+        return onClick ? (
+          <button
+            key={f.text}
+            type="button"
+            className="hover:opacity-80"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
+          >
+            {badge}
+          </button>
+        ) : (
+          badge
+        );
+      })}
     </div>
   );
 }

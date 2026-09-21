@@ -44,7 +44,7 @@ device can do:
 
 | Width | Layout |
 |---|---|
-| `< 1280px` | **Upload only.** Choose a template, shoot or pick photos. Everything else says, in plain language, that reviewing needs a wider screen. Standing at the filing cabinet with a phone is a real use; reviewing handwriting on one is not. The workspaces are not rendered at all at this width, so a phone never mounts the virtualised table. |
+| `< 1280px` | **Upload only.** Choose a template, shoot or pick photos, watch them process, done (§9, Phase 18). Everything else says, in plain language, that reviewing needs a wider screen. Standing at the filing cabinet with a phone is a real use; reviewing handwriting on one is not. The workspaces are not rendered at all at this width, so a phone never mounts the virtualised table. |
 | `1280–1599px` | Two panes. |
 | `≥ 1600px` | Three panes, or two with more density. |
 
@@ -383,6 +383,37 @@ data. The Extract dialog states the same count as a warning.
 - `lastExtractedAt` only advances on a `COMPLETE` run, so a re-extraction that *failed* does not
   clear the chip while the stale reading is still on screen.
 
+*As built (Phase 18):*
+- **One Status select replaces the run-state select and the four tri-states.** Seven controls in one row,
+  four of them three-position toggles whose meanings overlapped: `Needs review` was a stored flag from
+  extraction and transform warnings, `Reviewed` was about cells, and side by side they read as opposites.
+  Status offers fourteen named, mutually exclusive states in four groups: **Reading** (`Not read yet`,
+  `Waiting to be read`, `Being read`, `Read`, `Partly read`, `Reading failed`), **Review** (`Not fully
+  reviewed`, `Fully reviewed`, `Flagged for a closer look`, `Not flagged`), **Edits** and **Page changes**.
+  Each is exactly one state the old bar could express. What is no longer expressible is a *combination* of
+  them, which nobody used and which is what made the bar hard to read. The `needs review` chip became
+  `flagged` so the chip and the filter that finds it use one word. An old URL still lands on the status it
+  meant.
+- **Upload date is a column, a filter and a sort.** `Uploaded` lists the days documents went up, with a
+  count each (`Uploaded 2026-09-21 · 60 documents`), in the viewer's own time zone. A batch shot at 6am in
+  Yangon belongs to that morning, not to the previous UTC day. `Sort` is `Book order` (the manual order, the
+  default), `Newest upload first` or `Oldest upload first`. This is the cheap half of Batches.
+- The bar is now search, template, Status, Uploaded, Sort, and `Clear filters` for anything that narrows. A
+  sort alone does not count as a filter, so `Extract all in <template>` still appears with a sort chosen.
+  The empty state's `Clear filters` had been leaving `needsReextraction` set; it now clears everything.
+- **The run drawer** (decision 75) opens from `Runs` in the header, which reads `Runs · reading` with a
+  pulse while a loaded document is being read. It also opens from any running row's `Running 3/12`, and
+  from the `extraction failed, retry in runs` chip, on that document. Opened from a row, that document
+  comes first and is outlined, however far down it would sort.
+  - It lists documents being read, then documents with failed pages, then documents read in the last day.
+  - Each shows every page as a small numbered square (read, reading, waiting, failed, not read), then
+    each failed page with the worker's plain-language reason and `Retry page`, plus `Retry N failed
+    pages` when there are several.
+  - It polls every 2 s only while something in it is being read.
+  - A retry reloads the list and refreshes the route, so the nav starts polling (§0).
+  - The document's name opens its detail drawer.
+  - There is no cancel: it was never built (docs/04).
+
 ## 9. Upload & document detail
 
 *As built (Phase 15):* **one component, four modes** (`components/photo/photo-intake.tsx`). The
@@ -456,6 +487,27 @@ Replacing takes a single photo; a PDF is several pages, so it is refused there a
 the document is being extracted, because a run already under way cannot see the swap.
 
 Photo grid has a small/medium size toggle. Collapsed state shows a count badge.
+
+*As built (Phase 18):* **the phone screen.** Below 1280px every book URL shows one screen instead of the
+workspaces:
+- the plain line that review needs a wider screen;
+- the template, locked once files are added;
+- two big buttons: `Take photo`, a camera input with `capture` that opens the camera straight away, and
+  `Choose files`, which picks photos or PDFs from the gallery or files;
+- one row per file, going `Uploading 40%` → `Saving…` → `Processing…` → `Ready` (or its error).
+
+`Done` then says how many documents went into which template and whether pages are still processing, which
+finishes on its own. `Upload more` starts again with the same template.
+
+Why a separate screen and not the batch dialog:
+- The batch dialog was a 6xl modal with its own 288px template picker, opened from a page that had already
+  asked which template.
+- The phone has no grouping: one photo is one document, one PDF one document with its pages in order, and the
+  screen says so. Grouping means looking at pages side by side, which is a computer's job.
+- It uses the same upload hook, the same `/api/uploads/batch` + `/complete` registration, and the same
+  processing poll as the batch intake. That poll is now one hook, `lib/photos/use-photo-processing.ts`,
+  where it had lived inside the batch dialog.
+- Leaving mid-upload is guarded by the browser's `beforeunload`; finishing never asks (Phase 15).
 
 ## 10. Photo editor
 

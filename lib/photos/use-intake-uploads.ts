@@ -52,8 +52,8 @@ type Options<T> = {
   templateId: string | null;
   /** Turns an uploaded key into whatever this mode creates. */
   register: (args: { key: string; file: File }) => Promise<Result<T>>;
-  /** Called once per file that registered, in the order the files were picked. */
-  onRegistered?: (value: T, file: File) => void;
+  /** Called once per file that registered, in the order the files were picked. `localId` is its `IntakeFile`'s. */
+  onRegistered?: (value: T, file: File, localId: string) => void;
   /** Types this mode takes; defaults to everything the server accepts. Replace refuses PDFs. */
   accept?: readonly string[];
   /** Uploads at once. Single-file modes leave it at 1 so their progress bar means one thing. */
@@ -135,7 +135,7 @@ export function useIntakeUploads<T>({ templateId, register, onRegistered, accept
         return;
       }
       patch(item.localId, { phase: "uploaded" });
-      onRegisteredRef.current?.(registered.data, file);
+      onRegisteredRef.current?.(registered.data, file, item.localId);
     },
     [patch, trackXhr],
   );

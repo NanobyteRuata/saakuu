@@ -1,12 +1,13 @@
 import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 import { generateKeyBetween } from "fractional-indexing";
+import { z } from "zod";
 
 import { requireBookAccess } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import type { Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
-import { currentRuns } from "@/lib/extraction/plan";
+import { currentRuns, isRetryable } from "@/lib/extraction/plan";
 import { impactHash } from "@/lib/impact";
 import { nextDocumentPosition } from "@/lib/photos/service";
 import { photoSelect, toPhotoView, type PhotoView } from "@/lib/photos/views";
@@ -19,14 +20,18 @@ import type { RowType, ValueState } from "@/lib/transform/types";
 import type { FieldType, TemplateKind } from "@/lib/templates/schemas";
 import { buildTree, flattenTree, formatPath, headerPath } from "@/lib/templates/tree";
 import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
+import { idSchema } from "@/lib/validation";
 
 import { assertNoExtractionOutput, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
 import { isProblem, planGroup, planReorder, planSplit, type RestructurePlan } from "./restructure";
 import { isStale, STALE_SQL } from "./staleness";
+import type { DocumentStatus } from "./status";
 import {
+  DOCUMENT_SORTS,
   MAX_DOCUMENT_PAGES,
   type ContentState,
   type DeleteDocumentsInput,
+  type DocumentSort,
   type GroupPhotosInput,
   type ListDocumentsInput,
   type MoveDocumentsInput,
@@ -34,6 +39,7 @@ import {
   type ReorderPhotosInput,
   type RunState,
   type SplitDocumentInput,
+  type UploadDaysInput,
   type UpdateDocumentInput,
 } from "./schemas";
 
@@ -107,6 +113,8 @@ export type DocumentDetail = DocumentSummary & {
 /** Runs listed in the drawer, plus any older run that is still the latest reading of a page. */
 const RUN_HISTORY_LIMIT = 20;
 const RUN_SCAN_LIMIT = 500;
+/** A year of distinct upload days; the Uploaded filter lists no more than that. */
+const MAX_UPLOAD_DAYS = 366;
 
 // ---------- reads ----------
 
@@ -209,21 +217,97 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
   return out;
 }
 
-function encodeCursor(position: string, id: string): string {
-  return `${position}_${id}`;
+/** `timestamptz::text` as Postgres writes it, e.g. `2026-09-15 01:08:53.123456+00`; `Date.parse` refuses the offset. */
+export const PG_TIMESTAMPTZ = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/;
+
+const cursorSchema = z.object({ s: z.enum(DOCUMENT_SORTS), k: z.string().min(1).max(100), id: idSchema });
+
+/**
+ * The sort travels inside the cursor with its key: a position for book order, the upload time as
+ * Postgres text for the other two (a JS Date would drop the microseconds and skip or repeat rows at a
+ * page boundary). A cursor from another sort is refused, never read as this one's.
+ */
+function encodeCursor(sort: DocumentSort, key: string, id: string): string {
+  return Buffer.from(JSON.stringify({ s: sort, k: key, id })).toString("base64url");
 }
 
-function decodeCursor(cursor: string): { position: string; id: string } {
-  const at = cursor.indexOf("_");
-  const position = cursor.slice(0, at);
-  const id = cursor.slice(at + 1);
-  if (at <= 0 || !/^[0-9A-Za-z]+$/.test(position) || !/^[a-z0-9]+$/.test(id)) {
-    throw new AppError("VALIDATION", "That page of documents is out of date. Reload the list.");
+function decodeCursor(cursor: string, sort: DocumentSort): { key: string; id: string } {
+  const outOfDate = new AppError("VALIDATION", "That page of documents is out of date. Reload the list.");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw outOfDate;
   }
-  return { position, id };
+  const c = cursorSchema.safeParse(parsed);
+  if (!c.success || c.data.s !== sort) throw outOfDate;
+  const valid = sort === "book" ? /^[0-9A-Za-z]+$/.test(c.data.k) : PG_TIMESTAMPTZ.test(c.data.k);
+  if (!valid) throw outOfDate;
+  return { key: c.data.k, id: c.data.id };
 }
 
-/** Documents in manual order (`position`, code-unit collation), filtered, keyset-paginated. */
+// Same rows and cells the table counts: live, non-void rows; cells of live columns.
+const ROWS_TO_REVIEW_SQL = Prisma.sql`SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
+  WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND NOT r."isVoid"`;
+const UNREVIEWED_SQL = Prisma.sql`SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
+  WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND NOT r."isVoid" AND NOT c."isReviewed"`;
+const EDITED_SQL = Prisma.sql`EXISTS (SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND c."isEdited")`;
+
+/** One predicate per Status (Phase 18); `d` is the Document alias. */
+function statusSql(status: DocumentStatus): Prisma.Sql {
+  switch (status) {
+    case "not-read":
+      return Prisma.sql`d."runState" = 'NEVER_RUN'::"RunState"`;
+    case "waiting":
+      return Prisma.sql`d."runState" = 'QUEUED'::"RunState"`;
+    case "reading":
+      return Prisma.sql`d."runState" = 'RUNNING'::"RunState"`;
+    case "read":
+      return Prisma.sql`d."runState" = 'COMPLETE'::"RunState"`;
+    case "partly-read":
+      return Prisma.sql`d."runState" = 'PARTIAL'::"RunState"`;
+    case "failed":
+      return Prisma.sql`d."runState" = 'FAILED'::"RunState"`;
+    case "flagged":
+      return Prisma.sql`d."needsReview" = true`;
+    case "not-flagged":
+      return Prisma.sql`d."needsReview" = false`;
+    case "reviewed":
+      return Prisma.sql`EXISTS (${ROWS_TO_REVIEW_SQL}) AND NOT EXISTS (${UNREVIEWED_SQL})`;
+    case "not-reviewed":
+      return Prisma.sql`(NOT EXISTS (${ROWS_TO_REVIEW_SQL}) OR EXISTS (${UNREVIEWED_SQL}))`;
+    case "edited":
+      return EDITED_SQL;
+    case "not-edited":
+      return Prisma.sql`NOT ${EDITED_SQL}`;
+    case "changed":
+      return STALE_SQL;
+    case "up-to-date":
+      return Prisma.sql`NOT ${STALE_SQL}`;
+  }
+}
+
+/** The upload day of `d`, in the viewer's zone. `tz` must have come through `postgresZone`. */
+const uploadDaySql = (tz: string) => Prisma.sql`(d."createdAt" AT TIME ZONE ${tz})::date`;
+
+let knownZones: Promise<Set<string>> | null = null;
+
+/**
+ * The zone as Postgres knows it, or UTC. The schema checks a zone against the JS runtime's tz data, but
+ * `AT TIME ZONE` raises on a name the database's own tz data lacks (a renamed zone such as
+ * `Europe/Kyiv` on an older image), which would fail the whole page rather than one filter.
+ */
+async function postgresZone(tz: string): Promise<string> {
+  knownZones ??= prisma.$queryRaw<{ name: string }[]>`SELECT name FROM pg_timezone_names`
+    .then((rows) => new Set(rows.map((r) => r.name)))
+    .catch((err: unknown) => {
+      knownZones = null;
+      throw err;
+    });
+  return (await knownZones).has(tz) ? tz : "UTC";
+}
+
+/** Documents filtered, then in book order (`position`, code-unit collation) or by upload time; keyset-paginated. */
 export async function listDocuments(userId: string, bookId: string, input: ListDocumentsInput): Promise<Page<DocumentSummary>> {
   await requireBookAccess(userId, bookId);
   const conds: Prisma.Sql[] = [
@@ -232,46 +316,56 @@ export async function listDocuments(userId: string, bookId: string, input: ListD
     Prisma.sql`t."deletedAt" IS NULL`,
   ];
   if (input.templateId) conds.push(Prisma.sql`d."templateId" = ${input.templateId}`);
-  if (input.runState) conds.push(Prisma.sql`d."runState" = ${input.runState}::"RunState"`);
-  if (input.needsReview !== undefined) conds.push(Prisma.sql`d."needsReview" = ${input.needsReview}`);
-  if (input.hasEdits !== undefined) {
-    const edited = Prisma.sql`EXISTS (SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND c."isEdited")`;
-    conds.push(input.hasEdits ? edited : Prisma.sql`NOT ${edited}`);
-  }
-  if (input.reviewed !== undefined) {
-    // Same rows and cells the table counts: live, non-void rows; cells of live columns.
-    const rowsToReview = Prisma.sql`SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
-      WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND NOT r."isVoid"`;
-    const unreviewed = Prisma.sql`SELECT 1 FROM "Row" r JOIN "Cell" c ON c."rowId" = r.id JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
-      WHERE r."documentId" = d.id AND r."deletedAt" IS NULL AND NOT r."isVoid" AND NOT c."isReviewed"`;
-    conds.push(
-      input.reviewed
-        ? Prisma.sql`EXISTS (${rowsToReview}) AND NOT EXISTS (${unreviewed})`
-        : Prisma.sql`(NOT EXISTS (${rowsToReview}) OR EXISTS (${unreviewed}))`,
-    );
-  }
-  if (input.needsReextraction !== undefined) {
-    conds.push(input.needsReextraction ? STALE_SQL : Prisma.sql`NOT ${STALE_SQL}`);
-  }
+  if (input.status) conds.push(statusSql(input.status));
+  if (input.uploadedOn) conds.push(Prisma.sql`${uploadDaySql(await postgresZone(input.tz))} = ${input.uploadedOn}::date`);
   if (input.q) {
     const pattern = `%${input.q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
     conds.push(Prisma.sql`d.label ILIKE ${pattern}`);
   }
+  const byUpload = input.sort !== "book";
+  const after = input.sort === "newest" ? Prisma.raw("<") : Prisma.raw(">");
   if (input.cursor) {
-    const { position, id } = decodeCursor(input.cursor);
+    const { key, id } = decodeCursor(input.cursor, input.sort);
     conds.push(
-      Prisma.sql`(d.position COLLATE "C" > ${position} COLLATE "C" OR (d.position = ${position} AND d.id > ${id}))`,
+      byUpload
+        ? Prisma.sql`(d."createdAt" ${after} ${key}::timestamptz OR (d."createdAt" = ${key}::timestamptz AND d.id ${after} ${id}))`
+        : Prisma.sql`(d.position COLLATE "C" > ${key} COLLATE "C" OR (d.position = ${key} AND d.id > ${id}))`,
     );
   }
-  const rows = await prisma.$queryRaw<{ id: string; position: string }[]>`
-    SELECT d.id, d.position FROM "Document" d JOIN "Template" t ON t.id = d."templateId"
+  const order = byUpload
+    ? input.sort === "newest"
+      ? Prisma.sql`d."createdAt" DESC, d.id DESC`
+      : Prisma.sql`d."createdAt", d.id`
+    : Prisma.sql`d.position COLLATE "C", d.id`;
+  const rows = await prisma.$queryRaw<{ id: string; key: string }[]>`
+    SELECT d.id, ${byUpload ? Prisma.sql`d."createdAt"::text` : Prisma.sql`d.position`} AS key
+    FROM "Document" d JOIN "Template" t ON t.id = d."templateId"
     WHERE ${Prisma.join(conds, " AND ")}
-    ORDER BY d.position COLLATE "C", d.id
+    ORDER BY ${order}
     LIMIT ${input.limit + 1}`;
   const pageRows = rows.slice(0, input.limit);
   const last = pageRows.at(-1);
-  const nextCursor = rows.length > input.limit && last ? encodeCursor(last.position, last.id) : null;
+  const nextCursor = rows.length > input.limit && last ? encodeCursor(input.sort, last.key, last.id) : null;
   return { items: await loadSummaries(prisma, pageRows.map((r) => r.id)), nextCursor };
+}
+
+export type UploadDay = { day: string; count: number };
+
+/**
+ * Days documents of this book were uploaded on, newest first, in the viewer's zone (Phase 18). Counted
+ * within the template filter when one is set, so an option's count is what choosing it lists.
+ */
+export async function listUploadDays(userId: string, bookId: string, input: UploadDaysInput): Promise<UploadDay[]> {
+  await requireBookAccess(userId, bookId);
+  const tz = await postgresZone(input.tz);
+  return prisma.$queryRaw<UploadDay[]>`
+    SELECT to_char(${uploadDaySql(tz)}, 'YYYY-MM-DD') AS day, count(*)::int AS count
+    FROM "Document" d JOIN "Template" t ON t.id = d."templateId"
+    WHERE d."bookId" = ${bookId} AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL
+      ${input.templateId ? Prisma.sql`AND d."templateId" = ${input.templateId}` : Prisma.empty}
+    GROUP BY 1
+    ORDER BY 1 DESC
+    LIMIT ${MAX_UPLOAD_DAYS}`;
 }
 
 function parseManualValues(value: Prisma.JsonValue | null): Record<string, string> {
@@ -345,7 +439,7 @@ async function loadDetail(db: Db, documentId: string): Promise<DocumentDetail> {
         return page === undefined ? [] : [page];
       }),
       photoIds: r.photoIds,
-      retryable: !active && r.state === "FAILED" && current.has(r.id),
+      retryable: isRetryable(r, current.has(r.id), active),
     })),
   };
 }

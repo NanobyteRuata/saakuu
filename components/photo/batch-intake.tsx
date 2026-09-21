@@ -17,24 +17,12 @@ import { formatBytes } from "@/lib/documents/labels";
 import type { DocumentDetail } from "@/lib/documents/service";
 import { plural } from "@/lib/format";
 import { UPLOAD_ACCEPT, useIntakeUploads } from "@/lib/photos/use-intake-uploads";
+import { fetchDocumentDetails, STATUS_CHUNK, usePhotoProcessing } from "@/lib/photos/use-photo-processing";
 import type { PhotoView } from "@/lib/photos/views";
 import { cn } from "@/lib/utils";
 
 import { Dropzone, type IntakeMode, type IntakeResult } from "./photo-intake";
-import { isPending, StagedDocumentCard, type StagedDocument, type ThumbSize } from "./staged-documents";
-
-const POLL_MS = 2000;
-const STATUS_CHUNK = 200;
-
-async function fetchDetails(ids: string[]): Promise<Map<string, DocumentDetail | null>> {
-  const results = await Promise.all(ids.map((id) => getJson<DocumentDetail>(`/api/documents/${id}`)));
-  return new Map(
-    ids.map((id, i) => {
-      const r = results[i];
-      return [id, r?.ok ? r.data : null];
-    }),
-  );
-}
+import { StagedDocumentCard, type StagedDocument, type ThumbSize } from "./staged-documents";
 
 /**
  * The batch mode of `PhotoIntake` (docs/05 §9): each dropped file becomes its own document, then
@@ -72,8 +60,6 @@ export function BatchIntake({
   }, [documents]);
   // Documents the drawer changed in place (label, page order, edits), refetched on resync.
   const dirtyRef = useRef(new Set<string>());
-  // Bumped after every status poll so polling continues while the same photos stay pending.
-  const [pollTick, setPollTick] = useState(0);
 
   const template = templates.find((t) => t.id === templateId) ?? null;
 
@@ -158,7 +144,7 @@ export function BatchIntake({
       }
     }
     for (const id of order) if (!known.has(id)) refetch.add(id);
-    const details = await fetchDetails([...refetch]);
+    const details = await fetchDocumentDetails([...refetch]);
     const nextDocs: StagedDocument[] = [];
     const nextPhotos: Record<string, PhotoView> = {};
     for (const id of order) {
@@ -183,41 +169,18 @@ export function BatchIntake({
     setSelected((prev) => new Set([...prev].filter((id) => live.has(id))));
   }, []);
 
-  // Poll processing state. A PDF placeholder disappears when its pages are created, so documents
-  // with a missing photo are reloaded in full. Edited pages are polled until their new copy exists.
-  const pendingKey = Object.values(photos)
-    .filter(isPending)
-    .map((p) => p.id)
-    .join(",");
-  useEffect(() => {
-    if (!pendingKey) return;
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const ids = pendingKey.split(",").slice(0, STATUS_CHUNK);
-        const result = await getJson<PhotoView[]>(`/api/photos/status?ids=${ids.join(",")}`);
-        if (!result.ok || cancelled) return;
-        const seen = new Set(result.data.map((p) => p.id));
-        const missing = ids.filter((id) => !seen.has(id));
-        setPhotos((prev) => {
-          const next = { ...prev, ...Object.fromEntries(result.data.map((p) => [p.id, p])) };
-          for (const id of missing) delete next[id];
-          return next;
-        });
-        const docsToReload = documentsRef.current.filter((d) => d.photoIds.some((id) => missing.includes(id))).map((d) => d.id);
-        const details = await fetchDetails(docsToReload);
-        if (cancelled) return;
-        for (const detail of details.values()) if (detail) replaceDocument(detail);
-      } finally {
-        // Re-arm even when nothing changed or the request failed; the effect re-runs on the new tick.
-        if (!cancelled) setPollTick((n) => n + 1);
-      }
-    }, POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [pendingKey, pollTick, replaceDocument]);
+  // A PDF placeholder disappears when its pages are created, so documents with a missing photo are
+  // reloaded in full. Edited pages are polled until their new copy exists.
+  usePhotoProcessing(photos, async (views, missing) => {
+    setPhotos((prev) => {
+      const next = { ...prev, ...Object.fromEntries(views.map((p) => [p.id, p])) };
+      for (const id of missing) delete next[id];
+      return next;
+    });
+    const docsToReload = documentsRef.current.filter((d) => d.photoIds.some((id) => missing.includes(id))).map((d) => d.id);
+    const details = await fetchDocumentDetails(docsToReload);
+    for (const detail of details.values()) if (detail) replaceDocument(detail);
+  });
 
   async function groupSelected() {
     if (!templateId) return;

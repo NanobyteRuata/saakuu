@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { confirmSchema, idListSchema, idSchema, labelSchema, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from "@/lib/validation";
 
+import { DOCUMENT_STATUSES } from "./status";
+
 export const RUN_STATES = ["NEVER_RUN", "QUEUED", "RUNNING", "PARTIAL", "FAILED", "COMPLETE"] as const;
 export type RunState = (typeof RUN_STATES)[number];
 
@@ -11,21 +13,49 @@ export const ACTIVE_RUN_STATES: RunState[] = ["QUEUED", "RUNNING"];
 export const CONTENT_STATES = ["UNKNOWN", "HAS_CONTENT", "EMPTY", "NO_ROWS_FOUND"] as const;
 export type ContentState = (typeof CONTENT_STATES)[number];
 
-const booleanParam = z.enum(["true", "false"]).transform((v) => v === "true");
+/** Book order is the documents' own `position`; the other two sort by upload time (Phase 18). */
+export const DOCUMENT_SORTS = ["book", "newest", "oldest"] as const;
+export type DocumentSort = (typeof DOCUMENT_SORTS)[number];
+
+function isTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The viewer's IANA time zone, so "uploaded on 2026-09-21" means their day rather than UTC's — a batch
+ * shot at 6am in Yangon (UTC+6:30) is still the previous day in UTC. An unknown zone falls back to UTC
+ * rather than failing.
+ */
+export const timeZoneSchema = z
+  .string()
+  .max(64)
+  .regex(/^[A-Za-z0-9_+\-/]+$/)
+  .refine(isTimeZone)
+  .catch("UTC");
+
+export const isoDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Use a date like 2026-09-21." });
 
 export const listDocumentsSchema = z.object({
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(PAGE_LIMIT_DEFAULT),
   templateId: idSchema.optional(),
-  runState: z.enum(RUN_STATES).optional(),
-  needsReview: booleanParam.optional(),
-  hasEdits: booleanParam.optional(),
-  reviewed: booleanParam.optional(),
-  /** Phase 11: a page was transformed, replaced or added after the last successful reading. */
-  needsReextraction: booleanParam.optional(),
+  /** Phase 18: one named state in place of the run-state select and the four tri-states. */
+  status: z.enum(DOCUMENT_STATUSES).optional(),
+  /** Phase 18: documents uploaded on this day, in `tz`. */
+  uploadedOn: isoDaySchema.optional(),
+  sort: z.enum(DOCUMENT_SORTS).default("book"),
+  tz: timeZoneSchema,
   q: z.string().trim().max(200).optional(),
 });
 export type ListDocumentsInput = z.infer<typeof listDocumentsSchema>;
+
+export const uploadDaysSchema = z.object({ tz: timeZoneSchema, templateId: idSchema.optional() });
+export type UploadDaysInput = z.infer<typeof uploadDaysSchema>;
 
 /** A document can hold at most this many pages; keeps extraction requests and the drawer bounded. */
 export const MAX_DOCUMENT_PAGES = 200;

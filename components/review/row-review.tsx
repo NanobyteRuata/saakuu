@@ -9,24 +9,22 @@ import { FormMessage } from "@/components/auth/form-message";
 import { ExportButton, type ExportColumn } from "@/components/export/export-dialog";
 import { Pane, PaneGroup, PaneHandle } from "@/components/shell/pane";
 import { RegionImage, type RegionBox } from "@/components/photo/region-image";
-import { cellText } from "@/components/table/table-cell";
 import { useBookRows } from "@/components/table/use-book-rows";
 import { Button } from "@/components/ui/button";
-import { getJson, patchJson, postJson } from "@/lib/api-client";
+import { getJson, postJson } from "@/lib/api-client";
 import { formatCount, plural } from "@/lib/format";
 import type { PhotoView } from "@/lib/photos/views";
 import { firstUnreviewedColumn, nextUnreviewedRow, progressOf, reviewOrder } from "@/lib/review/progress";
 import type { ResumePoint, ReviewProgress, ReviewQueuePage, RowSources } from "@/lib/review/types";
-import type { ReviewSource } from "@/lib/table/schemas";
 import { PHOTO_MIN_PX } from "@/lib/ui/panes";
-import type { CellChangeResult, TableCell, TableMeta, TableRow } from "@/lib/table/types";
-import { withCell, withValidation } from "@/lib/table/view";
+import type { TableMeta } from "@/lib/table/types";
 import type { WirePage } from "@/lib/table/wire";
 import { cn } from "@/lib/utils";
 
 import { GlossaryFromReview } from "./glossary-from-review";
-import { ReviewField, type FieldEditorActions } from "./review-field";
+import { ReviewField } from "./review-field";
 import { ReviewPace } from "./review-pace";
+import { markReviewed, useCellWrites, type CommitThen } from "./use-cell-writes";
 
 type Props = {
   meta: TableMeta;
@@ -42,28 +40,17 @@ type Props = {
 
 type Position = { rowId: string; column: number };
 
-/** An editing session: debounced saves of one cell; the first save's log entry is extended, so it undoes as one step. */
-type Session = { rowId: string; cellId: string; serverCell: TableCell; editId: string | null; lastQueued: string; draft: string; timer: ReturnType<typeof setTimeout> | null };
-
 const PHOTO_PANE = "photo";
 const CELLS_PANE = "cells";
 /** 22rem, the floor the pre-pane grid used for the values column. */
 const CELLS_MIN_PX = 352;
-const SAVE_DEBOUNCE_MS = 400;
 /** Moving faster than this through rows loads no photo or regions for the rows passed over. */
 const SETTLE_MS = 120;
 const REVIEW_BATCH_MAX = 500;
-const UNDO_LIMIT = 100;
 const PHOTO_TTL_MS = 10 * 60_000;
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
-}
-
-function markReviewed(rows: TableRow[], rowId: string, cellIds: Set<string> | null, isReviewed: boolean): TableRow[] {
-  return rows.map((r) =>
-    r.id !== rowId ? r : { ...r, cells: Object.fromEntries(Object.entries(r.cells).map(([k, c]) => [k, cellIds === null || cellIds.has(c.id) ? { ...c, isReviewed } : c])) },
-  );
 }
 
 /**
@@ -84,8 +71,6 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
   const [target, setTarget] = useState<string | null | undefined>(startRowId ?? undefined);
   const [pos, setPos] = useState<Position | null>(null);
   const [serverProgress, setServerProgress] = useState<ReviewProgress | null>(null);
-  /** The cell being edited and the text its editor opens with. */
-  const [editing, setEditing] = useState<{ cellId: string; initial: string } | null>(null);
   const [zoomHeld, setZoomHeld] = useState(false);
   const [fitPage, setFitPage] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -98,30 +83,17 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
   const [glossaryTerm, setGlossaryTerm] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const session = useRef<Session | null>(null);
-  const chains = useRef(new Map<string, Promise<void>>());
-  const undoStack = useRef<{ editId: string; rowId: string }[]>([]);
   const requested = useRef(new Set<string>());
   const rowMarks = useRef<{ queued: Set<string>; running: boolean }>({ queued: new Set(), running: false });
-  const [pendingWrites, setPendingWrites] = useState(0);
-  const pendingRef = useRef(0);
-  const track = useCallback(<T,>(p: Promise<T>): Promise<T> => {
-    pendingRef.current++;
-    setPendingWrites(pendingRef.current);
-    return p.finally(() => {
-      pendingRef.current--;
-      setPendingWrites(pendingRef.current);
-    });
-  }, []);
-
-  // Leaving with saves still on their way would lose them.
-  useEffect(() => {
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (pendingRef.current > 0) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, []);
+  const focus = useCallback(() => containerRef.current?.focus({ preventScroll: true }), []);
+  const onCommittedRef = useRef<(then: CommitThen, at: { rowId: string; cellId: string }) => void>(() => {});
+  const { editing, pendingWrites, track, chains, accept, startEditing: startEditingCell, editor, commitOpen, markIllegible, revert, undo: undoLast } = useCellWrites({
+    rowsRef,
+    setRows,
+    announce: setAnnouncement,
+    focus,
+    onCommitted: (then, at) => onCommittedRef.current(then, at),
+  });
 
   // ---------- where to start ----------
 
@@ -256,70 +228,6 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
 
   // ---------- writes ----------
 
-  /** Runs writes to one cell in order, so a review mark never races the value it reviews. */
-  const onCell = useCallback(
-    (cellId: string, fn: () => Promise<void>): Promise<void> => {
-      // A failed step is reported where it happens and never blocks the next write to the cell.
-      const next = track((chains.current.get(cellId) ?? Promise.resolve()).then(fn).catch(() => {
-          toast.error("A change couldn't be saved. Refresh to see what was kept.");
-        }),
-      );
-      chains.current.set(cellId, next);
-      return next;
-    },
-    [track],
-  );
-
-  const applyResult = useCallback(
-    (data: CellChangeResult) => {
-      setRows((prev) => withValidation(withCell(prev, data.rowId, data.cell), data.affected));
-    },
-    [setRows],
-  );
-
-  const pushUndo = (editId: string | null, rowId: string) => {
-    if (!editId) return;
-    undoStack.current.push({ editId, rowId });
-    if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
-  };
-
-  const findCell = (rowId: string, cellId: string): TableCell | undefined => Object.values(rowsRef.current.find((r) => r.id === rowId)?.cells ?? {}).find((c) => c.id === cellId);
-
-  const enqueueSave = useCallback(
-    (s: Session, value: string) => {
-      s.lastQueued = value;
-      void onCell(s.cellId, async () => {
-        const result = await patchJson<CellChangeResult>(`/api/cells/${s.cellId}`, { value: value === "" ? null : value, ...(s.editId ? { editId: s.editId } : {}) });
-        if (result.ok) {
-          s.editId = result.data.editId ?? s.editId;
-          s.serverCell = result.data.cell;
-          applyResult(result.data);
-        } else {
-          toast.error(result.error.message);
-          setRows((prev) => withCell(prev, s.rowId, s.serverCell));
-        }
-      });
-    },
-    [onCell, applyResult, setRows],
-  );
-
-  /** `via` records how it was confirmed: on its own, or as the tail of marking it unreadable (decision 57). */
-  const accept = useCallback(
-    (rowId: string, cellId: string, via: ReviewSource = "CELL") => {
-      const current = findCell(rowId, cellId);
-      if (!current || current.isReviewed) return;
-      const ids = new Set([cellId]);
-      setRows((prev) => markReviewed(prev, rowId, ids, true));
-      void onCell(cellId, async () => {
-        const result = await postJson<{ cells: number }>("/api/cells/review", { cellIds: [cellId], isReviewed: true, via });
-        // A value save that landed first carried the old mark; put the new one back either way it went.
-        setRows((prev) => markReviewed(prev, rowId, ids, result.ok));
-        if (!result.ok) toast.error(result.error.message);
-      });
-    },
-    [onCell, setRows], // eslint-disable-line react-hooks/exhaustive-deps -- findCell reads the rows ref
-  );
-
   // ---------- moving ----------
 
   const goTo = useCallback(
@@ -372,7 +280,7 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
         if (!result.ok) toast.error(result.error.message);
       }
     },
-    [rowsRef, setRows],
+    [rowsRef, setRows, chains],
   );
 
   /** Sends queued row marks, one request at a time: rows marked in quick succession go together. */
@@ -446,126 +354,33 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
 
   const startEditing = useCallback(
     (at: Position, initial?: string) => {
-      const target = rowsRef.current.find((r) => r.id === at.rowId);
       const columnId = columnIds[at.column];
-      const c = target && columnId ? target.cells[columnId] : undefined;
-      if (!c) return;
-      const text = c.state === "OK" ? (c.value ?? "") : "";
-      const s: Session = { rowId: at.rowId, cellId: c.id, serverCell: c, editId: null, lastQueued: text, draft: initial ?? text, timer: null };
-      session.current = s;
-      setEditing({ cellId: c.id, initial: s.draft });
-      if (initial !== undefined && initial !== text) s.timer = setTimeout(() => enqueueSave(s, initial), SAVE_DEBOUNCE_MS);
+      if (columnId) startEditingCell(at.rowId, columnId, initial);
     },
-    [rowsRef, columnIds, enqueueSave],
+    [columnIds, startEditingCell],
   );
 
   const posRef = useRef(pos);
   posRef.current = pos;
 
-  const editor = useMemo<FieldEditorActions>(
-    () => ({
-      draftChanged: (value) => {
-        const s = session.current;
-        if (!s) return;
-        s.draft = value;
-        if (s.timer) clearTimeout(s.timer);
-        s.timer = setTimeout(() => {
-          s.timer = null;
-          if (value !== s.lastQueued) enqueueSave(s, value);
-        }, SAVE_DEBOUNCE_MS);
-      },
-      commit: (value, then) => {
-        const s = session.current;
-        const at = posRef.current;
-        if (!s || !at) return;
-        session.current = null;
-        if (s.timer) clearTimeout(s.timer);
-        setEditing(null);
-        if (value !== s.lastQueued) {
-          const current = findCell(s.rowId, s.cellId) ?? s.serverCell;
-          setRows((prev) => withCell(prev, s.rowId, { ...current, value: value === "" ? null : value, state: value === "" ? "EMPTY" : "OK", isEdited: true }));
-          enqueueSave(s, value);
-        }
-        void (chains.current.get(s.cellId) ?? Promise.resolve()).then(() => pushUndo(s.editId, s.rowId));
-        if (then === "accept") {
-          accept(s.rowId, s.cellId);
-          step(at, 1);
-        } else if (then === "next") step(at, 1);
-        else if (then === "previous") step(at, -1);
-        else if (then === "row") markRowAndNext(s.rowId);
-        if (then !== "stay") containerRef.current?.focus({ preventScroll: true });
-      },
-      cancel: () => {
-        const s = session.current;
-        if (!s) return;
-        session.current = null;
-        if (s.timer) clearTimeout(s.timer);
-        setEditing(null);
-        containerRef.current?.focus({ preventScroll: true });
-        // Saves this session already made are taken back as one undo.
-        void onCell(s.cellId, async () => {
-          if (!s.editId) return;
-          const result = await postJson<CellChangeResult>(`/api/cell-edits/${s.editId}/undo`, {});
-          if (result.ok) applyResult(result.data);
-          else toast.error(result.error.message);
-        });
-      },
-    }),
-    [enqueueSave, setRows, accept, step, markRowAndNext, onCell, applyResult], // eslint-disable-line react-hooks/exhaustive-deps -- findCell and pushUndo read refs
-  );
-
-  const markIllegible = (rowId: string, c: TableCell) => {
-    if (c.state !== "ILLEGIBLE") {
-      setRows((prev) => withCell(prev, rowId, { ...c, value: null, state: "ILLEGIBLE", isEdited: true }));
-      void onCell(c.id, async () => {
-        const result = await patchJson<CellChangeResult>(`/api/cells/${c.id}`, { value: null, state: "ILLEGIBLE" });
-        if (!result.ok) {
-          toast.error(result.error.message);
-          setRows((prev) => withCell(prev, rowId, c));
-          return;
-        }
-        applyResult(result.data);
-        pushUndo(result.data.editId, rowId);
-      });
-    }
-    accept(rowId, c.id, "ILLEGIBLE");
-    setAnnouncement("Marked unreadable.");
-  };
-
-  const revert = (rowId: string, c: TableCell) => {
-    if (!c.isEdited && !c.disagreement) {
-      setAnnouncement("This cell already holds the extracted value.");
-      return;
-    }
-    void onCell(c.id, async () => {
-      const result = await postJson<CellChangeResult>(`/api/cells/${c.id}/revert`, {});
-      if (!result.ok) {
-        toast.error(result.error.message);
-        return;
-      }
-      applyResult(result.data);
-      pushUndo(result.data.editId, rowId);
-      setAnnouncement(`Reverted to the extracted value: ${cellText(result.data.cell) || "empty"}.`);
-    });
+  onCommittedRef.current = (then, at) => {
+    const here = posRef.current;
+    if (!here) return;
+    if (then === "accept" || then === "next") step(here, 1);
+    else if (then === "previous") step(here, -1);
+    else if (then === "row") markRowAndNext(at.rowId);
   };
 
   const undo = async () => {
-    const entry = undoStack.current.pop();
-    if (!entry) {
-      setAnnouncement("Nothing to undo.");
-      return;
-    }
-    const result = await postJson<CellChangeResult>(`/api/cell-edits/${entry.editId}/undo`, {});
-    if (!result.ok) {
-      toast.error(result.error.message);
-      return;
-    }
-    applyResult(result.data);
-    const i = orderRef.current.indexOf.get(result.data.rowId);
-    const c = columnIds.indexOf(result.data.cell.columnId);
+    const data = await undoLast();
+    if (!data) return;
+    const i = orderRef.current.indexOf.get(data.rowId);
+    const c = columnIds.indexOf(data.cell.columnId);
     if (i !== undefined && c >= 0) goTo(i, c);
-    setAnnouncement(`Undone. The cell is now ${cellText(result.data.cell) || "empty"}.`);
   };
+
+  /** The active column down every document, starting at this row (Phase 20). */
+  const sweepHref = `/books/${bookId}/review/sweep${column ? `?column=${column.id}${row ? `&row=${row.id}` : ""}` : ""}`;
 
   // ---------- keyboard ----------
 
@@ -612,6 +427,9 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
     } else if (key === "g" || key === "G") {
       handled();
       offerGlossary();
+    } else if (key === "s" || key === "S") {
+      handled();
+      router.push(sweepHref);
     } else if (key === "[" || key === "]") {
       handled();
       goDocument(key === "]" ? 1 : -1);
@@ -665,16 +483,15 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
       const next = { rowId: at.rowId, column: columnIds.indexOf(columnId) };
       if (next.column < 0) return;
       // Picking another cell while editing saves the open edit first; its editor never blurs, as the pick keeps focus.
-      const open = session.current;
-      if (open) {
-        if (open.cellId === rowsRef.current.find((r) => r.id === next.rowId)?.cells[columnId]?.id) return;
-        editor.commit(open.draft, "stay");
+      if (editing !== null) {
+        if (editing.cellId === rowsRef.current.find((r) => r.id === next.rowId)?.cells[columnId]?.id) return;
+        commitOpen("stay");
       }
       setPos(next);
       containerRef.current?.focus({ preventScroll: true });
       if (edit) startEditing(next);
     },
-    [columnIds, startEditing, editor, rowsRef],
+    [columnIds, startEditing, commitOpen, editing, rowsRef],
   );
 
   const onSelectText = useCallback((cellId: string, text: string | null) => {
@@ -712,6 +529,9 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <ReviewPace bookId={bookId} />
+          <Button variant="ghost" size="sm" asChild title="S">
+            <Link href={sweepHref}>Sweep column</Link>
+          </Button>
           <Button variant="outline" size="sm" onClick={nextUnreviewed} onMouseDown={(e) => e.preventDefault()} disabled={!pos} title="N">
             Next unreviewed
           </Button>
@@ -857,9 +677,7 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
                       variant="outline"
                       onClick={() => {
                         // An open edit is saved with the row, as ⌘Enter does while typing.
-                        const open = session.current;
-                        if (open) editor.commit(open.draft, "row");
-                        else markRowAndNext(row.id);
+                        if (!commitOpen("row")) markRowAndNext(row.id);
                       }}
                       onMouseDown={(e) => e.preventDefault()}
                     >
@@ -887,7 +705,7 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, re
                 </>
               )}
               <p id="review-keys" className={cn("text-muted-foreground border-t px-4 py-2 text-xs leading-relaxed")}>
-                Enter accepts and moves on · Tab / Shift+Tab move · ⌘↵ / Ctrl+Enter marks the row reviewed · I unreadable · R revert · G add to glossary · [ ] documents · N next unreviewed ·
+                Enter accepts and moves on · Tab / Shift+Tab move · ⌘↵ / Ctrl+Enter marks the row reviewed · I unreadable · R revert · G add to glossary · S sweep this column · [ ] documents · N next unreviewed ·
                 hold Space to zoom · type or F2 to edit · ⌘Z undo · Esc back to the table
               </p>
             </section>

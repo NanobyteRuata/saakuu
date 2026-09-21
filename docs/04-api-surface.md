@@ -576,6 +576,8 @@ GET    /api/rows/:id/sources               -> { rowId, photoId, bbox, cells: { c
 POST   /api/cells/review                   (Phase 7) marks cells or whole rows; row review batches rows marked quickly
 GET    /api/books/:id/review-resume        (Phase 19) -> { rowId, documentId, documentLabel } | null
 GET    /api/books/:id/review-pace          (Phase 19) -> { sources: [{ via, cells, timedCells, seconds }], breakSeconds }
+GET    /api/books/:id/column-sources       (Phase 20) ?columnId&cursor&limit (≤ 500) -> { columnId, nextCursor,
+                                                items: [{ rowId, photoId, bbox, recordBbox, paths[], written }] }
 ```
 - Review covers live, non-void rows and cells of live columns. A document counts once it has such a cell and is complete when
   all of them are reviewed; the Documents list shows `reviewed` and filters `?reviewed=true|false` on the same rule.
@@ -601,6 +603,14 @@ collection is not (decision 56).
   `seconds`, and so do the first event and an event with a zero gap (another source's at the same instant). A cell
   reviewed and then un-reviewed leaves no event, so the next gap includes its time; the skew is small and towards slower. Seconds per cell is `seconds / timedCells`, per source. Cells with no
   `reviewedVia` (reviewed before Phase 12) are left out. All three sources are always present, in a fixed order.
+
+**Phase 20:** `column-sources` is `GET /api/rows/:id/sources` turned on its side for the column sweep: one column's
+region for a page of rows, in manual order, over the same rows review covers (live, non-void, counting documents). Each
+item is exactly what `rows/:id/sources` gives for that column (the same `cellSources`), plus the row's own box as
+`recordBbox`, which the sweep crops when the column has no region of its own. One template context per template on the
+page and one raw-value read, so a sweep down a few thousand rows is a handful of requests. A column that is deleted or
+belongs to another book is `NOT_FOUND`. The sweep writes nothing new: reviews go through `POST /api/cells/review` with
+`via: "CELL"` or `"ILLEGIBLE"`, as row review's do.
 
 ## Worker-only internals
 

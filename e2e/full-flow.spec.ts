@@ -85,7 +85,17 @@ test("sign in → book → template → upload → extract → review → export
   }).toPass({ timeout: 60_000 });
   await expect(page.getByText("Village 1")).toBeVisible();
 
-  // Review with the keyboard only: Ctrl+Enter marks the row reviewed.
+  // Sweep one column down the book, keyboard only, from its header menu (Phase 20): each value beside its own region.
+  await page.getByRole("button", { name: /^Village/ }).click();
+  await page.getByRole("link", { name: /^Sweep this column/ }).click();
+  const sweep = page.getByRole("application", { name: "Column sweep" });
+  await expect(sweep.getByRole("option", { selected: true })).toContainText("Village 1");
+  await sweep.focus();
+  await page.keyboard.press("Enter");
+  await expect(sweep.getByText("Every value in Village is reviewed")).toBeVisible();
+  await expect(sweep.getByText(/^1 of 1 reviewed in this column · 1 of 2 cells in the book/)).toBeVisible();
+
+  // Then row review, with the keyboard only, picks up at the cell the sweep left: Ctrl+Enter marks the row reviewed.
   await page.getByRole("link", { name: "Review rows" }).click();
   const review = page.getByRole("application", { name: "Row review" });
   await expect(review.getByText("Name 1")).toBeVisible();
@@ -103,11 +113,13 @@ test("sign in → book → template → upload → extract → review → export
   await page.keyboard.press("Control+Enter");
   await expect(page.getByText("Every cell is reviewed")).toBeVisible();
 
-  // The readout keeps row marks apart from per-cell confirms (decision 57).
+  // The readout keeps row marks apart from per-cell confirms (decision 57); the sweep's Enter is a per-cell confirm,
+  // recorded exactly as row review records one.
   await page.getByRole("button", { name: "Pace" }).click();
+  await expect(page.getByText("Cell by cell (Enter)")).toBeVisible();
   await expect(page.getByText("Whole rows (⌘Enter)")).toBeVisible();
-  // The book's first review has nothing before it to be timed from.
-  await expect(page.getByText("not timed · 2 cells")).toBeVisible();
+  // The book's first review, the sweep's, has nothing before it to be timed from.
+  await expect(page.getByText("not timed · 1 cell")).toBeVisible();
   await page.keyboard.press("Escape");
 
   // Export: BOM, header in column order, the extracted values.

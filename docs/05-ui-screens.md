@@ -607,7 +607,7 @@ viewer at that record's region. Right-click (or a row menu) gives: review this r
 revert row to extracted, mark void, delete.
 
 **Column headers:** label, type chip, counts of errors and unreviewed cells, a menu
-with sort (view-only), filter, and `Sweep this column` (deferred).
+with sort (view-only), filter, and `Sweep this column` (Phase 20, §13.1).
 
 **Editing:** click or Enter to edit, Escape to cancel, Tab/Enter to move. Edits
 debounce and save individually. Undo (Cmd+Z) reverts the last edit via the CellEdit
@@ -632,6 +632,7 @@ Toolbar above the table: filters (needs review, has errors, edited, by template)
   Dragging is off while a sort is active; a drop writes one row.
 - Header: label, required mark, type, error count and unreviewed count (non-void rows), and a menu with sort, filters
   (Needs attention, Errors, Warnings, Edited, Not reviewed, Empty, Containing…) and `Sweep this column (coming later)`.
+  *(Phase 20: now a link, `Sweep this column · N unreviewed`, into §13.1.)*
 
 A column no template maps carries a **`Not filled`** chip in its header (Phase 10), and the column
 editor names the templates that could fill a new column — in its impact report, and in the confirmation
@@ -708,6 +709,9 @@ Header shows position (`Document 12 of 40 · Row 3 of 9`) and a progress bar.
 - Without `?row=`, review **resumes where it stopped**: the first row with an unreviewed cell at or after the row holding
   the book's most recently reviewed cell, wrapping to the top, announced as `Resuming in <document>, where review stopped.`
   The nav and the books list's `Resume review` land here.
+- *(Phase 20)* **`S`** opens the column sweep (§13.1) on the active column at this row, and so does `Sweep column` in
+  the header. It joins `I`, `R`, `N` and `G` as a letter key, so a value starting with `i`, `r`, `n`, `g` or `s` is
+  typed after F2.
 - **Add to glossary:** `G` offers the text selected in the active value, else the text as written on the paper (a ditto
   mark, not what it resolved to), else the value; selecting text in the
   active value with the mouse shows `Add "…" to glossary` beside it. A dialog takes the meaning and adds the entry;
@@ -715,6 +719,40 @@ Header shows position (`Document 12 of 40 · Row 3 of 9`) and a progress bar.
   without a selection edits, as before.
 - **Pace:** a popover of seconds per reviewed cell, one line per source — `Cell by cell (Enter)`, `Whole rows (⌘Enter)`,
   `Unreadable (I)` — never blended. Pauses over five minutes count as breaks, and their cells are counted but not timed.
+
+## 13.1 Column sweep (Phase 20)
+`/books/:id/review/sweep?column=<id>[&row=<id>]`, inside the Review workspace (the nav's `Review` stays lit). One output
+column down every document in manual order, each value beside **its own cropped region from its own page**, so the eye
+stays on one kind of handwriting. Without `?column=` it opens on the first column with an unreviewed value; without
+`?row=`, at the first row whose value in that column is unreviewed. Void rows are skipped, as in row review.
+
+Entry points: `Sweep this column` in a Result Table column header's menu; `Sweep column` (`S`) in row review's header,
+which opens the active column at the active row; `Review rows` in the sweep's header goes back to row review at the
+active row.
+
+Two panes, resizable and remembered under `sweep` (§0):
+- **Values** (primary, 480px floor): header with the column picker, `Value 13 of 100`, `Pace`, `Next unreviewed`,
+  `Review rows`, a progress bar for the column, `312 of 900 reviewed in this column · 1,204 of 6,300 cells in the book`,
+  and `saving…` / `all changes saved`. Then a virtualised list: a document label where each document starts, and per
+  row the crop (the column's region with a small margin, at most 96px high, drawn from the working copy) beside the
+  value with the docs/08 channels, `uncertain · 41%` when low, `edited`, reviewed dot, validation messages. A value with
+  no region of its own shows the row's box and says so; none at all says `No region recorded for this value.`
+- **Page** (collapsible, keeps the photo pane's readable floor): the active value's page, the row boxed dashed and the
+  value boxed solid, zoomed to the row. Context for a crop that isn't enough.
+
+Keys, when not typing, mean what they mean in row review: `Enter` accepts and moves down; `↑` `↓` / `Tab` `Shift+Tab`
+move; `←` `→` switch to the previous / next column on the same row; `I` marks unreadable and moves down; `R` reverts;
+`N` next unreviewed in this column; `[` `]` first value of the previous / next document; `G` offers what was written on
+the paper (else the value) to the glossary; `F2` or typing edits (Enter saves, accepts and moves down; Tab saves and
+moves; Esc cancels); `Delete` clears; `⌘Z` undoes; hold `Space` to zoom the page pane to the value; `PageUp` /
+`PageDown` jump ten; `Home` / `End`; `Esc` returns to the table.
+
+Reviews are recorded **exactly as row review records them**: the same `POST /api/cells/review`, `CELL` for `Enter`,
+`ILLEGIBLE` for `I`. The nav count, the progress bar, where review resumes and `Pace` all include sweep reviews with
+nothing added (Pace's `Cell by cell (Enter)` line counts both screens).
+
+The end of the column shows `Every value in <column> is reviewed` with `Sweep <next column with work>`, or the count
+still unreviewed with `Next unreviewed`.
 
 ## 14. Export dialog
 Options: include void rows, include provenance columns, column subset, blank token,

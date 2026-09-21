@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp, CircleAlert, CircleDashed, Filter, TriangleAlert, Unplug } from "lucide-react";
+import Link from "next/link";
 import { memo, useState } from "react";
 import { toast } from "sonner";
 
@@ -194,9 +195,13 @@ export const ColumnHeader = memo(function ColumnHeader({ column, width, errors, 
             </Button>
           ) : null}
           <div className="my-2 border-t" />
-          <button type="button" disabled className="text-muted-foreground w-full cursor-not-allowed px-2 py-1 text-left text-sm" title="Column sweep review is coming later">
-            Sweep this column (coming later)
-          </button>
+          <Link
+            href={`/books/${bookId}/review/sweep?column=${column.id}`}
+            className="hover:bg-muted block w-full rounded px-2 py-1 text-left text-sm"
+            title="Review this column down every document, each value beside where it was read"
+          >
+            Sweep this column{unreviewed > 0 ? ` · ${formatCount(unreviewed)} unreviewed` : ""}
+          </Link>
         </PopoverContent>
       </Popover>
       <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 overflow-hidden text-xs font-normal whitespace-nowrap">

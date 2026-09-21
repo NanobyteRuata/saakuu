@@ -1,7 +1,7 @@
 # 08 — Cell State Visual Language
 
 This replaces the state table in `docs/05-ui-screens.md` §12. It governs the output
-table, row review, and (later) column sweep — the same cell must look the same
+table, row review, and column sweep (Phase 20) — the same cell must look the same
 everywhere.
 
 ## 1. The core problem

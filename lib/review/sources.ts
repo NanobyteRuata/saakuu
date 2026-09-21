@@ -39,7 +39,8 @@ export function unionBbox(boxes: Bbox[]): Bbox | null {
   return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
-function sourceFields(tree: Tree, input: MappingSource): string[] {
+/** The fields a mapping input reads: the field itself, or a selection group's option fields. */
+export function sourceFieldIds(tree: Tree, input: MappingSource): string[] {
   if (input.kind === "field") return [input.fieldId];
   if (input.kind === "group") {
     const node = tree.groups.get(input.groupId);
@@ -63,7 +64,7 @@ export function cellSources(tree: Tree, working: Map<string, TransformMapping>, 
   const byField = new Map(values.map((v) => [v.fieldId, v]));
   const out: Record<string, CellSource> = {};
   for (const [columnId, mapping] of working) {
-    const fieldIds = mapping.inputs.flatMap((i) => sourceFields(tree, i));
+    const fieldIds = mapping.inputs.flatMap((i) => sourceFieldIds(tree, i));
     const read = fieldIds.flatMap((id) => {
       const v = byField.get(id);
       return v?.bbox && (recordPhotoId === null || v.photoId === null || v.photoId === recordPhotoId) ? [v] : [];

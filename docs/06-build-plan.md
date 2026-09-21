@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–19 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–20 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 19.
+Phase 21, and what comes next is the Post-v1 list, re-ranked from usage.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–19
+## Shipped — Phases 0–20
 
 | Phase | What shipped |
 |---|---|
@@ -41,9 +41,10 @@ previous one's criteria pass.
 | **17** | The second book: `Duplicate` copies a template into another book (source layer, never mappings), `New book from this one` copies a book's whole setup and none of its work, and the books list shows review progress with its own `Resume review`. |
 | **18** | Documents, and what the machine is doing: a run drawer per document and per page with the failure reason and retry, one Status select in place of the run-state select and four tri-states, upload date as a column, filter and sort, and the phone's upload screen in full. |
 | **19** | Review, where the time actually goes: the photo runs the full height of the workspace, review resumes in the document it stopped in (and a reopened book offers it), `G` or a selection adds a value to the glossary, and `Pace` reads out seconds per reviewed cell per review source. |
+| **20** | Column sweep: one column down every document inside the Review workspace, each value beside its own crop from its own page, keyboard only, recording reviews through the same path and sources as row review. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 19's are
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 20's are
 below; their reasoning is decisions 66–77.
 
 ---
@@ -662,7 +663,7 @@ create. The full-flow E2E's review step presses `G`, adds the entry and opens `P
 
 ---
 
-## Phase 20 — Column sweep
+## Phase 20 — Column sweep ✅ shipped
 
 Pulled forward from post-v1 (#3 in the old order). One column down all documents, cropped source regions
 side by side: the fastest possible shape for the most repetitive part of the work. It needs no new
@@ -677,6 +678,46 @@ answer from usage rather than guess. It sits last for that reason: by the time i
 - One column can be reviewed down every document in a book using only the keyboard.
 - Each value shows its own cropped region from its own page.
 - Progress and `reviewedVia` are recorded identically to row review.
+
+**Tests:** none new under the unit policy: the one new endpoint reads, and the writes are row review's own. The full-flow
+E2E sweeps the `Village` column from its header menu with `Enter` before row review, and its Pace step now expects the
+sweep's confirm on the `Cell by cell (Enter)` line as the book's first, untimed, review.
+
+**As built.** Notes for whatever comes after it:
+
+- **A mode of the Review workspace, not a fifth workspace.** `/books/:id/review/sweep?column=`, and the nav's `Review`
+  stays lit there. It is the same work, reviewing, in another layout (decision 19), and a peer in the nav would have
+  asked the operator to choose a layout before they had seen either. Entry points are where a column is already in
+  hand: the Result Table header menu, and `S` in row review, which carries the active column and row across.
+  `Review rows` goes back the same way.
+- **One write path, pulled out of row review rather than copied.** `useCellWrites` (`components/review/use-cell-writes.ts`)
+  holds what both screens do to a cell: per-cell ordered writes, debounced saves while typing, accept, unreadable,
+  revert, undo, and the editing session. What follows a committed edit is the screen's business, through a callback:
+  row review moves across the row, the sweep moves down the column. Row marks stay in row review. Because the sweep
+  goes through the same `POST /api/cells/review` with `CELL` and `ILLEGIBLE`, the nav count, the progress bar,
+  `resumePoint` and Pace include it with nothing added — which is what "recorded identically" means.
+- **Pace can't tell the sweep from row review, as asked.** Both are `CELL`. Decision 64 wants the question "does the sweep
+  beat row review?" answered from usage; if that comparison is ever wanted, it needs a fourth `ReviewSource` (a schema
+  change and a Pace line), not a change to how either screen writes.
+- **Regions come in pages per column, not per row.** `GET /api/books/:id/column-sources` is `rows/:id/sources` turned on its
+  side: one column's region for 500 rows at a time, one template context per template on the page and one raw-value
+  read, through the same `cellSources`, so the crop and row review's solid box are always the same region. Rows and
+  cells come from `useBookRows`, the hook the table and row review already share. Photos are fetched in batches for the
+  rows on screen once scrolling settles, and asked for again after ten minutes, like row review's.
+- **The crop is an SVG viewBox over the working copy.** `RegionCrop` (`components/photo/region-crop.tsx`) needs only the
+  image's natural size, cached per URL because every row of a table page shares one photo. It scales to whatever width
+  the pane gives it with no measuring, pads the box a little (the model's boxes are loose and strokes run past them)
+  and caps the height at 96px. A value whose column has no region of its own crops the row's box and says so.
+- **`←` / `→` change column and keep the row.** The value beside it in the next column is the one most likely still in
+  mind; `N` then finds work in the new column. The end-of-column state offers the next column with work.
+- **Leaving the last value checks the mark just made.** The rows ref doesn't show an optimistic mark until the next
+  render, so the end-of-column check is told which value was just accepted; the first draft said "earlier values are
+  still unreviewed" about a column it had just finished. Row review's per-cell `Enter` on the last cell of the book
+  reads the same ref and has the same one-render lag; its `⌘Enter` path doesn't. Left alone here, as it predates this
+  phase.
+- **The demo seed's boxes sit half a row low** (`scripts/seed-demo.ts`, `(r + 0.5) * rowH`) and every field reuses the row's box,
+  so demo crops straddle two lines. Real extractions have per-field boxes; the seed is worth fixing next time it is
+  touched.
 
 ---
 

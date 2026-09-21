@@ -77,7 +77,7 @@ export function BookNav({ bookId, userId, initialCounts }: Props) {
   const items: { label: string; count: string | null; segment: BookWorkspace; exact: boolean }[] = [
     { label: "Templates", count: null, segment: "templates", exact: false },
     { label: "Documents", count: counts.documents > 0 ? String(counts.documents) : null, segment: "documents", exact: false },
-    { label: "Review", count: counts.unreviewedCells > 0 ? `${counts.unreviewedCells} left` : null, segment: "review", exact: true },
+    { label: "Review", count: counts.unreviewedCells > 0 ? `${counts.unreviewedCells} left` : null, segment: "review", exact: false },
     { label: "Result Table", count: counts.rows > 0 ? `${counts.rows} rows` : null, segment: "", exact: true },
   ];
 

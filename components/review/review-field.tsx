@@ -195,7 +195,7 @@ export const ReviewField = memo(function ReviewField({ column, cell, source, cel
   );
 });
 
-function FieldEditor({ initial, label, editor }: { initial: string; label: string; editor: FieldEditorActions }) {
+export function FieldEditor({ initial, label, editor }: { initial: string; label: string; editor: FieldEditorActions }) {
   const ref = useRef<HTMLInputElement>(null);
   const done = useRef(false);
   useEffect(() => {

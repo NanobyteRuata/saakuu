@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
+import { loadColumns } from "@/lib/books/columns-service";
 import { prisma } from "@/lib/db/client";
 import { COUNTING_DOC_TEMPLATE_SQL } from "@/lib/db/scope";
 import type { Db } from "@/lib/documents/access";
@@ -11,9 +12,9 @@ import { buildTree } from "@/lib/templates/tree";
 import { firstWorkingMappings } from "@/lib/transform/run";
 import { loadTemplateContext } from "@/lib/transform/service";
 
-import type { ReviewQueueInput } from "./schemas";
-import { cellSources, type RegionValue } from "./sources";
-import type { ResumePoint, ReviewProgress, ReviewQueuePage, RowSources } from "./types";
+import type { ColumnSourcesInput, ReviewQueueInput } from "./schemas";
+import { cellSources, sourceFieldIds, type RegionValue } from "./sources";
+import type { ColumnSource, ColumnSourcesPage, ResumePoint, ReviewProgress, ReviewQueuePage, RowSources } from "./types";
 
 /**
  * Row review (docs/05 §13): where each cell was read, what is left to review and how far along a book is.
@@ -47,6 +48,102 @@ export async function getRowSources(userId: string, rowId: string): Promise<RowS
     return { fieldId: v.fieldId, photoId: v.photoId, bbox: bbox.success ? bbox.data : null, valueText: v.valueText };
   });
   return { ...base, cells: cellSources(tree, working, regions, base.photoId) };
+}
+
+type ColumnRowRecord = { id: string; position: string; templateId: string; rawRecordId: string | null; photoId: string | null; bbox: unknown };
+
+/**
+ * Where one column's cell was read, for a page of the book's rows in manual order (Phase 20, column sweep). The same
+ * rows review covers, and per row exactly what `getRowSources` gives for this column: the region is the union of the
+ * boxes of the fields the column's working mapping reads, on the record's own page. One template context per template
+ * on the page and one raw-value read, so a sweep down a few thousand rows is a handful of requests, not one per row.
+ */
+export async function getColumnSources(userId: string, bookId: string, input: ColumnSourcesInput): Promise<ColumnSourcesPage> {
+  await requireBookAccess(userId, bookId);
+  const column = await prisma.outputColumn.findFirst({ where: { id: input.columnId, bookId, deletedAt: null }, select: { id: true } });
+  if (!column) throw new AppError("NOT_FOUND", "That column doesn't exist any more. Refresh to see the book's columns.");
+  const after = input.cursor ? decodeCursor(input.cursor) : null;
+  const cursorCond = after
+    ? Prisma.sql`AND (r.position COLLATE "C" > ${after.position} COLLATE "C" OR (r.position = ${after.position} AND r.id > ${after.id}))`
+    : Prisma.empty;
+  const found = await prisma.$queryRaw<ColumnRowRecord[]>`
+    SELECT r.id, r.position, d."templateId", r."rawRecordId", rr."photoId", rr.bbox
+    FROM "Row" r
+    JOIN "Document" d ON d.id = r."documentId"
+    JOIN "Template" t ON t.id = d."templateId"
+    LEFT JOIN "RawRecord" rr ON rr.id = r."rawRecordId"
+    WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid" AND ${COUNTING_DOC_TEMPLATE_SQL} ${cursorCond}
+    ORDER BY r.position COLLATE "C", r.id
+    LIMIT ${input.limit + 1}`;
+  const rows = found.slice(0, input.limit);
+  const last = rows.at(-1);
+  const nextCursor = found.length > input.limit && last ? encodeCursor(last.position, last.id) : null;
+
+  // This column's working mapping, per template on the page.
+  const plans = new Map<string, { tree: ReturnType<typeof buildTree>; working: ReturnType<typeof firstWorkingMappings> } | null>();
+  await Promise.all(
+    [...new Set(rows.map((r) => r.templateId))].map(async (templateId) => {
+      const ctx = await loadTemplateContext(prisma, templateId);
+      if (!ctx) return plans.set(templateId, null);
+      const tree = buildTree(ctx.groups, ctx.fields);
+      const all = firstWorkingMappings(ctx.mappings, { tree, liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
+      const mapping = all.get(column.id);
+      plans.set(templateId, mapping ? { tree, working: new Map([[column.id, mapping]]) } : null);
+    }),
+  );
+  const recordIds = rows.flatMap((r) => (r.rawRecordId && plans.get(r.templateId) ? [r.rawRecordId] : []));
+  // Only the fields this column's mappings read (a selection group reads its option fields).
+  const fieldIds = [...new Set([...plans.values()].flatMap((plan) => (plan ? [...plan.working.values()].flatMap((m) => m.inputs.flatMap((i) => sourceFieldIds(plan.tree, i))) : [])))];
+  const values =
+    recordIds.length === 0 || fieldIds.length === 0
+      ? []
+      : await prisma.rawValue.findMany({
+          where: { rawRecordId: { in: recordIds }, fieldId: { in: fieldIds } },
+          select: { rawRecordId: true, fieldId: true, photoId: true, bbox: true, valueText: true },
+          take: recordIds.length * fieldIds.length,
+        });
+  const byRecord = new Map<string, RegionValue[]>();
+  for (const v of values) {
+    const bbox = bboxSchema.safeParse(v.bbox);
+    const list = byRecord.get(v.rawRecordId) ?? [];
+    list.push({ fieldId: v.fieldId, photoId: v.photoId, bbox: bbox.success ? bbox.data : null, valueText: v.valueText });
+    byRecord.set(v.rawRecordId, list);
+  }
+
+  const items = rows.map((r): ColumnSource => {
+    const recordBbox = bboxSchema.safeParse(r.bbox);
+    const base = { rowId: r.id, photoId: r.photoId, bbox: null, recordBbox: recordBbox.success ? recordBbox.data : null, paths: [], written: null };
+    const plan = plans.get(r.templateId);
+    if (!plan || !r.rawRecordId) return base;
+    const source = cellSources(plan.tree, plan.working, byRecord.get(r.rawRecordId) ?? [], r.photoId)[column.id];
+    return source ? { ...base, ...source, photoId: source.photoId ?? r.photoId } : base;
+  });
+  return { columnId: column.id, items, nextCursor };
+}
+
+/**
+ * The column a sweep opens on when none is asked for (Phase 20): the first, in column order, with an unreviewed cell in
+ * the rows review covers; else the first column. Null for a book with no columns.
+ */
+export async function firstSweepColumn(userId: string, bookId: string): Promise<string | null> {
+  await requireBookAccess(userId, bookId);
+  const [open] = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT oc.id
+    FROM "OutputColumn" oc
+    WHERE oc."bookId" = ${bookId} AND oc."deletedAt" IS NULL
+      AND EXISTS (
+        SELECT 1 FROM "Cell" c
+        JOIN "Row" r ON r.id = c."rowId"
+        JOIN "Document" d ON d.id = r."documentId"
+        JOIN "Template" t ON t.id = d."templateId"
+        WHERE c."outputColumnId" = oc.id AND NOT c."isReviewed"
+          AND r."deletedAt" IS NULL AND NOT r."isVoid" AND ${COUNTING_DOC_TEMPLATE_SQL}
+      )
+    ORDER BY oc.position COLLATE "C", oc.id
+    LIMIT 1`;
+  if (open) return open.id;
+  const [first] = await loadColumns(prisma, bookId);
+  return first?.id ?? null;
 }
 
 type ProgressRecord = { bookId: string; cells: number; reviewedCells: number; documents: number; reviewedDocuments: number };

@@ -297,10 +297,11 @@ Both operate on the same data; the user chooses the layout.
 - **Row review** (default): one row at a time, source photo beside it. The active
   cell is highlighted and its region is boxed on the photo. Keyboard: Tab/Enter to
   advance, a key to mark reviewed, a key to mark illegible.
-- **Column sweep**: one output column at a time, down all documents. Each value shown
+- **Column sweep** (Phase 20): one output column at a time, down all documents. Each value shown
   with its cropped source region beside it, so the eye stays calibrated on one kind of
-  handwriting. Deferred past v1 but the data (per-field bounding boxes) is captured
-  from v1 so it can be built without re-extraction.
+  handwriting. Built from the per-field bounding boxes captured since v1, with no
+  re-extraction. Same keys and the same review record as row review: `Enter` is a per-cell
+  confirm and `I` marks unreadable, so progress, resume and Pace can't tell the two apart.
 
 Every cell carries a `isReviewed` flag. A document is `reviewed` when all its cells are.
 

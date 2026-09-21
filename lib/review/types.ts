@@ -36,3 +36,11 @@ export type ReviewPace = {
   sources: { via: ReviewSource; cells: number; timedCells: number; seconds: number }[];
   breakSeconds: number;
 };
+
+/**
+ * Where one column's cell was read, per row (Phase 20, column sweep). `bbox` is the cell's own region, `recordBbox` the
+ * row's, both on `photoId`. `bbox` is null when nothing the column reads has a box; the sweep then shows the row's.
+ */
+export type ColumnSource = CellSource & { rowId: string; recordBbox: Bbox | null };
+
+export type ColumnSourcesPage = { columnId: string; items: ColumnSource[]; nextCursor: string | null };

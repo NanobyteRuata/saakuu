@@ -8,7 +8,7 @@ no migration and no data backfill.
 | Feature | Reserved in schema | Notes |
 |---|---|---|
 | Double extraction | `Template.doubleExtraction`, `ExtractionRun.passIndex`, `RawValue.altValueText`, `RawValue.disagreement` | Run twice, diff, flag. 2× cost but genuinely calibrated uncertainty, unlike self-reported confidence. |
-| Column sweep review | `RawValue.bbox`, `RawValue.photoId` | Bounding boxes captured from v1, so the view can be built without re-extracting anything. |
+| Column sweep review | `RawValue.bbox`, `RawValue.photoId` | **Shipped in Phase 20**, with no schema change and no re-extraction: the boxes captured from v1 are what it crops. |
 | Vocabulary autocomplete | none needed — derived from `Cell.currentValue` | Per-column value frequency, offered on edit; near-miss detection flags likely typos. Highest-value post-v1 item. |
 | Batches | `Batch` model, `Document.batchId` | Upload sessions with metadata that can feed `CONSTANT` mappings, so `clinic_name` is set once per batch rather than extracted 400 times. |
 | Book duplication | none needed | Three levels: structure only / structure + documents+photos / full copy including data. |
@@ -93,7 +93,8 @@ strings let the system flag a probable mismatch before a human wastes review tim
 number. Deterministic, free, and they never block export.
 
 **19. Review offers both row and column layouts.** Row review is the default; column
-sweep is the specialised tool, deferred but data-ready.
+sweep is the specialised tool, deferred but data-ready. *(Phase 20: column sweep shipped, inside the Review
+workspace, recording reviews exactly as row review does.)*
 
 **20. Manual row order is canonical; column sorting is view-only** and never writes.
 Fractional indexes make a drag a single-row update.

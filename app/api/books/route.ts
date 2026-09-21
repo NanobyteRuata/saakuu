@@ -1,6 +1,6 @@
 import { requireSessionUserId } from "@/lib/auth/session";
 import { createBookSchema } from "@/lib/books/schemas";
-import { createBook, listBooks } from "@/lib/books/service";
+import { createBook, listBookNames, listBooks } from "@/lib/books/service";
 import { resultResponse, runAction } from "@/lib/errors";
 import { paginationSchema, parseInput, searchParamsToObject } from "@/lib/validation";
 
@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request): Promise<Response> {
   const result = await runAction(async () => {
     const userId = await requireSessionUserId();
-    const page = parseInput(paginationSchema, searchParamsToObject(new URL(request.url).searchParams));
-    return listBooks(userId, page);
+    const params = new URL(request.url).searchParams;
+    const page = parseInput(paginationSchema, searchParamsToObject(params));
+    // `?view=names` serves pickers, which need neither the counts nor the review progress.
+    return params.get("view") === "names" ? listBookNames(userId, page) : listBooks(userId, page);
   });
   return resultResponse(result);
 }

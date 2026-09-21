@@ -414,6 +414,22 @@ labelled place a value goes, with a small grid expanded into its cells. A table 
 alone. Proposing structure is post-v1 #7, built only if real proposals show flat fields are the bottleneck.
 (Phase 16)
 
+**74. Cross-book copy now; a versioned library only when someone asks for one.** The second book is
+where a recurring register lives: the same malaria form, next quarter. v1 could only copy a template
+within its own book, so the second book meant re-authoring every field, group, selection rule, note and
+mapping by hand. Two plain copies answer it. A **template copied into another book** takes its source
+layer — fields, groups, selection settings, notes, anchors, language hint, instructions — and never its
+mappings, because they name output columns that belong to the first book (decision 3: the source layer
+is portable, the mapping layer is book-bound). It lands as `Draft`, and the target book's `Create columns
+from this template` finishes it in one click; the confirmation counts what travels and what stays. A
+**new book from a book** copies templates, columns, mappings, glossary and validation rules — and the
+paper's numeral system, era and export tokens — but no documents, photos or rows. Because the columns
+come too, each mapping and each cross-column rule follows its column to the copy, so a repeat book
+arrives configured and empty. The versioned library (Part A) — books pinning a shared definition and
+pulling updates with a diff — answers a need nobody has expressed: plain copies drift, and so far that
+is what operators want, since next quarter's paper is allowed to differ. `sourceDefId` stays reserved.
+(Phase 17)
+
 **76. Numeral system and era are asked by exception, at the point of failure.** They are real: they
 reach the prompt and the transform, and changing one rebuilds every row. But they describe *the
 paper*, not the book, and an operator asked up front does not know what "Myanmar era" will do to

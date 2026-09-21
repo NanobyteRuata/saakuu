@@ -7,7 +7,7 @@ import { countingRowWhere } from "@/lib/db/scope";
 import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
 import { impactHash, type BooksDeleteImpact } from "@/lib/impact";
-import { reviewProgress } from "@/lib/review/service";
+import { reviewProgress, reviewProgressForBooks } from "@/lib/review/service";
 import { requestBookTransform } from "@/lib/transform/triggers";
 import type { PaginationInput } from "@/lib/validation";
 
@@ -24,6 +24,9 @@ export type BookSummary = {
   columnCount: number;
   documentCount: number;
   rowCount: number;
+  /** Review progress (docs/06 Phase 17): the books list answers "which book has work left in it?". */
+  cells: number;
+  reviewedCells: number;
 };
 
 export type BookSettings = {
@@ -88,6 +91,20 @@ function toSettings(book: SettingsRow): BookSettings {
   return { ...book, updatedAt: book.updatedAt.toISOString() };
 }
 
+export type BookName = { id: string; name: string };
+
+/** Names only, for pickers: none of the counts or review aggregates `listBooks` computes per book. */
+export async function listBookNames(userId: string, page: PaginationInput): Promise<Page<BookName>> {
+  const uid = requireUserId(userId);
+  const books = await prisma.book.findMany({
+    where: { userId: uid, deletedAt: null },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    select: { id: true, name: true },
+    ...pageArgs(page),
+  });
+  return toPage(books, page.limit);
+}
+
 export async function listBooks(userId: string, page: PaginationInput): Promise<Page<BookSummary>> {
   const uid = requireUserId(userId);
   const books = await prisma.book.findMany({
@@ -108,6 +125,7 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
     ...pageArgs(page),
   });
   const { items, nextCursor } = toPage(books, page.limit);
+  const progress = await reviewProgressForBooks(prisma, items.map((b) => b.id));
   return {
     items: items.map((b) => ({
       id: b.id,
@@ -116,6 +134,8 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
       columnCount: b._count.columns,
       documentCount: b._count.documents,
       rowCount: b._count.rows,
+      cells: progress.get(b.id)?.cells ?? 0,
+      reviewedCells: progress.get(b.id)?.reviewedCells ?? 0,
     })),
     nextCursor,
   };

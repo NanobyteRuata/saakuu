@@ -96,6 +96,13 @@ Settings as a gear. A workspace is a mode with its own layout, not a view of a r
 
 ### 6.1 Books list
 - Grid or list of the user's books: name, column count, document count, row count, last updated.
+- **Review progress per book** (Phase 17): `312 of 900 cells reviewed` with a bar, and a `Resume review`
+  button that opens the Review workspace at the first unreviewed cell — the list answers *which book has
+  work left in it?* without opening each one. A finished book says `All reviewed`; a book with nothing
+  read yet shows neither.
+- **New book from this one** (Phase 17): copies templates, output columns, mappings, glossary and
+  validation rules, plus the numeral system, era and export tokens, into a new empty book. Documents,
+  photos and rows are never copied. A counted confirmation states what travels before anything is written.
 - `Create Book` button.
 - Select one or many books → `Delete`. Always a confirmation modal stating counts
   ("Delete 2 books, 47 documents and 1,203 rows?"). Soft delete.
@@ -136,6 +143,11 @@ List of templates. Each item shows:
 - Document count (a link to the Documents tab filtered to this template) and total photo count
 - Actions (icon-only): `Edit`, `Duplicate`, `Delete`. Uploading and extracting live on the
   Documents tab, not here (Phase 9.1, docs/06)
+- `Duplicate` can copy **into another book** the user owns (Phase 17, decision 74). The source layer
+  travels — fields, groups, selection settings, notes, anchors, language hint, instructions — and the
+  mappings do not, because they name this book's columns. The copy lands as `Draft` and the target
+  book's `Create columns from this template` completes it in one click. The dialog counts the fields and
+  groups that travel and the mappings that stay.
 
 Expand/collapse reveals that template's documents inline; collapsed shows counts only.
 For large templates the inline list caps at 20 with a "view all in Documents" link.

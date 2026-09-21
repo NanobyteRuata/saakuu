@@ -1,4 +1,3 @@
-import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 
 import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
@@ -8,13 +7,11 @@ import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
 import { COUNTING_DOC_SQL, countingDocumentWhere } from "@/lib/db/scope";
 import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
-import { recomputeMappingStates } from "@/lib/mappings/state";
-import { expressionFromDisplay } from "@/lib/transform/expression";
 import type { PaginationInput } from "@/lib/validation";
 
-import { lockTemplate, recomputeConfigState, requireTemplateAccess, type Db } from "./access";
+import { lockTemplate, requireTemplateAccess, type Db } from "./access";
 import { summariseRunState, type RunCounts, type RunSummary } from "./config-state";
-import { appendPosition } from "./positions";
+import { copyTemplateInto, nextTemplatePosition, type TemplateCopy } from "./copy";
 import {
   MAX_FIELDS,
   MAX_GROUPS,
@@ -26,7 +23,6 @@ import {
   MAX_TEMPLATES,
   type UpdateTemplateInput,
 } from "./schemas";
-import { buildTree, flattenTree } from "./tree";
 import { fieldSelect, groupSelect, toFieldView, type DeletedFieldView, type FieldView, type GroupView } from "./views";
 
 export { MAX_TEMPLATES };
@@ -202,11 +198,6 @@ export async function getTemplate(userId: string, templateId: string): Promise<T
   return loadTemplateDetail(prisma, templateId);
 }
 
-async function nextTemplatePosition(db: Db, bookId: string): Promise<string> {
-  const existing = await db.template.findMany({ where: { bookId }, select: { id: true, position: true }, take: 5000 });
-  return appendPosition(existing);
-}
-
 export async function createTemplate(userId: string, bookId: string, input: CreateTemplateInput): Promise<{ id: string }> {
   await requireBookAccess(userId, bookId);
   return prisma.$transaction(async (tx) => {
@@ -302,168 +293,50 @@ export async function deleteTemplates(userId: string, input: DeleteTemplatesInpu
   });
 }
 
+export type TemplateCopySummary = { fields: number; groups: number; selectionGroups: number; mappings: number };
+
+/** What a copy carries and what it leaves behind, for the counted confirmation (docs/06 Phase 17). */
+export async function templateCopySummary(userId: string, templateId: string): Promise<TemplateCopySummary> {
+  await requireTemplateAccess(userId, templateId);
+  const [fields, groups, selectionGroups, mappings] = await Promise.all([
+    prisma.field.count({ where: { templateId, deletedAt: null } }),
+    prisma.fieldGroup.count({ where: { templateId } }),
+    prisma.fieldGroup.count({ where: { templateId, selection: { not: "NONE" } } }),
+    prisma.mapping.count({ where: { templateId } }),
+  ]);
+  return { fields, groups, selectionGroups, mappings };
+}
+
+export type DuplicateResult = TemplateCopy & { bookId: string; mappingsLeftBehind: number };
+
 /**
- * Copies a template's live source layer (groups, fields, anchors, instructions) with new ids,
- * optionally as the other kind. This is the answer to "switch Form ↔ Table", which is refused.
- * Mappings are copied only on request, and only those whose inputs and column are all live.
+ * Copies a template's live source layer (groups, fields, anchors, instructions) with new ids, optionally as
+ * the other kind — the answer to "switch Form ↔ Table", which is refused — and optionally into another book
+ * the user owns (Phase 17). Within a book, mappings are copied on request, only those whose inputs and
+ * column are all live. Into another book they never travel: they name this book's columns (decision 3).
  */
-export async function duplicateTemplate(
-  userId: string,
-  templateId: string,
-  input: DuplicateTemplateInput,
-): Promise<{ id: string; skippedMappings: number }> {
-  const { bookId } = await requireTemplateAccess(userId, templateId);
+export async function duplicateTemplate(userId: string, templateId: string, input: DuplicateTemplateInput): Promise<DuplicateResult> {
+  const { bookId: sourceBookId } = await requireTemplateAccess(userId, templateId);
+  const bookId = input.targetBookId ?? sourceBookId;
+  const crossBook = bookId !== sourceBookId;
+  if (crossBook) await requireBookAccess(userId, bookId);
   return prisma.$transaction(
     async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Book" WHERE id = ${bookId} FOR UPDATE`;
+      // The access check ran before the transaction; a book deleted since then must not receive the copy.
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Book" WHERE id = ${bookId} AND "deletedAt" IS NULL FOR UPDATE`;
+      if (locked.length === 0) throw new AppError("NOT_FOUND", "That book doesn't exist or you don't have access to it.");
       const count = await tx.template.count({ where: { bookId, deletedAt: null } });
       if (count >= MAX_TEMPLATES) throw new AppError("VALIDATION", `A book can have up to ${MAX_TEMPLATES} templates.`);
-
-      const source = await tx.template.findUniqueOrThrow({
-        where: { id: templateId },
-        select: {
-          name: true,
-          kind: true,
-          modelOverride: true,
-          anchors: true,
-          languageHint: true,
-          instructions: true,
-          sequenceFieldId: true,
-        },
+      const source = await tx.template.findUniqueOrThrow({ where: { id: templateId }, select: { name: true } });
+      const copy = await copyTemplateInto(tx, {
+        sourceTemplateId: templateId,
+        targetBookId: bookId,
+        name: input.name ?? (crossBook ? source.name : `${source.name} (copy)`),
+        ...(input.kind ? { kind: input.kind } : {}),
+        columnMap: crossBook || !input.includeMappings ? null : "same",
       });
-      const groups = await tx.fieldGroup.findMany({ where: { templateId }, select: groupSelect, take: MAX_GROUPS });
-      const fields = await tx.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS });
-      const kind = input.kind ?? source.kind;
-
-      const newTemplateId = createId();
-      const groupIds = new Map(groups.map((g) => [g.id, createId()]));
-      const fieldIds = new Map(fields.map((f) => [f.id, createId()]));
-      const sequenceFieldId =
-        kind === "TABLE" && source.sequenceFieldId ? (fieldIds.get(source.sequenceFieldId) ?? null) : null;
-
-      await tx.template.create({
-        data: {
-          id: newTemplateId,
-          bookId,
-          name: input.name ?? `${source.name} (copy)`,
-          kind,
-          modelOverride: source.modelOverride,
-          anchors: source.anchors,
-          languageHint: source.languageHint,
-          instructions: source.instructions,
-          sequenceFieldId,
-          position: await nextTemplatePosition(tx, bookId),
-        },
-      });
-      // Pre-order, so every parent row is inserted before its children.
-      await tx.fieldGroup.createMany({
-        data: flattenTree(buildTree(groups, fields)).flatMap((n) =>
-          n.kind === "group"
-            ? [
-                {
-                  id: groupIds.get(n.id) ?? createId(),
-                  templateId: newTemplateId,
-                  parentGroupId: n.parentId === null ? null : (groupIds.get(n.parentId) ?? null),
-                  labelSource: n.group.labelSource,
-                  labelMeaning: n.group.labelMeaning,
-                  position: n.group.position,
-                  selection: n.group.selection,
-                  noneMarked: n.group.noneMarked,
-                  multipleMarked: n.group.multipleMarked,
-                  note: n.group.note,
-                },
-              ]
-            : [],
-        ),
-      });
-      await tx.field.createMany({
-        data: fields.map((f) => {
-          const id = fieldIds.get(f.id) ?? createId();
-          return {
-            id,
-            templateId: newTemplateId,
-            groupId: f.groupId ? (groupIds.get(f.groupId) ?? null) : null,
-            labelSource: f.labelSource,
-            labelMeaning: f.labelMeaning,
-            dataType: f.dataType,
-            mode: f.mode,
-            note: f.note,
-            choices: f.choices,
-            markSymbols: f.markSymbols === null ? Prisma.DbNull : f.markSymbols,
-            typeOptions: f.typeOptions === null ? Prisma.DbNull : f.typeOptions,
-            isSequence: id === sequenceFieldId,
-            position: f.position,
-          };
-        }),
-      });
-
-      let skippedMappings = 0;
-      if (input.includeMappings) {
-        const mappings = await tx.mapping.findMany({
-          where: { templateId },
-          include: {
-            inputs: { select: { fieldId: true, groupId: true, position: true, optionValues: true, noneValue: true } },
-            outputColumn: { select: { deletedAt: true } },
-          },
-          take: 1000,
-        });
-        for (const m of mappings) {
-          // Inputs point at the copies: fields, tick groups and the option fields their values are keyed by.
-          const inputs = m.inputs.map((i) => ({
-            fieldId: i.fieldId === null ? null : fieldIds.get(i.fieldId),
-            groupId: i.groupId === null ? null : groupIds.get(i.groupId),
-            position: i.position,
-            noneValue: i.noneValue,
-            optionValues:
-              i.optionValues !== null && typeof i.optionValues === "object" && !Array.isArray(i.optionValues)
-                ? Object.fromEntries(
-                    Object.entries(i.optionValues).flatMap(([id, v]) => {
-                      const copy = fieldIds.get(id);
-                      return copy && typeof v === "string" ? [[copy, v]] : [];
-                    }),
-                  )
-                : null,
-          }));
-          const gone = inputs.some((i) => i.fieldId === undefined || i.groupId === undefined || (i.fieldId === null && i.groupId === null));
-          if (m.outputColumn.deletedAt !== null || gone) {
-            skippedMappings++;
-            continue;
-          }
-          const mappingId = createId();
-          await tx.mapping.create({
-            data: {
-              id: mappingId,
-              templateId: newTemplateId,
-              outputColumnId: m.outputColumnId,
-              kind: m.kind,
-              state: "OK",
-              separator: m.separator,
-              splitBy: m.splitBy,
-              splitIndex: m.splitIndex,
-              splitRegex: m.splitRegex,
-              constantValue: m.constantValue,
-              expression: m.expression === null ? null : expressionFromDisplay(m.expression, (ref) => fieldIds.get(ref) ?? groupIds.get(ref) ?? null),
-              fillDown: m.fillDown,
-              position: m.position,
-            },
-          });
-          await tx.mappingInput.createMany({
-            data: inputs.map((i) => ({
-              mappingId,
-              fieldId: i.fieldId ?? null,
-              groupId: i.groupId ?? null,
-              position: i.position,
-              noneValue: i.noneValue,
-              optionValues: i.optionValues ?? Prisma.DbNull,
-            })),
-          });
-        }
-      }
-
-      // A copy as the other kind can change what works (e.g. no sequence field); check every mapping.
-      await recomputeMappingStates(tx, newTemplateId);
-      await recomputeConfigState(tx, newTemplateId);
-      return { id: newTemplateId, skippedMappings };
+      const mappingsLeftBehind = crossBook ? await tx.mapping.count({ where: { templateId } }) : 0;
+      return { ...copy, bookId, mappingsLeftBehind };
     },
     { timeout: 30_000 },
   );

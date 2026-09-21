@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–16 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–17 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 17.
+Phase 18.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–16
+## Shipped — Phases 0–17
 
 | Phase | What shipped |
 |---|---|
@@ -38,10 +38,11 @@ previous one's criteria pass.
 | **14** | Cutting what nobody needs: `Book.confidenceThreshold` dropped, Settings down to glossary + rules + danger zone, the column editor moved to the Result Table, export tokens owned by the export dialog, era and numerals asked by exception, three rule kinds offered, Create Book one step. |
 | **15** | The paper on screen: `Document.isSpecimen`, the template workspace paned with the photo beside the tree, autosave instead of save-and-discard, one photo intake in four modes, `Try one document` moved to the front as `Read this page`. |
 | **16** | The AI proposes the template: `Propose fields` reads a specimen into a flat field list, priced in money with the key named first, confirmed with per-field toggles and a count; `FieldProposal` records `template-v1`. |
+| **17** | The second book: `Duplicate` copies a template into another book (source layer, never mappings), `New book from this one` copies a book's whole setup and none of its work, and the books list shows review progress with its own `Resume review`. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 16's are
-below; their reasoning is decisions 66–73 and 76–77.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 17's are
+below; their reasoning is decisions 66–74 and 76–77.
 
 ---
 
@@ -437,7 +438,7 @@ eleven in paper order, then the same page as a table proposes its columns instea
 
 ---
 
-## Phase 17 — The second book
+## Phase 17 — The second book ✅ shipped
 
 The single worst defect for a returning operator, and the one v1 never addressed: `duplicateTemplate`
 resolves the target book from the source template, so it can only copy within a book. An operator doing
@@ -471,7 +472,7 @@ cost Phase 10 set out to remove and only half removed.
 **Tests:** unit test that copying a template across books writes no `Mapping` row and no row outside the
 target book — it is a cross-tenant path, so it qualifies under the testing policy.
 
-**Done when:**
+**Done when (all met):**
 - A twenty-field template with nested and selection groups copies into another book with its structure
   and every group setting intact, and no mapping.
 - `Create columns from this template` then completes the copy in one click.
@@ -479,6 +480,41 @@ target book — it is a cross-tenant path, so it qualifies under the testing pol
   zero documents and rows.
 - The books list shows review progress per book, and `Resume review` on a row goes straight to the first
   unreviewed cell without loading the table.
+
+**As built.** Notes for the phases after it:
+
+- **One copier, three answers to "where do the mappings go?"** `duplicateTemplate`'s body moved to
+  `copyTemplateInto` (`lib/templates/copy.ts`), which takes a column map: `"same"` (a copy inside its own
+  book keeps each mapping's column), a map of old column id to new (a new book from a book, where the
+  columns travelled too) or `null` (another book, where no mapping is read at all). The cross-book path
+  refuses mappings *structurally*, not by a flag the caller could get wrong: with `null` the mapping table
+  is never queried, which is exactly what the unit test pins.
+- **A new book from a book also takes the paper's settings** — numeral system, era, export tokens and the
+  default model. The phase text listed templates, columns, mappings, glossary and rules; these five are
+  not in that list, but they describe the same paper and the same spreadsheet, and leaving them behind
+  would have re-asked the era question (decision 76) of an operator who already answered it last quarter.
+- **A `CROSS_COLUMN` rule names a second column in its params**, so it follows that column to the copy
+  like its own. A rule on a deleted column, or comparing against one, has nothing to check and is left
+  behind, as is a mapping to a deleted column or a deleted input. The confirmation's counts come from the
+  same predicates the copy uses (`copyableMapping`, `copiedRule`), so it never promises more than arrives.
+- **Copies made in one transaction share a `createdAt`**, because the column default is the transaction's
+  start time, and templates list in creation order. The book copy stamps each template a millisecond
+  apart, in the source's own order; without that the new book listed its templates in id order.
+- **Pickers ask for names only.** `GET /api/books?view=names` skips the counts and the review aggregate
+  that the books list now computes, which the `Copy into` picker has no use for.
+- **Review progress is one query for every book on the page.** `reviewProgressForBooks` groups the
+  review-progress aggregate by book; `reviewProgress` (the nav and the review screen) now calls it with
+  one id, so the list, the nav's `Review N left` and the progress bar cannot disagree.
+- **`Resume review` needed no new route.** The Review workspace already starts at the head of the review
+  queue and its first unreviewed column, which is what the book header's `Resume review` did before
+  Phase 13 folded it into the nav. The list links there directly: no book landing, no Result Table.
+- **The copy's `Ready` line can still say some fields aren't mapped** after `Create columns from this
+  template`, when the template has selection groups. Their tick-option fields are answered through the
+  group's mapping, and `unmappedFieldCount` counts fields without a mapping input of their own. The column
+  proposal itself is empty after the click, which is the real test of "complete"; the counter predates
+  this phase and is the same for a template authored in place.
+- **The book picker in `Copy into` reads the first 200 books.** Nobody is near that; a search belongs
+  here if anybody is.
 
 ---
 
@@ -590,7 +626,7 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 ## Decisions to append to docs/07 Part B
 
 Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped, 76–77 when
-Phase 14 did, 71–72 when Phase 15 did and 73 when Phase 16 did; the rest need writing up in the decision log with their reasoning, in the same form as
+Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did and 74 when Phase 17 did; the rest need writing up in the decision log with their reasoning, in the same form as
 1–65, as their phases ship:
 
 | # | Decision |
@@ -603,7 +639,7 @@ Phase 14 did, 71–72 when Phase 15 did and 73 when Phase 16 did; the rest need 
 | 71 | A sample document is a real Document with a specimen flag, not a separate object. ✅ written up |
 | 72 | Autosave replaces save-and-discard in the template editor; single-owner editing makes the modal protect nothing. ✅ written up |
 | 73 | The AI proposes flat fields only; groups and selection structure stay manual. ✅ written up |
-| 74 | Cross-book copy now, versioned library never until asked for. |
+| 74 | Cross-book copy now, versioned library never until asked for. ✅ written up |
 | 75 | Jobs is a drawer on Documents, not a workspace. |
 
 ---

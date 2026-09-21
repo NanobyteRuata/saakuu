@@ -71,7 +71,11 @@ Sign-up shows password requirements inline and sends a verification email; the a
 usable only after verification.
 
 ## 2. Books list
-Cards or rows: name, column count, document count, row count, updated-at.
+Cards or rows: name, column count, document count, row count, updated-at, then review progress
+(`84 of 700 cells reviewed` over a thin bar) and `Resume review`, which opens the Review workspace at the
+first unreviewed cell (Phase 17). A copy icon opens **New book from “…”**: a name (default `<name> (copy)`)
+and the counts of templates, columns, mappings, glossary entries and rules it will copy, with "Documents,
+photos and rows are not copied." `Create book` is disabled until the counts arrive.
 `Create Book` primary button top right. Checkbox selection reveals a selection bar
 with `Delete (n)`. Empty state explains the concept in two sentences with a CTA.
 
@@ -162,6 +166,13 @@ Admin actions (edit, duplicate, delete) are icon buttons at the right of the fir
 ingestion action: the document count is a link to the Documents tab filtered to this template,
 and uploading and extracting happen there (Phase 9.1, docs/06). The run badge still refreshes
 every 2 s while a run is going, as read-only status.
+
+**Duplicate** asks `Copy into` — `This book` or any other book the user owns (Phase 17). Into this book
+it offers `Copy mappings to output columns too`, as before. Into another book that checkbox is replaced by
+the count of what travels (*"Copies 20 fields and 5 groups (2 selection groups) with every setting, note,
+anchor and instruction, as a draft in Q2."*) and what stays (*"7 mappings stay here: they fill this book's
+columns. In Q2, Create columns from this template finishes the copy in one click."*). Confirming opens the
+copy in the target book.
 
 ## 7. Template editor
 Full-page, two sections: **Fields** · **Mapping**.

@@ -82,6 +82,8 @@ export const duplicateTemplateSchema = z.object({
   name: templateNameSchema.optional(),
   kind: z.enum(TEMPLATE_KINDS).optional(),
   includeMappings: z.boolean(),
+  /** Another book the user owns (Phase 17). Mappings never travel there: they name this book's columns. */
+  targetBookId: idSchema.optional(),
 });
 
 export type DuplicateTemplateInput = z.infer<typeof duplicateTemplateSchema>;

@@ -110,6 +110,18 @@ report and returns `CONFLICT` if the hash no longer matches.
 }
 ```
 
+## New book from a book (Phase 17)
+```
+GET    /api/books/:id/copy                 -> { templates, columns, mappings, glossary, rules }
+POST   /api/books/:id/copy                 { name } -> { id, templates, columns, mappings, glossary, rules, skippedMappings }   201
+```
+- One transaction. Copies live templates (source layers), live output columns, mappings (each following
+  its column to the copy), glossary and validation rules (a `CROSS_COLUMN` rule's `otherColumnId` follows
+  too), plus `defaultModel`, `numeralSystem`, `dateEra`, `blankToken`, `illegibleToken`. Never documents,
+  photos or rows. Rules on a deleted column are not copied.
+- `GET /api/books` items carry `cells` and `reviewedCells`, the same aggregate as the review progress bar.
+  `?view=names` returns `{ id, name }` only, for pickers.
+
 ## Glossary & validation rules
 ```
 GET/POST               /api/books/:id/glossary          { term, meaning }; list ordered by position
@@ -124,7 +136,9 @@ GET    /api/books/:id/templates
 POST   /api/books/:id/templates            { name, kind, modelOverride? }
 GET    /api/templates/:id                  source layer + mapping layer + counts
 PATCH  /api/templates/:id                  { name?, instructions?, anchors?, languageHint?, modelOverride?, doubleExtraction?, sequenceFieldId? }
-POST   /api/templates/:id/duplicate        { includeMappings, kind?, name? } -> { id, skippedMappings }
+GET    /api/templates/:id/duplicate        -> { fields, groups, selectionGroups, mappings }   what a copy carries
+POST   /api/templates/:id/duplicate        { includeMappings, kind?, name?, targetBookId? }
+                                              -> { id, bookId, fields, groups, mappings, skippedMappings, mappingsLeftBehind }
 POST   /api/templates/delete               { ids[], impactHash, confirm }   soft-deletes templates and their documents
 POST   /api/templates/delete-impact        { ids[] } -> { impactHash, templates, documents, photos, rows, editedCells }
 GET    /api/templates/:id/delete-impact    same, for one template
@@ -134,8 +148,10 @@ GET    /api/templates/:id/delete-impact    same, for one template
   live `EXTRACT` field; that field's mode can't change while it is the sequence field.
 - `configState` is recomputed in the same transaction as every field create/delete/restore:
   `CONFLICTED` if any mapping is `BROKEN`, else `DRAFT` until ≥1 live field and ≥1 mapping, else `READY`.
-- Cross-book duplicate (`targetBookId`) is deferred. Mappings are copied only when every input
-  field and the column are live; the rest are counted in `skippedMappings`.
+- Within a book, mappings are copied only when `includeMappings` and every input field and the column
+  are live; the rest are counted in `skippedMappings`. With a `targetBookId` of another book the user
+  owns (Phase 17), mappings are **never** read or written — they name this book's columns — and
+  `mappingsLeftBehind` counts them. Another user's book is `NOT_FOUND`.
 
 ### Field proposals (Phase 16)
 ```

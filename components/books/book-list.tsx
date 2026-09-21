@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Copy, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -12,8 +12,9 @@ import { getJson } from "@/lib/api-client";
 import { readLastWorkspace } from "@/lib/books/landing-workspace";
 import type { BookSummary } from "@/lib/books/service";
 import type { Page } from "@/lib/db/pagination";
-import { isoDate, plural } from "@/lib/format";
+import { formatCount, isoDate, plural } from "@/lib/format";
 
+import { CopyBookDialog } from "./copy-book-dialog";
 import { DeleteBooksDialog } from "./delete-books-dialog";
 
 export function BookList({ initialPage, userId }: { initialPage: Page<BookSummary>; userId: string }) {
@@ -24,6 +25,7 @@ export function BookList({ initialPage, userId }: { initialPage: Page<BookSummar
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [toCopy, setToCopy] = useState<BookSummary | null>(null);
   /**
    * Each book opens on the workspace it was last used in (docs/06 Phase 10 and 13, decision 60).
    * Resolved after mount, because `localStorage` is not readable while rendering on the server;
@@ -145,9 +147,19 @@ export function BookList({ initialPage, userId }: { initialPage: Page<BookSummar
                       {plural(book.rowCount, "row")}
                     </p>
                   </div>
+                  <ReviewProgress book={book} />
                   <span className="text-muted-foreground hidden text-sm tabular-nums sm:inline">
                     Updated {isoDate(book.updatedAt)}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`New book from ${book.name}`}
+                    title="New book from this one"
+                    onClick={() => setToCopy(book)}
+                  >
+                    <Copy />
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -162,7 +174,48 @@ export function BookList({ initialPage, userId }: { initialPage: Page<BookSummar
         </>
       )}
 
+      <CopyBookDialog book={toCopy} open={toCopy !== null} onOpenChange={(open) => !open && setToCopy(null)} />
       <DeleteBooksDialog open={deleteOpen} onOpenChange={setDeleteOpen} books={selectedBooks} onDeleted={onDeleted} />
+    </div>
+  );
+}
+
+/**
+ * Reviewed-of-total and a way straight back in (docs/06 Phase 17). `Resume review` opens the Review workspace,
+ * which starts at the first unreviewed cell of the review queue, so returning costs neither a book open nor a
+ * table load.
+ */
+function ReviewProgress({ book }: { book: BookSummary }) {
+  if (book.cells === 0) return null;
+  const left = book.cells - book.reviewedCells;
+  const percent = Math.floor((book.reviewedCells / book.cells) * 100);
+  return (
+    <div className="flex shrink-0 items-center gap-3">
+      <div className="flex w-44 flex-col gap-1">
+        <span className="text-muted-foreground text-xs tabular-nums">
+          {formatCount(book.reviewedCells)} of {plural(book.cells, "cell")} reviewed
+        </span>
+        <div
+          className="bg-muted h-1.5 overflow-hidden rounded-full"
+          role="progressbar"
+          aria-label={`${book.name} review progress`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+        >
+          <div className="bg-primary h-full" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+      {/* One slot for both states, so the bars line up down the list whichever a row shows. */}
+      <div className="flex w-32 justify-end">
+        {left > 0 ? (
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/books/${book.id}/review`}>Resume review</Link>
+          </Button>
+        ) : (
+          <span className="text-muted-foreground text-sm">All reviewed</span>
+        )}
+      </div>
     </div>
   );
 }

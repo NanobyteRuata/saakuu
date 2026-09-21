@@ -157,3 +157,8 @@ export type GlossaryEntryInput = z.infer<typeof glossaryEntryInputSchema>;
 export const glossaryEntryPatchSchema = glossaryEntryInputSchema
   .partial()
   .refine((v) => v.term !== undefined || v.meaning !== undefined, { error: "Nothing to update." });
+
+/** A new book from an existing one (docs/06 Phase 17): its setup, none of its documents. */
+export const copyBookSchema = z.object({ name: labelSchema });
+
+export type CopyBookInput = z.infer<typeof copyBookSchema>;

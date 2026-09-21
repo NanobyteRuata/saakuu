@@ -49,27 +49,40 @@ export async function getRowSources(userId: string, rowId: string): Promise<RowS
   return { ...base, cells: cellSources(tree, working, regions, base.photoId) };
 }
 
-type ProgressRecord = { cells: number; reviewedCells: number; documents: number; reviewedDocuments: number };
+type ProgressRecord = { bookId: string; cells: number; reviewedCells: number; documents: number; reviewedDocuments: number };
 
-/** Cells reviewed and documents complete. A document counts once it has a row to review; it is complete when every cell is reviewed. */
-export async function reviewProgress(db: Db, bookId: string): Promise<ReviewProgress> {
-  const [p] = await db.$queryRaw<ProgressRecord[]>`
-    SELECT coalesce(sum(cells), 0)::int AS cells,
+const NO_PROGRESS: ReviewProgress = { cells: 0, reviewedCells: 0, documents: 0, reviewedDocuments: 0 };
+
+/**
+ * Cells reviewed and documents complete, per book, in one pass. A document counts once it has a row to review; it is
+ * complete when every cell is reviewed. The review screen, the nav and the books list all read this one query.
+ */
+export async function reviewProgressForBooks(db: Db, bookIds: string[]): Promise<Map<string, ReviewProgress>> {
+  if (bookIds.length === 0) return new Map();
+  const found = await db.$queryRaw<ProgressRecord[]>`
+    SELECT "bookId",
+           coalesce(sum(cells), 0)::int AS cells,
            coalesce(sum(reviewed), 0)::int AS "reviewedCells",
            count(*)::int AS documents,
            count(*) FILTER (WHERE reviewed = cells)::int AS "reviewedDocuments"
     FROM (
-      SELECT r."documentId", count(c.id) AS cells, count(c.id) FILTER (WHERE c."isReviewed") AS reviewed
+      SELECT r."bookId", r."documentId", count(c.id) AS cells, count(c.id) FILTER (WHERE c."isReviewed") AS reviewed
       FROM "Row" r
       JOIN "Document" d ON d.id = r."documentId"
       JOIN "Template" t ON t.id = d."templateId"
       JOIN "Cell" c ON c."rowId" = r.id
       JOIN "OutputColumn" oc ON oc.id = c."outputColumnId"
-      WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid"
+      WHERE r."bookId" IN (${Prisma.join(bookIds)}) AND r."deletedAt" IS NULL AND NOT r."isVoid"
         AND ${COUNTING_DOC_TEMPLATE_SQL} AND oc."deletedAt" IS NULL
-      GROUP BY r."documentId"
-    ) per_document`;
-  return p ?? { cells: 0, reviewedCells: 0, documents: 0, reviewedDocuments: 0 };
+      GROUP BY r."bookId", r."documentId"
+    ) per_document
+    GROUP BY "bookId"`;
+  return new Map(found.map(({ bookId, ...p }) => [bookId, p]));
+}
+
+/** One book's review progress. */
+export async function reviewProgress(db: Db, bookId: string): Promise<ReviewProgress> {
+  return (await reviewProgressForBooks(db, [bookId])).get(bookId) ?? NO_PROGRESS;
 }
 
 type QueueRecord = { id: string; documentId: string; position: string; cellIds: string[] };

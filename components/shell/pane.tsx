@@ -59,7 +59,17 @@ export function PaneGroup({ workspace, userId, className, children, ...rest }: P
    */
   useLayoutEffect(() => {
     const stored = readLayout(storageKey);
-    if (stored) groupRef.current?.setLayout(stored);
+    if (!stored) return;
+    try {
+      groupRef.current?.setLayout(stored);
+    } catch {
+      /*
+       * A stored layout that no longer fits this group — saved when the workspace had a different
+       * number of panes, or hand-edited — is thrown out rather than thrown. Workspaces key their
+       * layouts per shape for exactly this reason; this is the net under that, because a remembered
+       * split is a convenience and must never be able to take a workspace down with it.
+       */
+    }
   }, [storageKey, groupRef]);
 
   /*

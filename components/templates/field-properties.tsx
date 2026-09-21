@@ -1,8 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
 import { Button } from "@/components/ui/button";
@@ -29,6 +28,7 @@ import type { TemplateDetail } from "@/lib/templates/service";
 import { childrenOf, formatPath, headerPath, moveProblem, nearestSelectionGroup, type Tree } from "@/lib/templates/tree";
 import type { FieldView, GroupView } from "@/lib/templates/views";
 
+import { useAutosaveForm, type Flush } from "./autosave";
 import { ChipListEditor } from "./chip-list-editor";
 import { ParentGroupSelect } from "./parent-group-select";
 
@@ -40,7 +40,7 @@ const MARK_MEANINGS = [
 
 type MarkMeaning = (typeof MARK_MEANINGS)[number]["value"];
 
-type Draft = {
+export type FieldDraft = {
   labelSource: string;
   labelMeaning: string;
   dataType: FieldType;
@@ -52,7 +52,7 @@ type Draft = {
   pivotYear: string;
 };
 
-function toDraft(f: FieldView): Draft {
+function toDraft(f: FieldView): FieldDraft {
   return {
     labelSource: f.labelSource,
     labelMeaning: f.labelMeaning ?? "",
@@ -71,7 +71,7 @@ function pivotNumber(value: string): number | null {
   return value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
 }
 
-function toPayload(d: Draft) {
+function toPayload(d: FieldDraft) {
   const markSymbols: MarkSymbols | null =
     d.dataType === "MARK" && d.marks.length > 0
       ? Object.fromEntries(d.marks.map((m) => [m.symbol.trim(), m.meaning === "count" ? "count" : m.meaning === "true"]))
@@ -91,7 +91,7 @@ function toPayload(d: Draft) {
   };
 }
 
-function draftProblem(d: Draft): string | null {
+function draftProblem(d: FieldDraft): string | null {
   if (!d.labelSource.trim()) return "Enter the label as it's written on the paper.";
   if (d.dataType === "MARK") {
     const symbols = d.marks.map((m) => m.symbol.trim());
@@ -108,14 +108,20 @@ type Props = {
   lang: string | undefined;
   /** The book's date era: two-digit years are read in that era's century. */
   bookDateEra: DateEra;
-  onDirtyChange: (dirty: boolean) => void;
   onSaved: (field: FieldView) => void;
   onTemplate: (template: TemplateDetail) => void;
   onDelete: () => void;
+  /**
+   * Drafts the parent holds on to. A draft that will not save — an empty label, a half-filled mark
+   * row — must not disappear because the operator clicked another field, so it waits here and is
+   * restored with its message when they come back. No modal, and no typing lost (decision 72).
+   */
+  drafts: Map<string, FieldDraft>;
+  registerFlush?: (flush: Flush | null) => void;
 };
 
-export function FieldProperties({ field, template, tree, lang, bookDateEra, onDirtyChange, onSaved, onTemplate, onDelete }: Props) {
-  const [draft, setDraft] = useState(() => toDraft(field));
+export function FieldProperties({ field, template, tree, lang, bookDateEra, onSaved, onTemplate, onDelete, drafts, registerFlush }: Props) {
+  const [draft, setDraft] = useState(() => drafts.get(field.id) ?? toDraft(field));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [sequencePending, setSequencePending] = useState(false);
@@ -123,29 +129,36 @@ export function FieldProperties({ field, template, tree, lang, bookDateEra, onDi
   const path = headerPath(tree, { kind: "field", id: field.id });
   const selectionGroup = nearestSelectionGroup(tree, field.groupId);
 
+  // The flush the parent calls must be stable, and must still see what is in the form right now.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const saved = JSON.stringify(toPayload(toDraft(field)));
   const dirty = JSON.stringify(toPayload(draft)) !== saved;
   const isSequence = template.sequenceFieldId === field.id;
-  const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<FieldDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
+  // An unsaved draft is kept by the parent, so leaving this field and coming back loses nothing.
   useEffect(() => {
-    onDirtyChange(dirty);
-  }, [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+    if (dirty) drafts.set(field.id, draft);
+    else drafts.delete(field.id);
+  }, [dirty, draft, drafts, field.id]);
 
-  async function save(e?: FormEvent) {
-    e?.preventDefault();
-    const problem =
-      draftProblem(draft) ??
-      (selectionGroup && draft.dataType !== "MARK"
-        ? `“${selectionGroup.group.labelSource}” is a selection group, so this field has to stay Mark / tick. Move it out of the group first.`
-        : null);
+  const selectionProblem =
+    selectionGroup && draft.dataType !== "MARK"
+      ? `“${selectionGroup.group.labelSource}” is a selection group, so this field has to stay Mark / tick. Move it out of the group first.`
+      : null;
+  const problemRef = useRef(selectionProblem);
+  problemRef.current = selectionProblem;
+
+  const save = useCallback(async () => {
+    const current = draftRef.current;
+    const problem = draftProblem(current) ?? problemRef.current;
     if (problem) {
       setError(problem);
       return;
     }
     setPending(true);
-    const result = await patchJson<FieldView>(`/api/fields/${field.id}`, toPayload(draft));
+    const result = await patchJson<FieldView>(`/api/fields/${field.id}`, toPayload(current));
     setPending(false);
     if (!result.ok) {
       setError(result.error.message);
@@ -154,7 +167,13 @@ export function FieldProperties({ field, template, tree, lang, bookDateEra, onDi
     setError(null);
     setDraft(toDraft(result.data));
     onSaved(result.data);
-    toast.success("Field saved.");
+  }, [field.id, onSaved]);
+
+  const { onBlur } = useAutosaveForm({ dirty, save, registerFlush });
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    void save();
   }
 
   async function setSequence(on: boolean) {
@@ -195,7 +214,7 @@ export function FieldProperties({ field, template, tree, lang, bookDateEra, onDi
   }
 
   return (
-    <form onSubmit={save} onKeyDown={onKeyDown} className="flex flex-col gap-4" noValidate aria-label="Field properties form">
+    <form onSubmit={onSubmit} onBlur={onBlur} onKeyDown={onKeyDown} className="flex flex-col gap-4" noValidate aria-label="Field properties form">
       {path.length > 1 ? (
         <p lang={lang} className="font-value text-muted-foreground text-sm">
           {formatPath(path)}
@@ -416,7 +435,7 @@ export function FieldProperties({ field, template, tree, lang, bookDateEra, onDi
           <Checkbox
             className="mt-0.5"
             checked={isSequence}
-            disabled={sequencePending || field.mode !== "EXTRACT" || dirty}
+            disabled={sequencePending || field.mode !== "EXTRACT"}
             onCheckedChange={(c) => void setSequence(c === true)}
           />
           <span className="flex flex-col">
@@ -424,9 +443,7 @@ export function FieldProperties({ field, template, tree, lang, bookDateEra, onDi
             <span className="text-muted-foreground">
               {field.mode !== "EXTRACT"
                 ? "Only fields the AI reads can be the sequence field."
-                : dirty
-                  ? "Save your changes first."
-                  : "The running row number. It catches skipped rows and rows repeated across overlapping photos."}
+                : "The running row number. It catches skipped rows and rows repeated across overlapping photos."}
             </span>
           </span>
         </label>
@@ -435,22 +452,9 @@ export function FieldProperties({ field, template, tree, lang, bookDateEra, onDi
       {error ? <FormMessage tone="error">{error}</FormMessage> : null}
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-        <Button type="submit" disabled={!dirty || pending}>
-          {pending ? "Saving…" : "Save field"}
-        </Button>
-        {dirty ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setDraft(toDraft(field));
-              setError(null);
-            }}
-            disabled={pending}
-          >
-            Discard changes
-          </Button>
-        ) : null}
+        <p className="text-muted-foreground text-sm" aria-live="polite">
+          {pending ? "Saving…" : dirty ? "Saves when you move on" : "All changes saved"}
+        </p>
         <Button type="button" variant="ghost" className="text-destructive ml-auto" onClick={onDelete} disabled={pending}>
           <Trash2 />
           Delete field

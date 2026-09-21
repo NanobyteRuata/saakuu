@@ -30,6 +30,13 @@ test("sign in → book → template → upload → extract → review → export
   await createDialog.getByLabel("Template name").fill("Household card");
   await createDialog.getByRole("button", { name: "Create template" }).click();
   await expect(page).toHaveURL(/\/templates\/[a-z0-9]{24}$/);
+  const templateUrl = new URL(page.url()).pathname;
+
+  // The paper goes on screen first (Phase 15): the page is uploaded as a specimen, in the workspace
+  // where the fields are then typed from it.
+  await page.getByRole("button", { name: "Drop a photo here, or click to choose one" }).locator("input[type=file]").setInputFiles(FIXTURE);
+  await expect(page.getByRole("button", { name: "Read this page" })).toBeEnabled({ timeout: 60_000 });
+
   const newField = page.getByLabel("New field label, as written on the paper");
   for (const label of ["Name", "Village"]) {
     await newField.fill(label);
@@ -46,36 +53,28 @@ test("sign in → book → template → upload → extract → review → export
   await expect(page.getByText("Created 2 columns and 2 mappings")).toBeVisible();
   await expect(page.getByText("Filled by this template (2)")).toBeVisible();
 
-  // Upload one photo. Ingestion lives on the Documents tab (Phase 9.1); the only template is pre-selected.
+  // Read the specimen where it already is, beside the tree. This is the trust moment, and it is the
+  // ordinary extraction of one document (Phase 15).
+  await page.goto(templateUrl);
+  await page.getByRole("button", { name: "Read this page" }).click();
+  await expect(page.getByText("Name 1")).toBeVisible({ timeout: 90_000 });
+
+  // A specimen is out of everything that counts as work: the table has no rows, and the template
+  // card counts it apart from its documents (decision 71).
+  await page.goto(bookUrl);
+  await expect(page.getByText("Name 1")).toBeHidden();
+  await page.goto(`${bookUrl}/templates`);
+  await expect(page.getByText("0 documents")).toBeVisible();
+  await expect(page.getByText("1 specimen")).toBeVisible();
+
+  // Promoting it is a flag flip: the rows were built when it was read, so nothing is extracted again.
   await page.goto(`${bookUrl}/documents`);
-  await page.getByRole("button", { name: "Upload documents" }).click();
-  const upload = page.getByRole("dialog", { name: "Upload documents" });
-  await upload.locator('input[type="file"]').setInputFiles(FIXTURE);
-  await expect(upload.getByText("1 of 1 file uploaded")).toBeVisible({ timeout: 30_000 });
-  await expect(upload.getByRole("button", { name: "Done" })).toBeEnabled({ timeout: 30_000 });
-  await upload.getByRole("button", { name: "Done" }).click();
-
-  // The upload produced one document: a header row and one data row.
-  await expect(page.getByRole("row")).toHaveCount(2);
-
-  // The list only polls while a run is active, so reload until the photo has finished processing.
-  await expect(async () => {
-    await page.reload();
-    await expect(page.getByRole("row")).toHaveCount(2);
-    await expect(page.getByText("1 page processing")).toBeHidden({ timeout: 2_000 });
-  }).toPass({ timeout: 60_000 });
-
-  // Extract the selection. The click is retried: under `next dev` the page can still be hydrating.
-  const extractDialog = page.getByRole("alertdialog", { name: "Extract with AI" });
-  await expect(async () => {
-    if (!(await extractDialog.isVisible())) {
-      await page.getByRole("checkbox", { name: "Select all loaded documents" }).check();
-      await page.getByRole("button", { name: "Extract", exact: true }).click();
-    }
-    await expect(extractDialog.getByRole("button", { name: "Extract 1 document" })).toBeEnabled({ timeout: 3_000 });
-  }).toPass({ timeout: 60_000 });
-  await extractDialog.getByRole("button", { name: "Extract 1 document" }).click();
-  await expect(extractDialog).toBeHidden();
+  await expect(page.getByText("specimen", { exact: true })).toBeVisible();
+  await page.getByRole("row").nth(1).click();
+  const drawer = page.getByRole("dialog");
+  await drawer.getByRole("button", { name: "Use as a real document" }).click();
+  await expect(drawer.getByRole("button", { name: "Use as a real document" })).toBeHidden();
+  await page.keyboard.press("Escape");
 
   // Straight to the table. Nothing in this flow picked a tab, so the landing memory has nothing
   // stored and the book opens where it is asked to (Phase 10).
@@ -83,7 +82,7 @@ test("sign in → book → template → upload → extract → review → export
   await expect(async () => {
     await page.reload();
     await expect(page.getByText("Name 1")).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 90_000 });
+  }).toPass({ timeout: 60_000 });
   await expect(page.getByText("Village 1")).toBeVisible();
 
   // Review with the keyboard only: Ctrl+Enter marks the row reviewed.

@@ -293,6 +293,7 @@ model Document {
   contentState       ContentState @default(UNKNOWN)
   templateMatchScore Float?       // anchor detection, 0..1
   needsReview        Boolean      @default(false)
+  isSpecimen         Boolean      @default(false) // Phase 15: a page uploaded to build a template against
   lastRunAt          DateTime?
   lastModel          String?
   manualValues       Json?        // MANUAL-mode field values: { fieldId: value }
@@ -311,7 +312,26 @@ model Document {
 
   @@index([bookId, deletedAt])
   @@index([templateId, runState])
+  @@index([templateId, isSpecimen])
 }
+
+/*
+ * Phase 15 — `isSpecimen` (decision 71). A specimen is a real Document: same upload, same
+ * processing, same extraction, same raw layer, and its rows are built like any other document's.
+ * What makes it one is only which numbers leave it out.
+ *
+ * Excluded (the numbers that mean *work to do*): the output table, the export, review progress and
+ * the review queue, duplicate detection and failing-cell counts, the template's document and photo
+ * counts, and `Extract all in <template>`. The predicates live in one place, `lib/db/scope.ts`,
+ * because the rule was previously spelled out independently in five raw queries and two Prisma ones.
+ *
+ * Kept (the numbers that mean *files I have*): the Documents list and the nav's document count, the
+ * mapping preview's document picker — the specimen is exactly the page the template was built
+ * against — and account usage, because reading it cost real money.
+ *
+ * Clearing the flag promotes it with no re-extraction and no rebuild; it does trigger a book
+ * revalidation, because `UNIQUE` reads across rows and its rows have just entered scope.
+ */
 
 model Photo {
   id             String      @id @default(cuid())

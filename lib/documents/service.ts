@@ -14,7 +14,7 @@ import { presignGet } from "@/lib/storage/s3";
 import { requireTemplateAccess } from "@/lib/templates/access";
 import { bboxSchema } from "@/lib/table/service";
 import { parseDocumentFlags, type DocumentFlag } from "@/lib/transform/flags";
-import { requestDocumentTransform } from "@/lib/transform/triggers";
+import { requestBookRevalidation, requestDocumentTransform } from "@/lib/transform/triggers";
 import type { RowType, ValueState } from "@/lib/transform/types";
 import type { FieldType, TemplateKind } from "@/lib/templates/schemas";
 import { buildTree, flattenTree, formatPath, headerPath } from "@/lib/templates/tree";
@@ -50,6 +50,8 @@ export type DocumentSummary = {
   runState: RunState;
   contentState: ContentState;
   needsReview: boolean;
+  /** Phase 15: a page uploaded to build the template against, kept out of the book's output (decision 71). */
+  isSpecimen: boolean;
   templateMatchScore: number | null;
   /** Review flags from building rows: sequence gaps, duplicates, flagged cells. */
   transformFlags: DocumentFlag[];
@@ -123,6 +125,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
         runState: true,
         contentState: true,
         needsReview: true,
+        isSpecimen: true,
         templateMatchScore: true,
         transformFlags: true,
         contentChangedAt: true,
@@ -185,6 +188,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
       runState: d.runState,
       contentState: d.contentState,
       needsReview: d.needsReview,
+      isSpecimen: d.isSpecimen,
       templateMatchScore: d.templateMatchScore,
       transformFlags: parseDocumentFlags(d.transformFlags),
       rowCount: s?.rows ?? 0,
@@ -470,12 +474,13 @@ export async function getDocumentRawValues(userId: string, documentId: string): 
 export async function updateDocument(userId: string, documentId: string, input: UpdateDocumentInput): Promise<DocumentDetail> {
   const { templateId } = await requireDocumentAccess(userId, documentId);
   const detail = await prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ manualValues: Prisma.JsonValue | null }[]>`
-      SELECT "manualValues" FROM "Document" WHERE id = ${documentId} AND "deletedAt" IS NULL FOR UPDATE`;
+    const locked = await tx.$queryRaw<{ manualValues: Prisma.JsonValue | null; bookId: string; isSpecimen: boolean }[]>`
+      SELECT "manualValues", "bookId", "isSpecimen" FROM "Document" WHERE id = ${documentId} AND "deletedAt" IS NULL FOR UPDATE`;
     const row = locked[0];
     if (!row) throw new AppError("NOT_FOUND", "That document doesn't exist or was deleted.");
     const data: Prisma.DocumentUpdateInput = {};
     if (input.label !== undefined) data.label = input.label;
+    if (input.isSpecimen !== undefined) data.isSpecimen = input.isSpecimen;
     if (input.manualValues !== undefined) {
       const setting = Object.entries(input.manualValues).filter(([, v]) => v !== null);
       if (setting.length > 0) {
@@ -495,11 +500,18 @@ export async function updateDocument(userId: string, documentId: string, input: 
       data.manualValues = Object.keys(next).length === 0 ? Prisma.DbNull : next;
     }
     await tx.document.update({ where: { id: documentId }, data });
-    return loadDetail(tx, documentId);
+    return { detail: await loadDetail(tx, documentId), bookId: row.bookId, specimenChanged: input.isSpecimen !== undefined && input.isSpecimen !== row.isSpecimen };
   });
   // Manual values fill cells of every row of the document.
   if (input.manualValues !== undefined) await requestDocumentTransform(documentId);
-  return detail;
+  /*
+   * Promoting or demoting a specimen moves its rows in or out of everything the book counts, and
+   * `UNIQUE` rules are the one check that reads across rows: a value that was unique while the
+   * specimen's rows were out of scope may not be once they are in it. Nothing is rebuilt — the rows
+   * already exist — so this is a re-check, not a re-extraction (decision 71).
+   */
+  if (detail.specimenChanged) await requestBookRevalidation(detail.bookId);
+  return detail.detail;
 }
 
 async function applyPlan(tx: Db, plan: RestructurePlan): Promise<void> {

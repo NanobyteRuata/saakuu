@@ -1,8 +1,7 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { FormMessage } from "@/components/auth/form-message";
 import { Button } from "@/components/ui/button";
@@ -43,9 +42,10 @@ import {
 } from "@/lib/templates/tree";
 import type { FieldView, GroupView } from "@/lib/templates/views";
 
+import { useAutosaveForm, type Flush } from "./autosave";
 import { ParentGroupSelect } from "./parent-group-select";
 
-type Draft = {
+export type GroupDraft = {
   labelSource: string;
   labelMeaning: string;
   selection: GroupSelection;
@@ -54,7 +54,7 @@ type Draft = {
   note: string;
 };
 
-function toDraft(g: GroupView): Draft {
+function toDraft(g: GroupView): GroupDraft {
   return {
     labelSource: g.labelSource,
     labelMeaning: g.labelMeaning ?? "",
@@ -65,7 +65,7 @@ function toDraft(g: GroupView): Draft {
   };
 }
 
-function toPayload(d: Draft) {
+function toPayload(d: GroupDraft) {
   return {
     labelSource: d.labelSource.trim(),
     labelMeaning: d.labelMeaning.trim() || null,
@@ -81,25 +81,28 @@ type Props = {
   template: TemplateDetail;
   tree: Tree<GroupView, FieldView>;
   lang: string | undefined;
-  onDirtyChange: (dirty: boolean) => void;
   onSaved: (group: GroupView) => void;
   onDelete: () => void;
+  /** Drafts the parent holds, so a draft that will not save survives a click elsewhere (decision 72). */
+  drafts: Map<string, GroupDraft>;
+  registerFlush?: (flush: Flush | null) => void;
 };
 
 /** A header on the paper: labels, parent, selection settings and a note for the AI (docs/05, Phase 3.1). */
-export function GroupProperties({ group, template, tree, lang, onDirtyChange, onSaved, onDelete }: Props) {
-  const [draft, setDraft] = useState(() => toDraft(group));
+export function GroupProperties({ group, template, tree, lang, onSaved, onDelete, drafts, registerFlush }: Props) {
+  const [draft, setDraft] = useState(() => drafts.get(group.id) ?? toDraft(group));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [moving, setMoving] = useState(false);
 
   const dirty = JSON.stringify(toPayload(draft)) !== JSON.stringify(toPayload(toDraft(group)));
-  const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<GroupDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
+  // An unsaved draft is kept by the parent, so leaving this group and coming back loses nothing.
   useEffect(() => {
-    onDirtyChange(dirty);
-  }, [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+    if (dirty) drafts.set(group.id, draft);
+    else drafts.delete(group.id);
+  }, [dirty, draft, drafts, group.id]);
 
   const node = tree.groups.get(group.id);
   const path = headerPath(tree, { kind: "group", id: group.id });
@@ -114,18 +117,22 @@ export function GroupProperties({ group, template, tree, lang, onDirtyChange, on
   const draftIssue = selectionProblem(preview, group.id);
   const savedIssue = selectionProblem(tree, group.id);
 
-  async function save(e?: FormEvent) {
-    e?.preventDefault();
-    if (!draft.labelSource.trim()) {
+  // The flush the parent calls must be stable, and must still see what is in the form right now.
+  const latest = useRef({ draft, draftIssue, savedIssue });
+  latest.current = { draft, draftIssue, savedIssue };
+
+  const save = useCallback(async () => {
+    const current = latest.current;
+    if (!current.draft.labelSource.trim()) {
       setError("Enter the header as it's written on the paper.");
       return;
     }
-    if (draftIssue && !savedIssue) {
-      setError(draftIssue);
+    if (current.draftIssue && !current.savedIssue) {
+      setError(current.draftIssue);
       return;
     }
     setPending(true);
-    const result = await patchJson<GroupView>(`/api/groups/${group.id}`, toPayload(draft));
+    const result = await patchJson<GroupView>(`/api/groups/${group.id}`, toPayload(current.draft));
     setPending(false);
     if (!result.ok) {
       setError(result.error.message);
@@ -134,7 +141,13 @@ export function GroupProperties({ group, template, tree, lang, onDirtyChange, on
     setError(null);
     setDraft(toDraft(result.data));
     onSaved(result.data);
-    toast.success("Group saved.");
+  }, [group.id, onSaved]);
+
+  const { onBlur } = useAutosaveForm({ dirty, save, registerFlush });
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    void save();
   }
 
   async function moveTo(parentId: string | null) {
@@ -166,7 +179,7 @@ export function GroupProperties({ group, template, tree, lang, onDirtyChange, on
   const groupCount = inside.length - fieldCount;
 
   return (
-    <form onSubmit={save} onKeyDown={onKeyDown} className="flex flex-col gap-4" noValidate aria-label="Group properties form">
+    <form onSubmit={onSubmit} onBlur={onBlur} onKeyDown={onKeyDown} className="flex flex-col gap-4" noValidate aria-label="Group properties form">
       <div className="flex flex-col gap-0.5">
         <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">Group</p>
         {path.length > 1 ? (
@@ -316,22 +329,9 @@ export function GroupProperties({ group, template, tree, lang, onDirtyChange, on
       {error ? <FormMessage tone="error">{error}</FormMessage> : null}
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-        <Button type="submit" disabled={!dirty || pending}>
-          {pending ? "Saving…" : "Save group"}
-        </Button>
-        {dirty ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setDraft(toDraft(group));
-              setError(null);
-            }}
-            disabled={pending}
-          >
-            Discard changes
-          </Button>
-        ) : null}
+        <p className="text-muted-foreground text-sm" aria-live="polite">
+          {pending ? "Saving…" : dirty ? "Saves when you move on" : "All changes saved"}
+        </p>
         <Button type="button" variant="ghost" className="text-destructive ml-auto" onClick={onDelete} disabled={pending}>
           <Trash2 />
           Delete group

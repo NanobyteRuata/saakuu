@@ -166,6 +166,40 @@ every 2 s while a run is going, as read-only status.
 ## 7. Template editor
 Full-page, two sections: **Fields** · **Mapping**.
 
+*As built (Phase 15):* **Fields is a paned workspace with the paper in it.**
+
+```
+1280   [ photo | reading ]  [ tree, properties under the selected row ]
+1600   [ photo | reading ]  [ tree ]  [ properties ]
+```
+
+- The header (breadcrumb, template settings, `Fields | Mapping`) is a fixed row; everything below is
+  panes that scroll internally. The `max-w-[1800px]` cap is gone, which is what it was waiting for.
+- The photo pane obeys the rule every layout yields to: it never shrinks below `PHOTO_MIN_PX`
+  (`lib/ui/panes.ts`, the same number row review uses). Inside it, the page sits above the reading in
+  a nested pane group, so hovering a value boxes it on the image directly above rather than in a
+  modal over it.
+- The two-pane and three-pane splits are **remembered separately** (`template-2`, `template-3`):
+  they are different shapes, and one must not overwrite the other. `PaneGroup` also throws out a
+  stored layout that no longer fits instead of throwing — a remembered split is a convenience and
+  can never be allowed to take a workspace down with it.
+- Below 1600 the properties open **under the row they belong to**, outside the sortable list so the
+  drag projection never treats the panel as another item to reorder. Config was not given a
+  permanent narrow column: it is the densest form in the app, and a third pane would both starve it
+  and put the photo and the config at opposite edges of the screen.
+- Mapping keeps its scrolling two-column body inside the same header.
+- **Template settings are a disclosure**, not a header: name and both badges stay on the line, and
+  language, model, anchors, instructions and double extraction open under it. Six hundred pixels of
+  form touched once per template cannot sit permanently on a screen whose whole point is the photo.
+
+**Autosave, not save-and-discard** (decision 72). The properties forms have no `Save` or `Discard`
+button. A form saves when focus leaves it, and when the operator picks another item — the parent
+flushes the open form first — with one PATCH, not two. The footer says `Saves when you move on` /
+`Saving…` / `All changes saved`. A draft that *will not* save (an empty label, a half-filled mark
+row) is held by the workspace and restored, with its message, when the operator comes back to it:
+no modal, and nothing typed is lost. Because no save is ever an explicit click, a document unload
+while a save is in the air asks first, as row review and the batch upload already do.
+
 Each is its own route (Phase 10): Fields at the template root and Mapping at
 `/books/[bookId]/templates/[templateId]/mapping`, so both are deep-linkable, code-split and
 survive the back button. Inside a template the book layout drops its `max-w-6xl` and the book
@@ -177,8 +211,10 @@ a template, a book can hold several, and a book-level tab would need a template 
 rebuilds the same nesting with worse deep links (decision 62). What was wrong was width and
 the missing URL, not the nesting.
 
-**`Try one document`** (Phase 10) is offered above the field tree once the tree has fields, from
-the mapping preview's empty state, and from the Documents tab's empty state for a template. It
+**`Try one document`** (Phase 10, moved to the front in Phase 15) is offered from the mapping
+preview's empty state and the Documents tab's empty state for a template, and — as `Read this page`,
+with no dialog, because the page is already in the pane — in the template workspace, where it no
+longer waits for the tree to have fields. It
 uploads or picks a single document, extracts only it, and shows what was read beside the photo —
 hovering a value moves the photo to where it was read. It is the product's trust moment — the first time anyone sees what the AI actually
 read — and it is also what fills the mapping preview, so one action answers two problems. (A third **Validation** tab for per-template rule overrides is
@@ -313,6 +349,30 @@ data. The Extract dialog states the same count as a warning.
   clear the chip while the stale reading is still on screen.
 
 ## 9. Upload & document detail
+
+*As built (Phase 15):* **one component, four modes** (`components/photo/photo-intake.tsx`). The
+batch upload, the specimen a template is built against, `Try one document` and replace/add page all
+render `PhotoIntake`; three of them wrap it in `PhotoIntakeDialog`, and the specimen renders inline
+in the template workspace's photo pane. The drop zone, the accept list, the size and type rules, the
+progress line, the abort on unmount and the error container are the same code in all four. Only two
+things differ per mode: what an uploaded key becomes (`/api/uploads/complete`, the same with
+`isSpecimen`, `/api/photos/:id/replace`, `/api/documents/:id/pages`) and what is shown afterwards.
+
+Underneath is one upload path (`lib/photos/use-intake-uploads.ts`), where there were three: an
+inline XHR in the batch dialog, `uploadToStorage` in replace/add, and a bare `fetch` in `Try one
+document` with no progress and no way to abort. The three copies of the mime and size rules had
+already drifted — one `accept` attribute listed types only, which hides HEIC, because browsers
+report it as an empty string.
+
+**Finishing and leaving are separate closes.** Leaving by the X, Escape or the backdrop asks about
+uploads still in flight; finishing — `Done`, or a single-file mode's success — does not, because the
+count that guard reads is reported a render after the file it describes has landed.
+
+A **specimen** is created by the same upload with `isSpecimen` set, so it is born one and there is
+no moment where it counts as an ordinary document. In the Documents list it carries a `Specimen`
+chip, placed first because it explains every other number on the row; its drawer offers
+`Use as a real document`, which is a flag flip with no re-extraction and no rebuild.
+
 **Upload:** drop zone, progress per file, then a staging grid of uploaded photos.
 Default is one document per photo. Multi-select → `Group into one document`. A grouped
 document shows its pages in order with drag-reorder handles. `Done` creates the
@@ -363,6 +423,11 @@ the document is being extracted, because a run already under way cannot see the 
 Photo grid has a small/medium size toggle. Collapsed state shows a count badge.
 
 ## 10. Photo editor
+
+*As built (Phase 15):* the editor is unchanged and still writes only the transform JSON, but it is
+now also reachable from the template workspace's photo pane, so a page that was shot crooked can be
+straightened where it is being read from rather than only from the Documents drawer.
+
 Modal, image centred, toolbar below.
 Tools: **Crop** (drag handles, aspect free), **Rotate** (90° buttons + fine slider),
 **Deskew** (auto-detect button + slider with a grid overlay), **Reset**.

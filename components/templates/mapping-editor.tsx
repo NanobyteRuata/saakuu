@@ -24,7 +24,7 @@ export function MappingEditor({ initial, bookDefaultModel }: { initial: Template
   }, [template.id]);
 
   return (
-    <TemplateChrome template={template} bookDefaultModel={bookDefaultModel} active="mapping" onTemplate={setTemplate}>
+    <TemplateChrome template={template} bookDefaultModel={bookDefaultModel} active="mapping" onTemplate={setTemplate} scroll>
       <MappingTab template={template} tree={tree} lang={lang} onChanged={reload} />
     </TemplateChrome>
   );

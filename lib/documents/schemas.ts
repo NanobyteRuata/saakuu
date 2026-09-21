@@ -48,8 +48,13 @@ export const updateDocumentSchema = z
   .object({
     label: labelSchema.optional(),
     manualValues: z.record(idSchema, z.string().max(MAX_MANUAL_VALUE_LENGTH).nullable()).optional(),
+    /**
+     * Phase 15: clearing the flag promotes a specimen to an ordinary document (decision 71). Its
+     * rows were always built, so this is a flag flip — no re-extraction, no rebuild.
+     */
+    isSpecimen: z.boolean().optional(),
   })
-  .refine((v) => v.label !== undefined || v.manualValues !== undefined, "Nothing to update.");
+  .refine((v) => v.label !== undefined || v.manualValues !== undefined || v.isSpecimen !== undefined, "Nothing to update.");
 export type UpdateDocumentInput = z.infer<typeof updateDocumentSchema>;
 
 const impactHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);

@@ -143,6 +143,17 @@ For large templates the inline list caps at 20 with a "view all in Documents" li
 ### 6.5 Template editor
 Three sections.
 
+**The paper is on screen** (Phase 15). The photo sits beside the field tree the whole time the
+template is being authored: two panes at 1280 with the selected item's properties opening under its
+row, three at 1600 with properties in their own. This is the screen where the operator types the
+most — twenty labels transcribed off a page on the desk — and until Phase 15 it was the only one
+with no image on it, while review, which types the least, had one. Properties are **autosaved**
+(decision 72): moving to another field saves the one being left, and nothing asks to discard.
+
+The page it is built from is a **specimen**: an ordinary Document carrying `isSpecimen` (decision
+71), uploaded through the same intake as everything else. `Read this page` is offered on it from the
+start, before a single field exists, and reports what that paper actually produced. See §6.7.
+
 **a. Source layer**
 - Type: Form or Table (chosen at creation; switching later is blocked — offer
   "duplicate as new template" instead).
@@ -207,6 +218,18 @@ unreviewed cell count, validation error count, last run, model.
 Bulk actions: `Extract`, `Re-extract`, `Move to another template`, `Delete`.
 
 ### 6.7 Document editor / uploader
+**One intake, four modes** (Phase 15): the batch upload, the specimen a template is built against,
+`Try one document`, and replacing or adding a page. They were three components that looked nothing
+alike, two of which a first-time operator met within ten minutes, over three different upload
+implementations. What differs between them is only what an uploaded file becomes.
+
+**Specimens.** A page uploaded to build a template against is a real Document with `isSpecimen` set
+(decision 71) — same upload, same processing, same extraction, same raw layer. It is left out of
+the numbers that mean *work to do*: the output table, the export, review progress, the template's
+document count and `Extract all`. It stays in the Documents list, with a `Specimen` chip and
+`Use as a real document`, because that number means *files I have* and promotion needs a home.
+Its rows are built when it is read, so promoting it is a flag flip: nothing is extracted again.
+
 - Drag-drop or file picker. Accepts JPEG, PNG, HEIC, WebP, PDF (each PDF page
   becomes one photo).
 - Uploaded images are grouped into documents. Default grouping: **one document per

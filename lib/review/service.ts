@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
+import { COUNTING_DOC_TEMPLATE_SQL } from "@/lib/db/scope";
 import type { Db } from "@/lib/documents/access";
 import { AppError } from "@/lib/errors";
 import { decodeCursor, encodeCursor } from "@/lib/table/cursor";
@@ -65,7 +66,7 @@ export async function reviewProgress(db: Db, bookId: string): Promise<ReviewProg
       JOIN "Cell" c ON c."rowId" = r.id
       JOIN "OutputColumn" oc ON oc.id = c."outputColumnId"
       WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid"
-        AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL AND oc."deletedAt" IS NULL
+        AND ${COUNTING_DOC_TEMPLATE_SQL} AND oc."deletedAt" IS NULL
       GROUP BY r."documentId"
     ) per_document`;
   return p ?? { cells: 0, reviewedCells: 0, documents: 0, reviewedDocuments: 0 };
@@ -90,7 +91,7 @@ export async function reviewQueue(userId: string, bookId: string, input: ReviewQ
       JOIN "Cell" c ON c."rowId" = r.id AND NOT c."isReviewed"
       JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
       WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid"
-        AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL ${cursorCond}
+        AND ${COUNTING_DOC_TEMPLATE_SQL} ${cursorCond}
       GROUP BY r.id
       ORDER BY r.position COLLATE "C", r.id
       LIMIT ${input.limit + 1}`,

@@ -161,6 +161,11 @@ type Props = {
   onDeleteGroup: (group: GroupView) => void;
   reload: () => Promise<void>;
   lang: string | undefined;
+  /**
+   * Phase 15: below three panes the selected row's properties open underneath it, rather than in a
+   * permanent narrow column. Returning null leaves the row as it is.
+   */
+  renderDetail?: (ref: SiblingRef) => ReactNode;
 };
 
 /**
@@ -173,7 +178,7 @@ type Props = {
  * Adding: one add bar pinned above the list, whose parent follows the selection, and a "+" on each
  * group that opens an inline row at the end of that group.
  */
-export function FieldTree({ template, tree, setTemplate, selected, onSelect, onDeleteGroup, reload, lang }: Props) {
+export function FieldTree({ template, tree, setTemplate, selected, onSelect, onDeleteGroup, reload, lang, renderDetail }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
@@ -455,6 +460,20 @@ export function FieldTree({ template, tree, setTemplate, selected, onSelect, onD
         />
       ),
     );
+    /*
+     * The properties sit under the row they belong to, outside the sortable list: a detail panel
+     * that took part in the drag projection would be treated as another item to reorder.
+     */
+    const detail = renderDetail?.({ kind: node.kind, id: node.id });
+    if (detail) {
+      rows.push(
+        <li key={`${key}-detail`} className="pb-2" style={{ paddingLeft: (depth + 1) * INDENT }}>
+          <section aria-label="Properties" className="bg-card rounded-lg border p-3">
+            {detail}
+          </section>
+        </li>,
+      );
+    }
   });
   if (inlineAt === items.length && inlineGroup) rows.push(inlineRow(inlineGroup));
 

@@ -106,8 +106,11 @@ async function resolveDocumentIds(userId: string, input: { documentIds?: string[
   }
   if (!input.templateId) throw new AppError("VALIDATION", "Choose documents or a template to extract.");
   await requireTemplateAccess(userId, input.templateId);
+  // Specimens are left out: `Extract all` is the whole-template run, and a page uploaded to build
+  // the template against has already been read and produces nothing anyone exports (decision 71).
+  // Selecting one explicitly in the Documents list still extracts it.
   const docs = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "Document" WHERE "templateId" = ${input.templateId} AND "deletedAt" IS NULL
+    SELECT id FROM "Document" WHERE "templateId" = ${input.templateId} AND "deletedAt" IS NULL AND NOT "isSpecimen"
     ORDER BY position COLLATE "C", id LIMIT ${MAX_TEMPLATE_EXTRACT_DOCUMENTS}`;
   if (docs.length === 0) throw new AppError("VALIDATION", "This template has no documents yet. Upload some first.");
   return docs.map((d) => d.id);

@@ -366,6 +366,34 @@ contrast is the whole task, so the app stays light. For the same reason the pane
 never shrinks below readable — handwriting at 400px is guesswork — and every other pane yields to
 it. (Phase 13)
 
+**71. A sample document is a real Document with a specimen flag, not a separate object.** The page
+an operator photographs to build a template against goes through the same upload, the same
+processing, the same extraction and the same raw layer as everything else; `Document.isSpecimen` is
+the only difference. A separate "sample, never extracted" object was rejected twice over: it would
+make the operator upload the same page twice for reasons they cannot be told, and it would have been
+a *fourth* photo-intake UI in a product that was already merging three. Because its rows are built
+like any other document's, promotion is a flag flip — no re-extraction, no rebuild — which matters,
+since the page reached for to build a template is usually a real page with real data on it.
+
+The rule for what a specimen is left out of: **the numbers that mean *work to do*** — the output
+table, the export, review progress, the template's document count, `Extract all` — and it stays in
+**the numbers that mean *files I have***, the Documents list, because that is where promotion needs
+a home. Those predicates were spelled out independently in five raw queries and two Prisma ones, so
+they moved to `lib/db/scope.ts` first: one specimen rule, one place to change it. (Phase 15)
+
+**72. Autosave replaces save-and-discard in the template editor.** Switching fields with unsaved
+changes used to raise `Discard unsaved changes?`. Quick-add only sets a label and a type, so every
+field is finished in the properties form, which made that modal a toll paid once per field while
+building a twenty-field template. A template is owned by one user with no concurrent editing, so it
+protected against nothing at all. Forms now save when focus leaves them and when another item is
+picked, coalesced so the two paths produce one PATCH rather than two.
+
+What the modal was nominally for — losing typed work — is handled by keeping it instead: a draft
+that will not save is held by the workspace and restored with its message when the operator returns
+to that field. The one case autosave genuinely adds is a save in the air during a document unload,
+which now asks first, as row review and the batch upload already did. This assumes single-owner
+editing and will need revisiting if team sharing arrives (docs/06 post-v1 #6). (Phase 15)
+
 **76. Numeral system and era are asked by exception, at the point of failure.** They are real: they
 reach the prompt and the transform, and changing one rebuilds every row. But they describe *the
 paper*, not the book, and an operator asked up front does not know what "Myanmar era" will do to

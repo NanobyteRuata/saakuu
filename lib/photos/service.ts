@@ -134,6 +134,7 @@ export async function completeUpload(userId: string, input: CompleteUploadInput)
         bookId,
         templateId,
         batchId: input.batchId ?? null,
+        isSpecimen: input.isSpecimen ?? false,
         label: input.filename,
         position: await nextDocumentPosition(tx, bookId),
         photos: {

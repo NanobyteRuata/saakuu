@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
 import { loadColumns } from "@/lib/books/columns-service";
 import { prisma } from "@/lib/db/client";
+import { COUNTING_DOC_TEMPLATE_SQL, countingRowWhere } from "@/lib/db/scope";
 import { lockBook, type Db } from "@/lib/documents/access";
 import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
@@ -118,7 +119,7 @@ export async function listRows(userId: string, bookId: string, input: ListRowsIn
     JOIN "Document" d ON d.id = r."documentId"
     JOIN "Template" t ON t.id = d."templateId"
     LEFT JOIN "RawRecord" rr ON rr.id = r."rawRecordId"
-    WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL ${cursorCond}
+    WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND ${COUNTING_DOC_TEMPLATE_SQL} ${cursorCond}
     ORDER BY r.position COLLATE "C", r.id
     LIMIT ${input.limit + 1}`;
   const rows = found.slice(0, input.limit);
@@ -167,7 +168,7 @@ export async function getTableMeta(userId: string, bookId: string): Promise<Tabl
     prisma.book.findUniqueOrThrow({ where: { id: bookId }, select: { numeralSystem: true, dateEra: true } }),
     loadColumns(prisma, bookId),
     prisma.template.findMany({ where: { bookId, deletedAt: null }, select: { id: true, name: true, position: true }, take: MAX_TEMPLATES }),
-    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
+    prisma.row.count({ where: { bookId, ...countingRowWhere } }),
   ]);
   // Decided exactly as the transform decides which mapping fills a column.
   const columnSources: TableMeta["columnSources"] = {};

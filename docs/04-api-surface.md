@@ -211,6 +211,10 @@ DELETE /api/mappings/:id                        { impactHash, confirm } -> { con
 POST   /api/templates/:id/mappings/validate     -> { mappings: [{ id, state, problem }], configState }
 POST   /api/templates/:id/mappings/preview      { documentId?, draft?: MappingDraft & { id? } }
                                                 -> { documents, document, rows (≤ 50), totalRows, flags, draftProblem }
+GET    /api/templates/:id/specimens             -> { documents: [{ id, label, createdAt, photos }] }
+                                                   Phase 15: the pages a template is built against, with
+                                                   fresh presigned URLs; its own endpoint because the pane
+                                                   refetches them after an upload or a crop
 POST   /api/templates/:id/retransform           -> { state, done, total }   202
 GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | "running", done, total,
                                                      lastRun: { documents, failed, error, finishedAt } | null }
@@ -261,7 +265,8 @@ layer and derived rows; the document lands in `NEVER_RUN`. Warn hard when edits 
 GET    /api/books/:id/documents            ?templateId&runState&needsReview&hasEdits&reviewed&needsReextraction&q&cursor&limit
                                            ordered by position (code-unit collation); cursor is opaque
 POST   /api/templates/:id/documents        { photoIds[] } -> { documentId, removedDocuments }
-PATCH  /api/documents/:id                  { label?, manualValues?: { fieldId: string | null } }
+PATCH  /api/documents/:id                  { label?, manualValues?: { fieldId: string | null },
+                                             isSpecimen? }   Phase 15: clearing it promotes a specimen
 POST   /api/documents/delete-impact        { ids[] } -> { impactHash, documents, photos, rows, editedCells }
 POST   /api/documents/delete               { ids[], impactHash, confirm }   soft delete
 POST   /api/documents/move-impact          { ids[], targetTemplateId } -> { impactHash, targetTemplateName, documents,
@@ -286,7 +291,8 @@ POST   /api/documents/:id/reorder-photos   { photoIds[] }   must list exactly th
 ```
 POST   /api/uploads/batch                  { templateId } -> { batchId }   one implicit batch per upload session
 POST   /api/uploads/presign                { templateId, filename, mimeType, byteSize } -> { url, key, headers }
-POST   /api/uploads/complete               { key, templateId, filename, batchId? } -> { documentId, photo }
+POST   /api/uploads/complete               { key, templateId, filename, batchId?, isSpecimen? }
+                                           -> { documentId, photo }   a specimen is born one (Phase 15)
 GET    /api/photos/status?ids=a,b,c        poll processing state + image URLs
 ```
 - The browser PUTs straight to storage. Content type and length are signed into the URL.

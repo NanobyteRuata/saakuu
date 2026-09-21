@@ -3,6 +3,7 @@ import { generateNKeysBetween } from "fractional-indexing";
 
 import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
+import { countingRowWhere } from "@/lib/db/scope";
 import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
 import { AppError } from "@/lib/errors";
 import { impactHash, type BooksDeleteImpact } from "@/lib/impact";
@@ -63,7 +64,7 @@ export type BookCounts = {
 async function countsOf(bookId: string): Promise<BookCounts> {
   const [documents, rows, progress, running] = await Promise.all([
     prisma.document.count({ where: { bookId, deletedAt: null } }),
-    prisma.row.count({ where: { bookId, deletedAt: null, document: { deletedAt: null, template: { deletedAt: null } } } }),
+    prisma.row.count({ where: { bookId, ...countingRowWhere } }),
     reviewProgress(prisma, bookId),
     prisma.document.count({ where: { bookId, deletedAt: null, runState: { in: ["QUEUED", "RUNNING"] } } }),
   ]);
@@ -100,7 +101,7 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
         select: {
           columns: { where: { deletedAt: null } },
           documents: { where: { deletedAt: null } },
-          rows: { where: { deletedAt: null, document: { deletedAt: null } } },
+          rows: { where: { deletedAt: null, document: { deletedAt: null, isSpecimen: false } } },
         },
       },
     },

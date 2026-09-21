@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–14 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–15 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 15.
+Phase 16.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–14
+## Shipped — Phases 0–15
 
 | Phase | What shipped |
 |---|---|
@@ -36,10 +36,11 @@ previous one's criteria pass.
 | **12** | Before strangers: per-user Gemini keys encrypted at rest, cost in money in the Extract dialog, `rawResponse` retention, `reviewedAt` + `reviewedVia`. |
 | **13** | The shell: four workspaces with live counts replacing the four tabs, Settings as a gear, a resizable `Pane` primitive, no page scroll and no viewport arithmetic, upload-only below 1280px. |
 | **14** | Cutting what nobody needs: `Book.confidenceThreshold` dropped, Settings down to glossary + rules + danger zone, the column editor moved to the Result Table, export tokens owned by the export dialog, era and numerals asked by exception, three rule kinds offered, Create Book one step. |
+| **15** | The paper on screen: `Document.isSpecimen`, the template workspace paned with the photo beside the tree, autosave instead of save-and-discard, one photo intake in four modes, `Try one document` moved to the front as `Read this page`. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's and Phase 14's are
-below; their reasoning is decisions 66–70 and 76–77.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's, 14's and 15's are
+below; their reasoning is decisions 66–72 and 76–77.
 
 ---
 
@@ -251,7 +252,7 @@ wizard can send a name alone while the seed script and API keep working.
 
 ---
 
-## Phase 15 — The paper on screen
+## Phase 15 — The paper on screen ✅ shipped
 
 The biggest fix in the plan. Today an operator authors a description of a document they are holding,
 into a tree-and-properties screen with no image on it, and only afterwards may read a page to see
@@ -306,6 +307,56 @@ number from the operator's own paper is what the line is for.
 - All four photo-intake entry points render the same component.
 - `Try one document` is offered on a template with zero fields, and its result reports what that page
   actually produced.
+
+**As built.** All five landed as written. Notes for the phases after it:
+
+- **The specimen rule needed a home before it could be applied.** "Live rows of live documents" was
+  spelled out independently in five raw queries and two Prisma ones, so adding a sixth condition to
+  each was the wrong shape. They now share `lib/db/scope.ts` (`COUNTING_DOC_SQL`,
+  `countingRowWhere`), and the rule is stated once: a specimen is out of the numbers that mean
+  *work to do* and in the numbers that mean *files I have*. The template card gained a separate
+  `1 specimen` so its document count stays the number of pages with work left in them, and its
+  document-count link stays truthful.
+- **Promotion revalidates the book.** Rows enter duplicate detection at that moment, and `UNIQUE` is
+  the one rule that reads across rows, so a value that was unique while the specimen was out of
+  scope may not be once it is in. Nothing is rebuilt — the rows already exist — so it is a re-check,
+  not a re-extraction.
+- **A remembered pane layout could take the workspace down.** Two panes and three are different
+  shapes, and `useLayoutTarget` only knows which one it is *after* hydration, so a stored three-pane
+  layout was being applied to a group that still had two panes: `Invalid 2 panel layout`, caught by
+  the workspace error boundary, on every reload after a drag. The splits are now keyed per shape
+  (`template-2`, `template-3`), and `PaneGroup` throws a layout it cannot apply away rather than
+  throwing — the same rule the storage reads already followed. Any workspace that changes its pane
+  count by breakpoint needs both halves of this.
+- **Autosave has two triggers and must make one request.** Clicking another field blurs the form
+  *and* asks the parent to flush it, which produced two identical PATCHes a tick apart; a field save
+  recomputes mapping states and can queue a rebuild, so the second is not free. They coalesce on one
+  in-flight promise. The other thing autosave adds is a save in the air during a document unload,
+  which now asks first — client-side navigation is safe, because the request outlives the unmount.
+- **Template settings had to become a disclosure.** They were a header, which is survivable while a
+  page scrolls and fatal once it does not: language, model, anchors, instructions and double
+  extraction are six hundred pixels of form touched once per template, and leaving them open gave
+  the panes 235px of a 900px viewport — the photo unreadable, the reading pane at zero height and
+  its values overflowing off-screen. Collapsed, the line still carries the name and both badges.
+  The general rule for the phases still to come: **inside the frame, anything permanently on screen
+  is spending the photo's pixels**, and has to earn them at the rate it is actually used.
+- **Finishing is not the same as leaving.** The shared dialog had one close path, guarded by
+  "are uploads still running?", and both ways of finishing went through it. That guard reads a count
+  the intake reports one render late, so a single-file mode asked *"Stop uploading? 1 file hasn't
+  finished"* about the upload that had just succeeded, and the batch dialog's `Done` — routed around
+  the guard to avoid that — stopped running `onClosed`, so the documents list no longer reloaded
+  after an upload. They are two paths now: leaving by the X or Escape asks, finishing does not.
+  Phase 18 rebuilds this screen and should keep the distinction.
+- **Properties render outside the sortable list** when they open under their row. Inside it, the
+  drag projection counted the panel as another item to reorder.
+- **`Read this page` needs no gate of its own.** The estimate call costs nothing and the server
+  already refuses a template with no fields set to Extract, in words an operator can act on, so the
+  button is offered from the first specimen and the refusal is shown in place. Nothing is hidden and
+  nothing is spent.
+- **The E2E's batch upload became the specimen upload**, as this phase's line asked. The batch
+  dialog is no longer exercised end to end by name, but it renders the same `PhotoIntake` over the
+  same upload hook that the specimen path covers. Phase 18 rebuilds that screen and should take the
+  coverage back.
 
 ---
 
@@ -492,8 +543,8 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 
 ## Decisions to append to docs/07 Part B
 
-Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped and 76–77 when
-Phase 14 did; the rest need writing up in the decision log with their reasoning, in the same form as
+Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped, 76–77 when
+Phase 14 did and 71–72 when Phase 15 did; the rest need writing up in the decision log with their reasoning, in the same form as
 1–65, as their phases ship:
 
 | # | Decision |
@@ -503,8 +554,8 @@ Phase 14 did; the rest need writing up in the decision log with their reasoning,
 | 68 | Settings becomes a gear and most of it is deleted rather than moved; panes are layout, routes are navigation. |
 | 69 | Targeted layouts, not responsive: under 1280 is upload-only, 1280 two panes, 1600+ three. |
 | 70 | Light-first, and the photo pane decides every layout. |
-| 71 | A sample document is a real Document with a specimen flag, not a separate object. |
-| 72 | Autosave replaces save-and-discard in the template editor; single-owner editing makes the modal protect nothing. |
+| 71 | A sample document is a real Document with a specimen flag, not a separate object. ✅ written up |
+| 72 | Autosave replaces save-and-discard in the template editor; single-owner editing makes the modal protect nothing. ✅ written up |
 | 73 | The AI proposes flat fields only; groups and selection structure stay manual. |
 | 74 | Cross-book copy now, versioned library never until asked for. |
 | 75 | Jobs is a drawer on Documents, not a workspace. |

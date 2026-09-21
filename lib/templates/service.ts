@@ -5,6 +5,7 @@ import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
 import { pageArgs, toPage, type Page } from "@/lib/db/pagination";
+import { COUNTING_DOC_SQL, countingDocumentWhere } from "@/lib/db/scope";
 import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
 import { recomputeMappingStates } from "@/lib/mappings/state";
@@ -39,6 +40,8 @@ export type TemplateSummary = {
   configState: ConfigState;
   fieldCount: number;
   documentCount: number;
+  /** Pages uploaded to build the template against, counted apart from its documents (decision 71). */
+  specimenCount: number;
   photoCount: number;
   run: RunSummary;
   updatedAt: string;
@@ -81,7 +84,7 @@ async function photoCounts(db: Db, templateIds: string[]): Promise<Map<string, n
   const rows = await db.$queryRaw<{ templateId: string; n: number }[]>`
     SELECT d."templateId" AS "templateId", count(p.id)::int AS n
     FROM "Photo" p JOIN "Document" d ON d.id = p."documentId"
-    WHERE d."templateId" IN (${Prisma.join(templateIds)}) AND d."deletedAt" IS NULL
+    WHERE d."templateId" IN (${Prisma.join(templateIds)}) AND ${COUNTING_DOC_SQL}
     GROUP BY d."templateId"`;
   return new Map(rows.map((r) => [r.templateId, r.n]));
 }
@@ -97,7 +100,7 @@ export async function listTemplates(userId: string, bookId: string, page: Pagina
       kind: true,
       configState: true,
       updatedAt: true,
-      _count: { select: { fields: { where: { deletedAt: null } }, documents: { where: { deletedAt: null } } } },
+      _count: { select: { fields: { where: { deletedAt: null } } } },
     },
     ...pageArgs(page),
   });
@@ -108,15 +111,22 @@ export async function listTemplates(userId: string, bookId: string, page: Pagina
     ids.length === 0
       ? Promise.resolve([])
       : prisma.document.groupBy({
-          by: ["templateId", "runState"],
+          // One pass gives all three numbers a card shows: documents, specimens, and the run states
+          // of the documents only — a specimen's run says nothing about the work left in a template.
+          by: ["templateId", "runState", "isSpecimen"],
           where: { templateId: { in: ids }, deletedAt: null },
           _count: { _all: true },
         }),
   ]);
   const runs = new Map<string, RunCounts>();
+  const documentCounts = new Map<string, number>();
+  const specimenCounts = new Map<string, number>();
   for (const g of runGroups) {
+    const tally = g.isSpecimen ? specimenCounts : documentCounts;
+    tally.set(g.templateId, (tally.get(g.templateId) ?? 0) + g._count._all);
+    if (g.isSpecimen) continue;
     const counts = runs.get(g.templateId) ?? {};
-    counts[g.runState] = g._count._all;
+    counts[g.runState] = (counts[g.runState] ?? 0) + g._count._all;
     runs.set(g.templateId, counts);
   }
   return {
@@ -126,7 +136,8 @@ export async function listTemplates(userId: string, bookId: string, page: Pagina
       kind: t.kind,
       configState: t.configState,
       fieldCount: t._count.fields,
-      documentCount: t._count.documents,
+      documentCount: documentCounts.get(t.id) ?? 0,
+      specimenCount: specimenCounts.get(t.id) ?? 0,
       photoCount: photos.get(t.id) ?? 0,
       run: summariseRunState(runs.get(t.id) ?? {}),
       updatedAt: t.updatedAt.toISOString(),
@@ -166,7 +177,7 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
   const unmappedFieldCount = await db.field.count({
     where: { templateId, deletedAt: null, mode: { not: "SKIP" }, mappingInputs: { none: {} } },
   });
-  const documentCount = await db.document.count({ where: { templateId, deletedAt: null } });
+  const documentCount = await db.document.count({ where: { templateId, ...countingDocumentWhere } });
   const photos = await photoCounts(db, [templateId]);
 
   return {

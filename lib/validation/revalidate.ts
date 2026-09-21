@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { loadColumns } from "@/lib/books/columns-service";
+import { COUNTING_DOC_SQL, countingDocumentWhere } from "@/lib/db/scope";
 import type { Db } from "@/lib/documents/access";
 import type { ValidationState, ValueState } from "@/lib/transform/types";
 
@@ -58,7 +59,7 @@ export async function loadDuplicates(db: Db, bookId: string, columnIds: string[]
   const rows = await db.$queryRaw<{ columnId: string; value: string; n: number }[]>`
     SELECT c."outputColumnId" AS "columnId", c."currentValue" AS value, count(*)::int AS n
     FROM "Cell" c JOIN "Row" r ON r.id = c."rowId" JOIN "Document" d ON d.id = r."documentId"
-    WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid" AND d."deletedAt" IS NULL
+    WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid" AND ${COUNTING_DOC_SQL}
       AND c."outputColumnId" IN (${Prisma.join(columnIds)}) AND c.state = 'OK'
       AND c."currentValue" IS NOT NULL AND c."currentValue" <> '' ${onlyValues}
     GROUP BY 1, 2 HAVING count(*) > 1`;
@@ -189,7 +190,7 @@ export async function revalidate(db: Db, bookId: string, scope: RevalidateScope,
     const readColumns = onlyColumns
       ? [...new Set([...onlyColumns, ...enabled.flatMap((r) => (r.kind === "CROSS_COLUMN" && onlyColumns.has(r.outputColumnId) ? [r.params.otherColumnId] : []))])]
       : null;
-    const docs = await db.document.findMany({ where: { bookId, deletedAt: null, rows: { some: {} } }, select: { id: true }, orderBy: { id: "asc" }, take: MAX_BOOK_DOCUMENTS });
+    const docs = await db.document.findMany({ where: { bookId, ...countingDocumentWhere, rows: { some: {} } }, select: { id: true }, orderBy: { id: "asc" }, take: MAX_BOOK_DOCUMENTS });
     for (const batch of chunks(docs.map((d) => d.id), DOCUMENT_BATCH)) {
       const loaded = await loadRows(db, bookId, { documentId: { in: batch } }, readColumns);
       changes.push(...(await validateAndWrite(db, context, loaded, onlyColumns)));
@@ -241,7 +242,7 @@ export async function ruleFailureCounts(db: Db, bookId: string, rules: Validatio
   if (rules.length === 0) return counts;
   const context = await loadValidationContext(db, bookId, rules);
   const columns = [...new Set(rules.flatMap((r) => (r.kind === "CROSS_COLUMN" ? [r.outputColumnId, r.params.otherColumnId] : [r.outputColumnId])))];
-  const docs = await db.document.findMany({ where: { bookId, deletedAt: null, rows: { some: {} } }, select: { id: true }, orderBy: { id: "asc" }, take: MAX_BOOK_DOCUMENTS });
+  const docs = await db.document.findMany({ where: { bookId, ...countingDocumentWhere, rows: { some: {} } }, select: { id: true }, orderBy: { id: "asc" }, take: MAX_BOOK_DOCUMENTS });
   for (const batch of chunks(docs.map((d) => d.id), DOCUMENT_BATCH)) {
     const { rows } = await loadRows(db, bookId, { documentId: { in: batch } }, columns);
     const { ruleHits } = validateRows(rows, context.rules, context.ctx);

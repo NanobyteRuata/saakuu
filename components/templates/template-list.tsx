@@ -94,6 +94,8 @@ export function TemplateList({ bookId, initialPage }: { bookId: string; initialP
                     {plural(t.documentCount, "document")}
                   </Link>{" "}
                   · {plural(t.photoCount, "photo")}
+                  {/* Counted apart, so the document count stays the number of pages with work in them. */}
+                  {t.specimenCount > 0 ? ` · ${t.specimenCount} specimen` : ""}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1">

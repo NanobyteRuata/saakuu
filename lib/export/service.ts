@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { requireBookAccess, requireUserId } from "@/lib/auth/guards";
 import { loadColumns } from "@/lib/books/columns-service";
 import { prisma } from "@/lib/db/client";
+import { COUNTING_DOC_TEMPLATE_SQL } from "@/lib/db/scope";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
 
@@ -37,7 +38,8 @@ async function exportColumns(bookId: string, options: ExportOptions) {
   return { all, chosen };
 }
 
-const liveRows = (bookId: string) => Prisma.sql`r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL`;
+/** The rows an export contains: live, and never a specimen's (decision 71). */
+const liveRows = (bookId: string) => Prisma.sql`r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND ${COUNTING_DOC_TEMPLATE_SQL}`;
 
 export async function exportPreview(userId: string, bookId: string, options: ExportOptions): Promise<ExportPreview> {
   await requireBookAccess(userId, bookId);

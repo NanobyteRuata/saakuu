@@ -162,6 +162,27 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
     onChanged(detail.id);
   }
 
+  /**
+   * Promotes the page a template was built against into an ordinary document, or puts one back
+   * (decision 71). Its rows were always built, so nothing is read again and nothing is rebuilt: the
+   * flag is the only thing that kept them out of the table, the export and the template's count.
+   */
+  async function setSpecimen(isSpecimen: boolean) {
+    if (!detail) return;
+    const result = await patchJson<DocumentDetail>(`/api/documents/${detail.id}`, { isSpecimen });
+    if (!result.ok) {
+      toast.error(result.error.message);
+      return;
+    }
+    setDetail(result.data);
+    onChanged(detail.id);
+    toast.success(
+      isSpecimen
+        ? "Kept as the page this template was built from. Its rows are out of the table and the export."
+        : `${plural(detail.rowCount, "row")} from this page ${detail.rowCount === 1 ? "is" : "are"} in the table now. It was read like any other page, so nothing is extracted again.`,
+    );
+  }
+
   async function reorder(photoIds: string[]) {
     if (!detail) return;
     const previous = detail;
@@ -241,6 +262,20 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
                 <Badge variant="outline" className="w-fit font-normal">
                   Changed since last read
                 </Badge>
+              ) : null}
+              {detail.isSpecimen ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="font-normal">
+                    Specimen
+                  </Badge>
+                  <p className="text-muted-foreground text-xs">
+                    The page “{detail.templateName}” was built from. It stays out of the table, the export and the
+                    template&apos;s document count.
+                  </p>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void setSpecimen(false)}>
+                    Use as a real document
+                  </Button>
+                </div>
               ) : null}
             </SheetHeader>
 

@@ -18,6 +18,7 @@ import type { PhotoView } from "@/lib/photos/views";
 import { firstUnreviewedColumn, nextUnreviewedRow, progressOf, reviewOrder } from "@/lib/review/progress";
 import type { ReviewProgress, ReviewQueuePage, RowSources } from "@/lib/review/types";
 import type { ReviewSource } from "@/lib/table/schemas";
+import { PHOTO_MIN_PX } from "@/lib/ui/panes";
 import type { CellChangeResult, TableCell, TableMeta, TableRow } from "@/lib/table/types";
 import { withCell, withValidation } from "@/lib/table/view";
 import type { WirePage } from "@/lib/table/wire";
@@ -42,8 +43,6 @@ type Session = { rowId: string; cellId: string; serverCell: TableCell; editId: s
 
 const PHOTO_PANE = "photo";
 const CELLS_PANE = "cells";
-/** Below this the photo stops being readable, which is the rule every layout yields to (decision 70). */
-const PHOTO_MIN_PX = 560;
 /** 22rem, the floor the pre-pane grid used for the values column. */
 const CELLS_MIN_PX = 352;
 const SAVE_DEBOUNCE_MS = 400;

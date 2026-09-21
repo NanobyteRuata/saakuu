@@ -46,6 +46,11 @@ export const completeUploadSchema = z.object({
   templateId: idSchema,
   batchId: idSchema.optional(),
   filename: z.string().trim().min(1).max(255),
+  /**
+   * Phase 15: the page was uploaded to build the template against. A specimen is born one rather
+   * than flagged afterwards, so there is never a moment where it counts as an ordinary document.
+   */
+  isSpecimen: z.boolean().optional(),
 });
 export type CompleteUploadInput = z.infer<typeof completeUploadSchema>;
 

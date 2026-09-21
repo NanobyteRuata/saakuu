@@ -23,5 +23,5 @@ export default async function TemplateEditorPage({ params }: Params) {
   }
   if (template.bookId !== book.id) notFound();
 
-  return <TemplateEditor initial={template} bookDefaultModel={book.defaultModel} bookDateEra={book.dateEra} />;
+  return <TemplateEditor initial={template} userId={user.id} bookDefaultModel={book.defaultModel} bookDateEra={book.dateEra} />;
 }

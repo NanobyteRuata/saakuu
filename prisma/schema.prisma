@@ -379,6 +379,7 @@ model Document {
   contentState       ContentState @default(UNKNOWN)
   templateMatchScore Float? // anchor detection, 0..1
   needsReview        Boolean      @default(false)
+  isSpecimen         Boolean      @default(false) // Phase 15: a page uploaded to build a template against (decision 71)
   lastRunAt          DateTime?    @db.Timestamptz(3)
   lastModel          String?
   manualValues       Json? // MANUAL-mode field values: { fieldId: value }
@@ -399,6 +400,7 @@ model Document {
 
   @@index([bookId, deletedAt])
   @@index([templateId, runState])
+  @@index([templateId, isSpecimen])
   @@index([batchId])
 }
 

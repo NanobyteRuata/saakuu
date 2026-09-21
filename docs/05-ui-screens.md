@@ -220,6 +220,30 @@ hovering a value moves the photo to where it was read. It is the product's trust
 read — and it is also what fills the mapping preview, so one action answers two problems. (A third **Validation** tab for per-template rule overrides is
 post-v1, see docs/06; book rules live in Settings.)
 
+**`Propose fields`** (Phase 16, decision 73) sits beside `Read this page` under the specimen, and
+the empty tree points at it. It is the one place the operator used to author from nothing, now
+done the product's way: the machine proposes and the human decides. It is a dialog in three stages:
+
+1. **Estimate.** "The AI reads *page* as a form and lists each labelled place a value is written,
+   in reading order." (For a table: "each column, from its header, left to right".) Then the model
+   select, `About $0.00x, under a minute`, and the key line (`Uses your own AI key (····1234).` /
+   `Uses this server's AI key.`), the same wording as the Extract dialog (`lib/ai/cost-lines.ts`).
+   Blockers and a missing key are shown in place, and `Propose fields` stays disabled.
+2. **Reading.** The dialog polls. Closing it is safe and says so: the proposal has been paid for,
+   so reopening the dialog on the same page resumes it rather than charging again.
+3. **Proposal.** A list in paper order with a checkbox per field showing the label in its script,
+   the English meaning, a type badge, and the choices and note where present. Every row starts
+   ticked, except one whose label is already in the tree (`Already in the tree`). There are
+   `Choose all` and `Choose none` buttons, a live `9 of 12 fields chosen`, and an amber line: *the
+   AI can be confidently wrong, and a wrong list looks finished*. `Add N fields` opens the counted
+   confirmation, which has the same shape as `Create columns from this template`: **Adds 11
+   fields**, where they land (end of the tree, paper order, Extract), how many are left out, and
+   the list. Escape is blocked while it saves. `Read again` goes back to the estimate for a fresh
+   proposal.
+
+Fields land flat at the top level. Groups, headers and tick groups stay manual, because a wrong
+group costs more to undo than a missing one.
+
 ### Fields tab
 Two-pane. Left: the field tree (groups → fields), drag-reorderable, with an add bar above it.
 Right: the selected field's or group's properties.

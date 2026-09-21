@@ -205,6 +205,25 @@ GROUP BY u.email
 ORDER BY in_tokens DESC;
 ```
 
+Template proposals (Phase 16) are the other thing that spends money per use, and they record tokens in
+`FieldProposal`, not `ExtractionRun`. Add them to the shape above:
+
+```sql
+-- proposal spend for the last 30 days, per user
+SELECT u.email, count(*) AS proposals, sum(p."inputTokens") AS in_tokens, sum(p."outputTokens") AS out_tokens
+FROM "FieldProposal" p
+JOIN "Template" t ON t.id = p."templateId"
+JOIN "Book"     b ON b.id = t."bookId"
+JOIN "User"     u ON u.id = b."userId"
+WHERE p."finishedAt" > now() - interval '30 days'
+GROUP BY u.email
+ORDER BY in_tokens DESC;
+```
+
+A proposal is one request per specimen, about $0.004 on 3.5 Flash for a card. Failed proposals count too,
+because a response that didn't validate was still paid for. `FieldProposal.rawResponse` is kept: it is a short
+field list, not a page of values, and it is outside the 30-day strip below.
+
 **Build the quota when both are true:** extraction on the server key is a cost line worth naming in a
 month, and the query above has enough history to set a number that is not a guess. The unit — documents,
 pages or tokens — is still open (docs/07 Part C, question 12). Until then, the exposure is bounded by

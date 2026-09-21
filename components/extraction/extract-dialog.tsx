@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { aboutTime, keyLine } from "@/lib/ai/cost-lines";
 import { AI_MODELS, formatMoney, type AIModelId } from "@/lib/ai/models";
 import { postJson } from "@/lib/api-client";
 import type { ExtractionEstimate, StartResult } from "@/lib/extraction/service";
@@ -33,27 +34,6 @@ type Props = {
 
 function newNonce(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}-nonce`;
-}
-
-/**
- * Which key this run spends (Phase 12, decision 54). The operator is about to pay for it, so the
- * dialog says whose account it lands on before they confirm, not after.
- */
-function keyLine(estimate: ExtractionEstimate): string | null {
-  switch (estimate.keySource) {
-    case "user":
-      return `Uses your own AI key${estimate.keyHint ? ` (····${estimate.keyHint})` : ""}.`;
-    case "server":
-      return "Uses this server's AI key.";
-    default:
-      return null;
-  }
-}
-
-function aboutTime(seconds: number): string {
-  if (seconds < 60) return "under a minute";
-  const minutes = Math.round(seconds / 60);
-  return minutes < 90 ? `about ${plural(minutes, "minute")}` : `about ${plural(Math.round(minutes / 60), "hour")}`;
 }
 
 /**

@@ -27,6 +27,8 @@ export const RATE_LIMITS = {
   accountAiKey: { max: 10, windowMs: MINUTE },
   extractionStart: { max: 20, windowMs: MINUTE },
   extractionEstimate: { max: 120, windowMs: MINUTE },
+  // Phase 16: each one reads a page with the operator's money; a handful a minute is already a lot.
+  fieldProposalStart: { max: 10, windowMs: MINUTE },
 } as const;
 
 export type RateLimitRule = keyof typeof RATE_LIMITS;

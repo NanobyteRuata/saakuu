@@ -187,6 +187,7 @@ model Template {
   fields    Field[]
   mappings  Mapping[]
   documents Document[]
+  proposals FieldProposal[]
 
   @@index([bookId, deletedAt])
 }
@@ -394,9 +395,10 @@ model Document {
   template Template        @relation(fields: [templateId], references: [id], onDelete: Cascade)
   batch    Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
   photos   Photo[]
-  runs     ExtractionRun[]
-  records  RawRecord[]
-  rows     Row[]
+  runs      ExtractionRun[]
+  records   RawRecord[]
+  rows      Row[]
+  proposals FieldProposal[]
 
   @@index([bookId, deletedAt])
   @@index([templateId, runState])
@@ -483,6 +485,40 @@ model ExtractionRun {
   records  RawRecord[]
 
   @@index([documentId, createdAt])
+  @@index([state])
+}
+
+// ---------- Template proposals (Phase 16) ----------
+
+/// One AI reading of a specimen that proposes the template's fields (decision 73: flat fields only).
+/// A proposal, not a write: `items` is shown with per-field toggles and nothing reaches the tree until
+/// the operator confirms, when `acceptedAt` is set. Kept apart from ExtractionRun because every run of a
+/// document is read as an extraction (its run state, its raw layer), and a proposal is neither.
+model FieldProposal {
+  id               String    @id @default(cuid(2))
+  templateId       String
+  documentId       String // the specimen that was read
+  photoIds         String[]  @default([]) // pages sent, in page order
+  model            String
+  promptVersion    String
+  idempotencyKey   String    @unique
+  state            RunState  @default(QUEUED) // QUEUED, RUNNING, FAILED or COMPLETE
+  startedAt        DateTime? @db.Timestamptz(3)
+  finishedAt       DateTime? @db.Timestamptz(3)
+  error            String?
+  inputTokens      Int?
+  outputTokens     Int?
+  rawResponse      Json? // every model response, for debugging
+  items            Json? // validated ProposedFieldDTO[] in paper order, once COMPLETE
+  acceptedAt       DateTime? @db.Timestamptz(3)
+  acceptedFieldIds String[]  @default([])
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, createdAt])
+  @@index([documentId])
   @@index([state])
 }
 

@@ -99,9 +99,42 @@ export type ExtractionResult = {
 
 export type ModelInfo = { id: AIModelId; label: string; costTier: "low" | "high" };
 
+/**
+ * Phase 16: read a specimen and propose the template's fields. Flat fields only (decision 73) — groups
+ * and selection structure stay manual. The proposal is shown to the operator and written only on their
+ * confirmation; nothing here touches the template.
+ */
+export type FieldProposalRequest = {
+  images: ExtractionImage[];
+  kind: TemplateKind;
+  languageHint: string | null;
+  instructions: string | null;
+  glossary: { term: string; meaning: string }[];
+  model: AIModelId;
+};
+
+export type ProposedFieldDTO = {
+  /** The label exactly as written on the paper, in its own script. */
+  labelSource: string;
+  /** A short English meaning, where the label is not already English. */
+  labelMeaning: string | null;
+  dataType: FieldType;
+  /** CHOICE only: the printed options, as written. */
+  choices: string[];
+  note: string | null;
+};
+
+export type FieldProposalResult = {
+  /** In paper order. */
+  fields: ProposedFieldDTO[];
+  usage: { inputTokens: number; outputTokens: number };
+  rawResponse: { responses: ResponseLog[] };
+};
+
 export interface AIProvider {
   listModels(): Promise<ModelInfo[]>;
   extract(req: ExtractionRequest): Promise<ExtractionResult>;
+  proposeFields(req: FieldProposalRequest): Promise<FieldProposalResult>;
 }
 
 export type ProviderErrorKind = "RATE_LIMITED" | "UNAVAILABLE" | "BAD_REQUEST" | "NOT_CONFIGURED" | "KEY_REFUSED" | "INVALID_RESPONSE";

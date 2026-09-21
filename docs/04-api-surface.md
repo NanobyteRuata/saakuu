@@ -137,6 +137,33 @@ GET    /api/templates/:id/delete-impact    same, for one template
 - Cross-book duplicate (`targetBookId`) is deferred. Mappings are copied only when every input
   field and the column are live; the rest are counted in `skippedMappings`.
 
+### Field proposals (Phase 16)
+```
+POST   /api/templates/:id/field-proposals/estimate   { documentId, model? }
+                                              -> { providerProblem, keySource, keyHint, blocker, pages,
+                                                   estCostUsd, estSeconds, model }
+POST   /api/templates/:id/field-proposals            { documentId, model, nonce } -> { id }   202
+GET    /api/templates/:id/field-proposals?documentId= -> { proposal: FieldProposalView | null }
+GET    /api/templates/:id/field-proposals/:proposalId -> FieldProposalView
+POST   /api/templates/:id/field-proposals/:proposalId/accept   { include: number[] }
+                                              -> { created, left, alreadyAccepted }   201
+```
+- The AI reads one **specimen** of the template and proposes flat fields (decision 73). Starting never calls
+  the model: it records a `QUEUED` `FieldProposal` (with `promptVersion`) and enqueues `template.propose` on the
+  extraction queue. Rate limit `fieldProposalStart`, 10 a minute per user; the estimate shares `extractionEstimate`.
+- `blocker` (plain language) when the document isn't a specimen of this template, has a failed or still-processing
+  photo, or has more than 8 photos. `startFieldProposal` refuses the same cases with `VALIDATION`, and a missing
+  key with `PROVIDER_ERROR`. The nonce makes a double submit return the same proposal.
+- `FieldProposalView`: `{ id, documentId, state: QUEUED|RUNNING|FAILED|COMPLETE, model, promptVersion, error,
+  items: [{ index, labelSource, labelMeaning, dataType, choices, note, alreadyInTree }], acceptedAt, acceptedCount }`.
+  `alreadyInTree` compares labels with the template's live fields. The `GET ?documentId=` form returns the newest
+  unaccepted, non-failed proposal of that page from the last day, so a paid proposal survives closing the dialog.
+  Polling re-enqueues one stuck `QUEUED` for a minute or `RUNNING` for fifteen.
+- `accept` is the only write: `include` holds indexes into the **stored** items, never labels, so the client can't
+  write anything the model didn't propose. The fields are created top-level after the last top-level sibling, in the
+  proposal's order, as `EXTRACT`. `CONFLICT` if the proposal isn't `COMPLETE`. A second accept creates nothing and
+  answers `alreadyAccepted: true`.
+
 ### Fields & groups
 ```
 POST   /api/templates/:id/groups           { label }

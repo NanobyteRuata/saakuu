@@ -1,6 +1,6 @@
 "use client";
 
-import { Crop, ImageUp, Sparkles, ZoomIn, ZoomOut } from "lucide-react";
+import { Crop, ImageUp, ListPlus, Sparkles, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,8 +16,11 @@ import { getJson, patchJson } from "@/lib/api-client";
 import { READ_STAGE_LABEL, useReadOne } from "@/lib/extraction/use-read-one";
 import type { PhotoView } from "@/lib/photos/views";
 import type { Bbox } from "@/lib/table/types";
+import type { TemplateKind } from "@/lib/templates/schemas";
 import type { SpecimenDocument } from "@/lib/templates/specimens";
 import { cn } from "@/lib/utils";
+
+import { ProposeFieldsDialog } from "./propose-fields-dialog";
 
 const ZOOM_STEPS = [1, 1.5, 2, 3, 4];
 const PROCESSING_POLL_MS = 2000;
@@ -29,21 +32,28 @@ const PROCESSING_POLL_MS = 2000;
  * no image on it, while review — the screen that types the least — did. This is the fix, and it is
  * also where the trust moment moved to: `Read this page` is offered from the first specimen, before
  * any field exists, and reports what this paper actually produced rather than only the stated rate.
+ * Phase 16 adds the other half of that: `Propose fields` reads the same page for its labels, so the
+ * twenty labels need not be typed at all.
  */
 export function SpecimenPane({
   templateId,
   templateName,
+  templateKind,
   userId,
   lang,
   onRead,
+  onFieldsAdded,
 }: {
   templateId: string;
   templateName: string;
+  templateKind: TemplateKind;
   /** Pane sizes are remembered per workspace per user (docs/05 §0). */
   userId: string;
   lang: string | undefined;
   /** A reading changes the book's counts and the mapping preview. */
   onRead: () => void;
+  /** Accepted proposed fields are in the tree now. */
+  onFieldsAdded: () => void;
 }) {
   const [specimens, setSpecimens] = useState<SpecimenDocument[] | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -53,6 +63,7 @@ export function SpecimenPane({
   const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [proposing, setProposing] = useState(false);
   /** The value under the cursor in the reading below, boxed on the page above. */
   const [focusedValue, setFocusedValue] = useState<{ photoId: string | null; bbox: Bbox | null } | null>(null);
 
@@ -229,6 +240,10 @@ export function SpecimenPane({
           <Sparkles />
           {busy ? READ_STAGE_LABEL[reading.stage as "processing" | "extracting"] : reading.raw ? "Read it again" : "Read this page"}
         </Button>
+        <Button size="sm" variant="outline" disabled={processing || !current} onClick={() => setProposing(true)}>
+          <ListPlus />
+          Propose fields
+        </Button>
         <Button size="sm" variant="ghost" disabled={promoting} onClick={promote}>
           {promoting ? "Using…" : "Use as a real document"}
         </Button>
@@ -275,6 +290,18 @@ export function SpecimenPane({
           </div>
         </Pane>
       </PaneGroup>
+      {current ? (
+        <ProposeFieldsDialog
+          templateId={templateId}
+          kind={templateKind}
+          documentId={current.id}
+          documentLabel={current.label}
+          lang={lang}
+          open={proposing}
+          onOpenChange={setProposing}
+          onAdded={onFieldsAdded}
+        />
+      ) : null}
       {editing ? (
         <PhotoEditor
           photo={editing}

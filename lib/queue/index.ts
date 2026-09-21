@@ -9,6 +9,7 @@ import {
   JOBS,
   QUEUES,
   type ExtractionRunJobData,
+  type FieldProposalJobData,
   type NoopJobData,
   type NoopJobResult,
   type PhotoIngestJobData,
@@ -22,6 +23,7 @@ import {
 export { JOBS, QUEUES, createRedisConnection };
 export type {
   ExtractionRunJobData,
+  FieldProposalJobData,
   NoopJobData,
   NoopJobResult,
   PhotoIngestJobData,
@@ -129,6 +131,28 @@ export async function enqueueExtraction(data: ExtractionRunJobData): Promise<"ad
     await existing.remove();
   }
   await queue.add(JOBS.extractionRun.name, payload, {
+    attempts: EXTRACTION_JOB_ATTEMPTS,
+    backoff: { type: "exponential", delay: 15_000 },
+    jobId,
+  });
+  return "added";
+}
+
+/**
+ * Enqueues one template proposal (Phase 16). One job id per proposal, so re-enqueueing from the status
+ * poll while it is waiting or running does nothing.
+ */
+export async function enqueueFieldProposal(data: FieldProposalJobData): Promise<"added" | "pending"> {
+  const payload = correlated(JOBS.fieldProposal.schema.parse(data));
+  const queue = getQueue(JOBS.fieldProposal.queue);
+  const jobId = `propose-${payload.proposalId}`;
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state !== "completed" && state !== "failed" && state !== "unknown") return "pending";
+    await existing.remove();
+  }
+  await queue.add(JOBS.fieldProposal.name, payload, {
     attempts: EXTRACTION_JOB_ATTEMPTS,
     backoff: { type: "exponential", delay: 15_000 },
     jobId,

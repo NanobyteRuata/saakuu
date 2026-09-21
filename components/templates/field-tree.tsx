@@ -550,7 +550,8 @@ export function FieldTree({ template, tree, setTemplate, selected, onSelect, onD
       {items.length === 0 ? (
         <p className="text-muted-foreground rounded-md border border-dashed px-3 py-4 text-sm">
           No fields yet. Add one field for each column or answer box on the paper, using its label exactly as it&apos;s
-          written. {FIELD_GUIDANCE[template.kind]} Add groups for the headers above them.
+          written. {FIELD_GUIDANCE[template.kind]} Add groups for the headers above them. Or use{" "}
+          <span className="font-medium">Propose fields</span> under the page to have the AI list them for you to check.
         </p>
       ) : (
         <DndContext

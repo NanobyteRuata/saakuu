@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–15 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–16 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 16.
+Phase 17.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–15
+## Shipped — Phases 0–16
 
 | Phase | What shipped |
 |---|---|
@@ -37,10 +37,11 @@ previous one's criteria pass.
 | **13** | The shell: four workspaces with live counts replacing the four tabs, Settings as a gear, a resizable `Pane` primitive, no page scroll and no viewport arithmetic, upload-only below 1280px. |
 | **14** | Cutting what nobody needs: `Book.confidenceThreshold` dropped, Settings down to glossary + rules + danger zone, the column editor moved to the Result Table, export tokens owned by the export dialog, era and numerals asked by exception, three rule kinds offered, Create Book one step. |
 | **15** | The paper on screen: `Document.isSpecimen`, the template workspace paned with the photo beside the tree, autosave instead of save-and-discard, one photo intake in four modes, `Try one document` moved to the front as `Read this page`. |
+| **16** | The AI proposes the template: `Propose fields` reads a specimen into a flat field list, priced in money with the key named first, confirmed with per-field toggles and a count; `FieldProposal` records `template-v1`. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's, 14's and 15's are
-below; their reasoning is decisions 66–72 and 76–77.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 16's are
+below; their reasoning is decisions 66–73 and 76–77.
 
 ---
 
@@ -360,7 +361,7 @@ number from the operator's own paper is what the line is for.
 
 ---
 
-## Phase 16 — The AI proposes the template
+## Phase 16 — The AI proposes the template ✅ shipped
 
 The product's own thesis — the machine does the first pass, the human reviews — applied to the one place
 the operator still authors from nothing. The provider interface, the versioned prompts and the tree
@@ -381,13 +382,58 @@ editor all exist; the output is a tree.
 - It costs money, so it gets the same treatment as extraction: an estimate in money before it runs, and
   it says which key it will spend.
 
-**Done when:**
+**Docs updated:** docs/01 §6.5, docs/03 §1 and a new §12, docs/04 → Field proposals, docs/05 §7,
+docs/07 decision 73 (and 53 and Part A marked superseded), docs/09 §8.
+
+**Tests:** none new under the unit policy (nothing here can lose data: the only write is a confirmed
+create). One E2E, `e2e/propose-fields.spec.ts`: propose on a form, untick one, confirm `Adds 11 fields`,
+eleven in paper order, then the same page as a table proposes its columns instead.
+
+**Done when (all met):**
 - A photo of a twelve-field Burmese card proposes a field list, and accepting it lands those fields in
   the tree in paper order.
 - Nothing is written until the proposal is confirmed, and deselected fields are not created.
 - The estimate names a cost in money and the key it will use before anything runs.
 - A TABLE template and a FORM template produce visibly different proposals from the same page.
 - The run records its `promptVersion`.
+
+**As built.** Notes for the phases after it:
+
+- **The proposal is its own record, `FieldProposal`, not an `ExtractionRun` with a kind.** "No schema
+  change beyond recording the prompt version on the proposal" needed somewhere to record it. Every run
+  of a document is read as an extraction: `recomputeDocumentRun` rolls runs up into the document's run
+  state, and `currentRuns` decides which reading of each page is current. A proposal run on a specimen
+  would have shown as that page's latest reading with no raw layer. The new table also stores the
+  validated items, which is what lets `accept` take **indexes** rather than labels. The client can't
+  write anything the model didn't propose.
+- **It runs in the worker, on the extraction queue** (`template.propose`), so it shares the key's
+  concurrency and the queue-wide 60-second pause on rate limits. Recovery doesn't touch the reaper: the
+  claim accepts a `RUNNING` proposal older than fifteen minutes, and the dialog's poll re-enqueues one
+  stuck `QUEUED` for a minute. The job id is per proposal, so re-enqueueing is a no-op while it lives.
+- **A paid proposal survives closing the dialog.** Reopening on the same page resumes the newest
+  unaccepted proposal from the last day, whether still reading or waiting for confirmation, instead of
+  charging again. `Read again` is the explicit way to pay for a fresh one.
+- **"Visibly different" needed a page where the kinds should disagree.** Real Gemini proposals, tried on
+  a synthetic twelve-field Burmese card:
+  - As a Form, it gave all twelve fields, verbatim and in order, with sensible types: the `ကျား / မ`
+    question came back as one `CHOICE` with both options, and the lone tick box as `MARK`.
+  - On a card with no grid, a Table read gives the same labels, because there are no column headers to
+    prefer.
+  - On a card with labelled blanks above a vaccination grid, the kinds split cleanly: 13 fields as a
+    Form (five blanks plus one field per grid cell, `BCG / ထိုးသည့်ရက်`) against 3 as a Table (the grid's
+    columns only).
+  - The first draft of `template-v1` got this wrong twice. The Form skipped grid rows that were empty on
+    this copy, and the Table kept the blanks above the grid. Both were fixed before the version was
+    used for anything but tests. From here, any change is `template-v2`.
+- **Estimate constants:** 1,500 prompt tokens, image tokens per page, and a fixed 2,500-token output
+  allowance. Measured output, including thinking, ran 700 to 1,700 tokens, about $0.002 to $0.006 per
+  proposal on 3.5 Flash.
+- **`labelMeaning` is template metadata, not data.** The English gloss is for the operator reading
+  the tree, so it doesn't break "the AI transcribes, it does not normalise". `labelSource` is
+  never rewritten beyond trimming.
+- **Proposals already in the tree start unticked.** Labels are compared after NFC normalisation, so
+  proposing twice, or after typing a few fields by hand, doesn't duplicate them unless the operator
+  asks for it.
 
 ---
 
@@ -544,7 +590,7 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 ## Decisions to append to docs/07 Part B
 
 Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped, 76–77 when
-Phase 14 did and 71–72 when Phase 15 did; the rest need writing up in the decision log with their reasoning, in the same form as
+Phase 14 did, 71–72 when Phase 15 did and 73 when Phase 16 did; the rest need writing up in the decision log with their reasoning, in the same form as
 1–65, as their phases ship:
 
 | # | Decision |
@@ -556,7 +602,7 @@ Phase 14 did and 71–72 when Phase 15 did; the rest need writing up in the deci
 | 70 | Light-first, and the photo pane decides every layout. |
 | 71 | A sample document is a real Document with a specimen flag, not a separate object. ✅ written up |
 | 72 | Autosave replaces save-and-discard in the template editor; single-owner editing makes the modal protect nothing. ✅ written up |
-| 73 | The AI proposes flat fields only; groups and selection structure stay manual. |
+| 73 | The AI proposes flat fields only; groups and selection structure stay manual. ✅ written up |
 | 74 | Cross-book copy now, versioned library never until asked for. |
 | 75 | Jobs is a drawer on Documents, not a workspace. |
 

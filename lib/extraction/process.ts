@@ -30,8 +30,17 @@ import { recomputeDocumentRun } from "./service";
 /** A run left RUNNING this long belongs to a worker that died; it can be claimed again. */
 const STALE_RUNNING_MS = 15 * 60_000;
 
-/** A failure of this run's pages that retrying the job can't fix. */
-class RunFailure extends Error {}
+/**
+ * A failure of this run's pages that retrying the job can't fix. `reason` says what went wrong without
+ * the wording, so another caller of `loadImages` (template proposals) can say it in its own words.
+ */
+export class RunFailure extends Error {
+  readonly reason: "pages-changed" | "too-large" | "other";
+  constructor(message: string, reason: RunFailure["reason"] = "other") {
+    super(message);
+    this.reason = reason;
+  }
+}
 
 /** A transient failure: the claimed runs were put back and the job should be retried. */
 export class RetryLater extends Error {
@@ -72,7 +81,8 @@ async function failRun(
   });
 }
 
-async function loadImages(bookId: string, documentId: string, photoIds: string[]): Promise<ExtractionImage[]> {
+/** The working copies of these pages, in the order given. Shared with template proposals (Phase 16). */
+export async function loadImages(bookId: string, documentId: string, photoIds: string[]): Promise<ExtractionImage[]> {
   const photos = await prisma.photo.findMany({
     where: { id: { in: photoIds }, documentId },
     select: { id: true, pageIndex: true, status: true, transform: true, workingKey: true },
@@ -83,16 +93,16 @@ async function loadImages(bookId: string, documentId: string, photoIds: string[]
   let bytes = 0;
   for (const id of photoIds) {
     const p = byId.get(id);
-    if (!p) throw new RunFailure("The pages of this document changed after extraction started. Extract it again.");
+    if (!p) throw new RunFailure("The pages of this document changed after extraction started. Extract it again.", "pages-changed");
     const expected = workingKey(bookId, p.id, transformHash(normalizeTransform(p.transform)));
     if (p.status !== "DONE" || p.workingKey !== expected) {
-      throw new RunFailure(`Page ${p.pageIndex + 1} was edited after extraction started and its new copy isn't ready. Extract again in a moment.`);
+      throw new RunFailure(`Page ${p.pageIndex + 1} was edited after extraction started and its new copy isn't ready. Extract again in a moment.`, "pages-changed");
     }
     const data = await getObjectBuffer(expected);
     bytes += data.length;
     images.push({ data, mimeType: "image/jpeg", pageIndex: p.pageIndex });
   }
-  if (bytes > MAX_REQUEST_BYTES) throw new RunFailure("These pages are too large to send together (over 15 MB). Crop them or split the document.");
+  if (bytes > MAX_REQUEST_BYTES) throw new RunFailure("These pages are too large to send together (over 15 MB). Crop them or split the document.", "too-large");
   return images;
 }
 

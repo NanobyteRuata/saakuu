@@ -2,6 +2,7 @@ import { ApiError, GoogleGenAI, type Part } from "@google/genai";
 
 import { extractWithRepair, type ModelCall } from "./extract";
 import { AI_MODELS } from "./models";
+import { proposeWithRepair } from "./propose";
 import { ProviderError, type AIProvider } from "./provider";
 
 /**
@@ -67,5 +68,6 @@ export function createGeminiProvider(apiKey: string | undefined): AIProvider {
       return AI_MODELS.map((m) => ({ id: m.id, label: m.label, costTier: m.costTier }));
     },
     extract: (req) => extractWithRepair(call, req),
+    proposeFields: (req) => proposeWithRepair(call, req),
   };
 }

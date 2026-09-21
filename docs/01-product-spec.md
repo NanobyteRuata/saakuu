@@ -154,6 +154,14 @@ The page it is built from is a **specimen**: an ordinary Document carrying `isSp
 71), uploaded through the same intake as everything else. `Read this page` is offered on it from the
 start, before a single field exists, and reports what that paper actually produced. See §6.7.
 
+**The AI proposes the fields** (Phase 16, decision 73). `Propose fields` reads the specimen and lists
+its fields: for a Form, every labelled place a value goes, in reading order; for a Table, the grid's
+column headers, left to right. Labels come back as written, in their own script, with an English
+meaning. The operator sees the cost in money and whose key pays before it runs. What comes back is a
+**proposal, not a write**: every field has a toggle, the confirmation states the exact count
+("Adds 11 fields … 1 is left out"), and only the ticked fields are created, flat, at the end of the
+tree, where they are corrected like any other. Groups and tick groups stay manual.
+
 **a. Source layer**
 - Type: Form or Table (chosen at creation; switching later is blocked — offer
   "duplicate as new template" instead).

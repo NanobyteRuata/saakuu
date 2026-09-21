@@ -49,6 +49,11 @@ export const extractionRunJobSchema = z.object({
   ...correlation, documentId: z.string().min(1) });
 export type ExtractionRunJobData = z.infer<typeof extractionRunJobSchema>;
 
+/** Template proposal (Phase 16): read one specimen and propose its fields. Same queue as extraction: same key, same rate limits. */
+export const fieldProposalJobSchema = z.object({
+  ...correlation, proposalId: z.string().min(1) });
+export type FieldProposalJobData = z.infer<typeof fieldProposalJobSchema>;
+
 /** Transform (docs/03 §8): rebuild rows from the raw layer for every extracted document of a template, at no AI cost. */
 export const transformTemplateJobSchema = z.object({
   ...correlation, templateId: z.string().min(1) });
@@ -77,6 +82,7 @@ export const JOBS = {
   photoIngest: { queue: QUEUES.media, name: "photo.ingest", schema: photoIngestJobSchema },
   photoRender: { queue: QUEUES.media, name: "photo.render", schema: photoRenderJobSchema },
   extractionRun: { queue: QUEUES.extraction, name: "extraction.run", schema: extractionRunJobSchema },
+  fieldProposal: { queue: QUEUES.extraction, name: "template.propose", schema: fieldProposalJobSchema },
   transformTemplate: { queue: QUEUES.transform, name: "transform.template", schema: transformTemplateJobSchema },
   transformDocument: { queue: QUEUES.transform, name: "transform.document", schema: transformDocumentJobSchema },
   revalidateBook: { queue: QUEUES.transform, name: "validation.book", schema: revalidateBookJobSchema },

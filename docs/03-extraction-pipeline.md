@@ -24,6 +24,7 @@ export interface ExtractionResult {
 export interface AIProvider {
   listModels(): Promise<ModelInfo[]>;
   extract(req: ExtractionRequest): Promise<ExtractionResult>;
+  proposeFields(req: FieldProposalRequest): Promise<FieldProposalResult>;   // Phase 16, §12
 }
 ```
 
@@ -402,3 +403,43 @@ run so the estimate can be calibrated against history later.
 - Provider tests use a recorded-response fake. Do not call Gemini in CI.
 - One E2E test: upload a fixture image → extract with a stubbed provider → assert the
   output table contents.
+
+## 12. Template proposal (Phase 16)
+
+The one other model call in the product: read a **specimen** and propose the template's fields, so the operator
+checks a list against the paper instead of typing twenty labels. It is extraction's shape turned on the
+template itself, and it follows the same rules. Nothing runs in a request handler. The prompt is versioned. A
+proposal costs money, so it is estimated first and records its usage.
+
+```ts
+export type FieldProposalRequest = { images; kind: "FORM" | "TABLE"; languageHint; instructions; glossary; model };
+export type ProposedFieldDTO = { labelSource; labelMeaning: string | null; dataType: FieldType; choices: string[]; note: string | null };
+export type FieldProposalResult = { fields: ProposedFieldDTO[]; usage; rawResponse: { responses: ResponseLog[] } };
+```
+
+- **Prompt:** `lib/ai/prompts/template-v1.ts`, `TEMPLATE_PROMPT_VERSION = "template-v1"`. It follows the same
+  never-edit-in-place rule as `v1.ts`, and every `FieldProposal` row records the version it used. Labels are
+  transcribed as written, in their own script. `labelMeaning` is a short English gloss, which is template
+  metadata the operator reads, not a data value, so it doesn't break "the AI transcribes, it does not normalise".
+- **The kind changes the question:**
+  - A **FORM** is every labelled place a value goes, in reading order. A printed circle-one question is one
+    `CHOICE` with its options, and a lone tick box is `MARK`. A small grid inside a form becomes one field per
+    cell, `row / column`, including cells empty on this copy.
+  - A **TABLE** is the ruled grid's column headers, left to right. Blanks filled once above the grid are
+    left out, and nested headers flatten to the lowest one with the parent in `note`.
+  - On a page with labelled blanks and a grid, the two kinds give visibly different lists. A page with no
+    grid reads much the same either way.
+- **Flat fields only** (decision 73). Groups and selection groups stay manual.
+- **Schema and validation** (`lib/ai/propose.ts`): a fixed JSON schema `{ fields: [...] }`, the same
+  repair-once loop as extraction, and at most 100 fields. Small problems are tidied rather than paid for
+  twice: labels are trimmed, duplicate choices dropped, a `CHOICE` without choices becomes `TEXT`, and choices
+  on other types are dropped. Labels are never rewritten.
+- **Job:** `template.propose` on the `extraction` queue, so it shares the key, concurrency and the rate-limit
+  pause. The worker (`lib/templates/field-proposal-process.ts`) claims it with a `startedAt` fencing token,
+  as runs do. The book owner's key pays. Transient errors go back to `QUEUED` and retry.
+- **Estimate:** 1,500 prompt tokens plus image tokens per page (§10's formula), and a fixed 2,500-token output
+  allowance. Real proposals on a twelve-field card measured about 1,450 output tokens including thinking,
+  about $0.004 on 3.5 Flash.
+- **Nothing is written until accepted** (docs/04 → Field proposals). The fake provider proposes twelve form
+  fields or six table columns, so the E2E can tell the kinds apart.
+

@@ -17,7 +17,7 @@ no migration and no data backfill.
 | Team sharing | `Book.userId` → membership table later | Personal in v1. Concurrent editing of the output table is a separate design problem. |
 | Perspective correction | `Photo.transform` JSON is open-ended | Add a `corners` key; crop/rotate/deskew ship in v1. |
 | Cost calibration | `ExtractionRun.inputTokens/outputTokens` | Recorded from v1 so estimates can be calibrated against history. Surfaced as money in Phase 12; a quota is sized from it later (decision 55). |
-| AI proposes the template | none needed | A photo in, a field tree out, corrected in the existing editor. Post-v1 item 1; `Create columns from this template` is its cheap half and ships in Phase 10 (decisions 52, 53). |
+| AI proposes the template | `FieldProposal` (Phase 16) | **Flat fields shipped in Phase 16** (decision 73). Proposing groups and selection structure stays deferred (docs/06 post-v1 #7). `Create columns from this template` was its cheap half, shipped in Phase 10 (decisions 52, 53). |
 | Review-speed readouts | `Cell.reviewedAt`, `Cell.reviewedVia` | Collected from Phase 12 so the launch period is measurable; the display is built when there is data worth showing (decisions 56, 57). |
 
 ---
@@ -260,7 +260,9 @@ round-trip, no `DRAFT` template at the first extraction, no silently unfilled co
 
 **53. AI-proposed templates are post-v1, not v1.** Same idea as 52 one level up: a photo in, a field tree
 out, corrected by hand. Worth a phase of its own, not worth delaying launch, and proposing Phase 3.1's
-groups and selection groups is much harder than proposing flat fields. (Post-v1 item 1)
+groups and selection groups is much harder than proposing flat fields. (Post-v1 item 1; *superseded in
+part by decision 73: flat fields were pulled into Phase 16 once the shell existed to put the paper beside the
+tree.*)
 
 **54. Both AI key sources: the user's own key and the server's.** A user can paste their own Gemini key;
 the server key stays as the fallback for people the owner invites directly. BYO alone would have removed
@@ -393,6 +395,24 @@ that will not save is held by the workspace and restored with its message when t
 to that field. The one case autosave genuinely adds is a save in the air during a document unload,
 which now asks first, as row review and the batch upload already did. This assumes single-owner
 editing and will need revisiting if team sharing arrives (docs/06 post-v1 #6). (Phase 15)
+
+**73. The AI proposes flat fields only; groups and selection structure stay manual.** Phase 16 lets the AI
+read a specimen and propose the template's fields, the one place the operator still authored from nothing.
+It proposes a **flat** list. Groups, nested headers and `One of` / `Any of` groups (Phase 3.1) are much
+harder to infer from a photo, and a wrong group costs more to undo than a missing one: its selection rule
+changes how every option under it is read and flagged, so the operator has to understand and dismantle it,
+not just delete a row. A missing group is one `+` on the tree.
+
+The result is a **proposal, not a write** (docs/06 risk: *a wrong field list looks finished*). A proposal
+is a toggle list plus a counted confirmation, and nothing reaches the template until the operator confirms.
+The accept endpoint takes indexes into the stored proposal, never labels, so the client can't write anything
+the model didn't say. It is a separate `FieldProposal` record, not an `ExtractionRun` with a kind, because
+every run of a document is read as an extraction (its run state and raw layer), and a proposal is neither.
+It records `promptVersion` (`template-v1`) and its tokens, because it costs money like extraction does.
+The kind is asked first, as it always was at creation, because it changes the question. A form is every
+labelled place a value goes, with a small grid expanded into its cells. A table is the grid's column headers
+alone. Proposing structure is post-v1 #7, built only if real proposals show flat fields are the bottleneck.
+(Phase 16)
 
 **76. Numeral system and era are asked by exception, at the point of failure.** They are real: they
 reach the prompt and the transform, and changing one rebuilds every row. But they describe *the

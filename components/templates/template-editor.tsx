@@ -201,8 +201,10 @@ export function TemplateEditor({
           <SpecimenPane
             templateId={template.id}
             templateName={template.name}
+            templateKind={template.kind}
             userId={userId}
             lang={lang}
+            onFieldsAdded={() => void reload()}
             onRead={() => {
               void reload();
               // A reading changes the book's row and review counts, which the workspace nav renders.

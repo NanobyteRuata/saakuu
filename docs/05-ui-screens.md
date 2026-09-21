@@ -105,7 +105,10 @@ is never caught in it. Storage can be empty or throw — private windows, cleare
 every read is wrapped and the computed default renders on its own. Settings is not a landing
 target, because it is a gear rather than a workspace.
 
-Opening a book never drops anyone into full-screen review by itself.
+Opening a book never drops anyone into full-screen review by itself. A **half-reviewed** book offers instead
+(Phase 19): on landing, a toast `You stopped reviewing in <document>.` with `Resume review`. The document is the one
+holding the book's most recently reviewed cell, so it follows the operator between browsers. Landing on Review needs
+no offer, because Review resumes there itself.
 
 ## 5. Settings
 Reached from the **gear** in the workspace nav (Phase 13), not as a peer workspace.
@@ -698,6 +701,20 @@ Header shows position (`Document 12 of 40 · Row 3 of 9`) and a progress bar.
   marks the row; Esc cancels (takes back that session's saves). Letter keys act only outside the editor, so a value starting
   with `i`, `r` or `n` is typed after F2.
 - The end of the book shows `Every cell is reviewed` with Export, or the count still unreviewed with `Next unreviewed`.
+
+*As built (Phase 19):*
+- The photo runs the **full height** of the workspace. The header (position, progress, `saving…` / `all changes saved`,
+  `Pace`, `Next unreviewed`) sits at the top of the values pane instead of across both.
+- Without `?row=`, review **resumes where it stopped**: the first row with an unreviewed cell at or after the row holding
+  the book's most recently reviewed cell, wrapping to the top, announced as `Resuming in <document>, where review stopped.`
+  The nav and the books list's `Resume review` land here.
+- **Add to glossary:** `G` offers the text selected in the active value, else the text as written on the paper (a ditto
+  mark, not what it resolved to), else the value; selecting text in the
+  active value with the mouse shows `Add "…" to glossary` beside it. A dialog takes the meaning and adds the entry;
+  the next extraction's prompt carries it. A single press on the active value selects rather than edits; releasing
+  without a selection edits, as before.
+- **Pace:** a popover of seconds per reviewed cell, one line per source — `Cell by cell (Enter)`, `Whole rows (⌘Enter)`,
+  `Unreadable (I)` — never blended. Pauses over five minutes count as breaks, and their cells are counted but not timed.
 
 ## 14. Export dialog
 Options: include void rows, include provenance columns, column subset, blank token,

@@ -31,6 +31,10 @@ instant and an average that mixes the two is fiction (decisions 56, 57). The rea
 built on it are deliberately later; the collection is not, because data not gathered
 at launch cannot be recovered.
 
+The first readout shipped in Phase 19: `Pace` in the Review workspace gives seconds per
+reviewed cell for the book, one figure per source. A row mark counts as one event spread over
+the cells it stamped, and pauses over five minutes are breaks rather than slow reviews.
+
 **Setup is subject to the same thesis as data.** The machine proposes, the human
 disposes — applied to the output columns (`Create columns from this template`,
 Phase 10) and later to the field tree itself (post-v1 item 1). Setup was the one place
@@ -300,6 +304,9 @@ Both operate on the same data; the user chooses the layout.
 
 Every cell carries a `isReviewed` flag. A document is `reviewed` when all its cells are.
 
+Review resumes in the document it stopped in (Phase 19): the one holding the most recently
+reviewed cell. Reopening a half-reviewed book offers it.
+
 ### 6.11 Export
 - CSV, UTF-8 **with BOM** (so Burmese text opens correctly in Excel).
 - Respects manual row order.
@@ -550,6 +557,9 @@ book. One of the three things Settings still holds (Phase 14); it reaches every 
 place. Examples: "1 1/2 means 1 year 6 months"; "4/12 means 4 months old";
 "a dash means not applicable, not zero". This belongs at book level because the
 convention applies to every template, not one field.
+
+It is *discovered* mid-review, so it can be added from there too (Phase 19): `G`, or
+selecting part of a value, offers the value as a term, and the next extraction reads it.
 
 ## 18. Non-goals for v1
 

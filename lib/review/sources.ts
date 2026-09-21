@@ -14,9 +14,15 @@ export type CellSource = {
   bbox: Bbox | null;
   /** Source labels of the fields read, e.g. "RDT Test › Positive". Empty for constants and expressions without inputs. */
   paths: string[];
+  /**
+   * The text as written on the paper, when the cell is read from exactly one field that was read as text (Phase 19).
+   * The glossary explains what people wrote, so this — a ditto mark, not the value it was resolved to — is the term
+   * review offers it.
+   */
+  written: string | null;
 };
 
-export type RegionValue = { fieldId: string; photoId: string | null; bbox: Bbox | null };
+export type RegionValue = { fieldId: string; photoId: string | null; bbox: Bbox | null; valueText: string | null };
 
 export function unionBbox(boxes: Bbox[]): Bbox | null {
   if (boxes.length === 0) return null;
@@ -64,10 +70,12 @@ export function cellSources(tree: Tree, working: Map<string, TransformMapping>, 
     });
     const photoId = recordPhotoId ?? read.find((v) => v.photoId !== null)?.photoId ?? null;
     const boxes = read.filter((v) => v.photoId === null || v.photoId === photoId).flatMap((v) => (v.bbox ? [v.bbox] : []));
+    const only = fieldIds.length === 1 && fieldIds[0] !== undefined ? byField.get(fieldIds[0]) : undefined;
     out[columnId] = {
       photoId,
       bbox: unionBbox(boxes),
       paths: mapping.inputs.flatMap((i) => sourcePath(tree, i) ?? []),
+      written: only?.valueText?.trim() || null,
     };
   }
   return out;

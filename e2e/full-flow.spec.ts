@@ -90,8 +90,25 @@ test("sign in → book → template → upload → extract → review → export
   const review = page.getByRole("application", { name: "Row review" });
   await expect(review.getByText("Name 1")).toBeVisible();
   await review.focus();
+
+  // A convention met mid-review goes to the glossary from where it was met (Phase 19): G offers the active value.
+  await page.keyboard.press("g");
+  const glossary = page.getByRole("dialog", { name: "Add to glossary" });
+  await expect(glossary.getByLabel("Term, as written on the paper")).toHaveValue("Name 1");
+  await glossary.getByLabel("What it means").fill("A placeholder name the fake provider writes");
+  await glossary.getByRole("button", { name: "Add to glossary" }).click();
+  await expect(page.getByText("Added “Name 1” to the glossary. The next extraction will use it.")).toBeVisible();
+
+  await review.focus();
   await page.keyboard.press("Control+Enter");
   await expect(page.getByText("Every cell is reviewed")).toBeVisible();
+
+  // The readout keeps row marks apart from per-cell confirms (decision 57).
+  await page.getByRole("button", { name: "Pace" }).click();
+  await expect(page.getByText("Whole rows (⌘Enter)")).toBeVisible();
+  // The book's first review has nothing before it to be timed from.
+  await expect(page.getByText("not timed · 2 cells")).toBeVisible();
+  await page.keyboard.press("Escape");
 
   // Export: BOM, header in column order, the extracted values.
   await page.getByRole("button", { name: "Export CSV" }).first().click();

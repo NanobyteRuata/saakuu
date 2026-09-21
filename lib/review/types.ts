@@ -1,3 +1,4 @@
+import type { ReviewSource } from "@/lib/table/schemas";
 import type { Bbox } from "@/lib/table/types";
 
 import type { CellSource } from "./sources";
@@ -19,4 +20,19 @@ export type ReviewQueuePage = {
   items: { rowId: string; documentId: string; unreviewedCellIds: string[] }[];
   nextCursor: string | null;
   progress: ReviewProgress;
+};
+
+/**
+ * Where review stopped (Phase 19): the first row with an unreviewed cell at or after the row holding the book's most
+ * recently reviewed cell. Null when nothing is reviewed yet, or nothing is left.
+ */
+export type ResumePoint = { rowId: string; documentId: string; documentLabel: string | null };
+
+/**
+ * Seconds per reviewed cell, per review source (Phase 19, decision 57). `timedCells` are the cells whose review
+ * followed another within `breakSeconds`; `seconds` is the time they took. Never blended across sources.
+ */
+export type ReviewPace = {
+  sources: { via: ReviewSource; cells: number; timedCells: number; seconds: number }[];
+  breakSeconds: number;
 };

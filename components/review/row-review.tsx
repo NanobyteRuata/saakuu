@@ -16,7 +16,7 @@ import { getJson, patchJson, postJson } from "@/lib/api-client";
 import { formatCount, plural } from "@/lib/format";
 import type { PhotoView } from "@/lib/photos/views";
 import { firstUnreviewedColumn, nextUnreviewedRow, progressOf, reviewOrder } from "@/lib/review/progress";
-import type { ReviewProgress, ReviewQueuePage, RowSources } from "@/lib/review/types";
+import type { ResumePoint, ReviewProgress, ReviewQueuePage, RowSources } from "@/lib/review/types";
 import type { ReviewSource } from "@/lib/table/schemas";
 import { PHOTO_MIN_PX } from "@/lib/ui/panes";
 import type { CellChangeResult, TableCell, TableMeta, TableRow } from "@/lib/table/types";
@@ -24,7 +24,9 @@ import { withCell, withValidation } from "@/lib/table/view";
 import type { WirePage } from "@/lib/table/wire";
 import { cn } from "@/lib/utils";
 
+import { GlossaryFromReview } from "./glossary-from-review";
 import { ReviewField, type FieldEditorActions } from "./review-field";
+import { ReviewPace } from "./review-pace";
 
 type Props = {
   meta: TableMeta;
@@ -33,6 +35,8 @@ type Props = {
   userId: string;
   /** Row to open at; otherwise the first row with an unreviewed cell. */
   startRowId: string | null;
+  /** Where review stopped, when `startRowId` came from there rather than from `?row=`. */
+  resume: ResumePoint | null;
   exportSettings: { columns: ExportColumn[]; blankToken: string; illegibleToken: string };
 };
 
@@ -66,7 +70,7 @@ function markReviewed(rows: TableRow[], rowId: string, cellIds: Set<string> | nu
  * Row review (docs/05 §13): the source photo on the left with the row's region boxed and the active cell's region
  * boxed more strongly; the row's cells as a form on the right. Keyboard first: every action has a key.
  */
-export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, exportSettings }: Props) {
+export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, resume, exportSettings }: Props) {
   const router = useRouter();
   const { meta, rows, setRows, rowsRef, documents, nextCursor, loadError, refresh } = useBookRows(initialMeta, firstPage);
   const bookId = meta.bookId;
@@ -88,6 +92,10 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
   const [announcement, setAnnouncement] = useState("");
   const [sources, setSources] = useState<Map<string, RowSources>>(new Map());
   const [photos, setPhotos] = useState<Map<string, { view: PhotoView | null; at: number; error?: string }>>(new Map());
+  /** Text selected inside a value, offered to the glossary. */
+  const [selected, setSelected] = useState<{ cellId: string; text: string } | null>(null);
+  /** The term being explained in the glossary dialog. */
+  const [glossaryTerm, setGlossaryTerm] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const session = useRef<Session | null>(null);
@@ -153,6 +161,22 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
   useEffect(() => {
     containerRef.current?.focus({ preventScroll: true });
   }, [pos === null]); // eslint-disable-line react-hooks/exhaustive-deps -- focus once review can start
+
+  // Resuming where review stopped (Phase 19) says so, so a start in the middle of the book is not a surprise.
+  const resumedAt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!resume || pos?.rowId !== resume.rowId || resumedAt.current === resume.rowId) return;
+    resumedAt.current = resume.rowId;
+    const message = resume.documentLabel ? `Resuming in ${resume.documentLabel}, where review stopped.` : "Resuming where review stopped.";
+    setAnnouncement(message);
+    toast(message, { id: "review-resume" });
+  }, [resume, pos?.rowId]);
+
+  // A selection belongs to the cell it was made in, and so does the browser's highlight of it.
+  useEffect(() => {
+    setSelected(null);
+    window.getSelection()?.removeAllRanges();
+  }, [pos?.rowId, pos?.column]);
 
   // A row that disappears (deleted elsewhere, or void after a refresh) moves review to its neighbour.
   const index = pos ? order.indexOf.get(pos.rowId) : undefined;
@@ -547,6 +571,8 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (editing !== null || !pos || !row) return;
+    // Keys pressed in a popover or dialog bubble here through React's tree; they are not review keys.
+    if (!e.currentTarget.contains(e.target as Node)) return;
     const mod = e.metaKey || e.ctrlKey;
     const i = index ?? 0;
     const key = e.key;
@@ -583,6 +609,9 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
     } else if (key === "n" || key === "N") {
       handled();
       nextUnreviewed();
+    } else if (key === "g" || key === "G") {
+      handled();
+      offerGlossary();
     } else if (key === "[" || key === "]") {
       handled();
       goDocument(key === "]" ? 1 : -1);
@@ -609,6 +638,22 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
     }
   }
 
+  /**
+   * The text selected in the active value; else what was written on the paper for it — a ditto mark rather than the
+   * value it was resolved to, since the glossary explains what people wrote; else the value itself.
+   */
+  function offerGlossary() {
+    if (!cell || !column) return;
+    const written = rowSources?.cells[column.id]?.written ?? null;
+    const value = cell.state === "OK" ? (cell.value ?? "").trim() : "";
+    const term = selected?.cellId === cell.id ? selected.text : (written ?? value);
+    if (term === "") {
+      setAnnouncement("This cell has no value to add to the glossary.");
+      return;
+    }
+    setGlossaryTerm(term);
+  }
+
   function onKeyUp(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === " ") setZoomHeld(false);
   }
@@ -632,6 +677,11 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
     [columnIds, startEditing, editor, rowsRef],
   );
 
+  const onSelectText = useCallback((cellId: string, text: string | null) => {
+    setSelected(text ? { cellId, text } : null);
+  }, []);
+  const onAddToGlossary = useCallback((text: string) => setGlossaryTerm(text), []);
+
   // ---------- render ----------
 
   const allLoaded = !nextCursor;
@@ -649,35 +699,41 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
   const focusBox = cellBox ?? recordBox;
   const zoom = zoomHeld && focusBox ? clamp(0.3 / Math.max(focusBox.w, 0.02), 2.5, 6) : fitPage || !recordBox ? 1 : clamp(0.95 / Math.max(recordBox.w, 0.05), 1, 3);
 
+  /*
+   * The review header lives at the top of the values pane rather than across both (Phase 19), so the photo runs the
+   * full height of the workspace: every rem of chrome above it is a rem of handwriting the operator doesn't see.
+   */
   const header = (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2">
-      <div className="flex min-w-0 flex-col">
-        <p className="truncate text-sm font-medium">Row review</p>
-        <p className="text-muted-foreground text-xs tabular-nums" aria-live="polite">
+    <div className="flex shrink-0 flex-col gap-1.5 border-b px-4 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground min-w-0 truncate text-xs tabular-nums" aria-live="polite">
           {row && docIndex >= 0 ? `Document ${formatCount(docIndex + 1)} of ${formatCount(order.documents.length)} · Row ${formatCount(rowInDoc + 1)} of ${formatCount(rowsInDoc.length)}` : "Finding where to start…"}
           {allLoaded ? "" : ` · loading rows ${formatCount(rows.length)} of ${formatCount(meta.totalRows)}`}
-          {pendingWrites > 0 ? " · saving…" : " · all changes saved"}
         </p>
-      </div>
-      <div className="flex min-w-48 flex-1 flex-col gap-1">
-        <div
-          role="progressbar"
-          aria-label="Cells reviewed"
-          aria-valuemin={0}
-          aria-valuemax={progress.cells}
-          aria-valuenow={progress.reviewedCells}
-          className="bg-muted h-1.5 overflow-hidden rounded-full"
-        >
-          <div className="h-full bg-(--cell-accent) transition-[width]" style={{ width: `${percent}%` }} />
+        <div className="flex shrink-0 items-center gap-1">
+          <ReviewPace bookId={bookId} />
+          <Button variant="outline" size="sm" onClick={nextUnreviewed} onMouseDown={(e) => e.preventDefault()} disabled={!pos} title="N">
+            Next unreviewed
+          </Button>
         </div>
-        <p className="text-muted-foreground text-xs tabular-nums">
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Cells reviewed"
+        aria-valuemin={0}
+        aria-valuemax={progress.cells}
+        aria-valuenow={progress.reviewedCells}
+        className="bg-muted h-1.5 overflow-hidden rounded-full"
+      >
+        <div className="h-full bg-(--cell-accent) transition-[width]" style={{ width: `${percent}%` }} />
+      </div>
+      <div className="text-muted-foreground flex justify-between gap-2 text-xs tabular-nums">
+        <p className="truncate">
           {formatCount(progress.reviewedCells)} of {plural(progress.cells, "cell")} reviewed · {formatCount(progress.reviewedDocuments)} of {plural(progress.documents, "document")} complete
         </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={nextUnreviewed} disabled={!pos} title="N">
-          Next unreviewed
-        </Button>
+        <p className="shrink-0" aria-live="polite">
+          {pendingWrites > 0 ? "saving…" : "all changes saved"}
+        </p>
       </div>
     </div>
   );
@@ -702,16 +758,6 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {header}
-      {loadError ? (
-        <div className="flex items-center gap-3 px-4 py-2">
-          <FormMessage tone="error">{loadError}</FormMessage>
-          <Button size="sm" variant="outline" onClick={() => void refresh()}>
-            Try again
-          </Button>
-        </div>
-      ) : null}
-
       <div
         ref={containerRef}
         tabIndex={0}
@@ -764,6 +810,15 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
 
           <Pane id={CELLS_PANE} defaultSize="40%" minSize={CELLS_MIN_PX} collapsible>
             <section aria-label="Row cells" className="flex min-h-0 flex-1 flex-col">
+              {header}
+              {loadError ? (
+                <div className="flex items-center gap-3 border-b px-4 py-2">
+                  <FormMessage tone="error">{loadError}</FormMessage>
+                  <Button size="sm" variant="outline" onClick={() => void refresh()}>
+                    Try again
+                  </Button>
+                </div>
+              ) : null}
               {finished ? (
                 <div className="m-auto flex max-w-sm flex-col items-center gap-3 px-6 text-center">
                   <p className="font-medium">{progress.reviewedCells === progress.cells ? "Every cell is reviewed" : "You reached the end"}</p>
@@ -823,19 +878,23 @@ export function RowReview({ meta: initialMeta, firstPage, userId, startRowId, ex
                         editing={editing !== null && editing.cellId === row.cells[c.id]?.id ? editing.initial : null}
                         onPick={onPick}
                         editor={editor}
+                        selectedText={selected && selected.cellId === row.cells[c.id]?.id ? selected.text : null}
+                        onSelectText={onSelectText}
+                        onAddToGlossary={onAddToGlossary}
                       />
                     ))}
                   </div>
                 </>
               )}
               <p id="review-keys" className={cn("text-muted-foreground border-t px-4 py-2 text-xs leading-relaxed")}>
-                Enter accepts and moves on · Tab / Shift+Tab move · ⌘↵ / Ctrl+Enter marks the row reviewed · I unreadable · R revert · [ ] documents · N next unreviewed · hold Space to zoom
-                · type or F2 to edit · ⌘Z undo · Esc back to the table
+                Enter accepts and moves on · Tab / Shift+Tab move · ⌘↵ / Ctrl+Enter marks the row reviewed · I unreadable · R revert · G add to glossary · [ ] documents · N next unreviewed ·
+                hold Space to zoom · type or F2 to edit · ⌘Z undo · Esc back to the table
               </p>
             </section>
           </Pane>
         </PaneGroup>
       </div>
+      <GlossaryFromReview bookId={bookId} term={glossaryTerm} onClose={() => setGlossaryTerm(null)} />
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>

@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef } from "react";
 
 import { attentionTitle, cellText, CellValue, valueLang } from "@/components/table/table-cell";
+import { Button } from "@/components/ui/button";
 import type { CellSource } from "@/lib/review/sources";
 import { resolveCellVisual } from "@/lib/table/cellState";
 import type { ColumnSource, TableCell, TableColumn } from "@/lib/table/types";
@@ -25,6 +26,10 @@ type Props = {
   editing: string | null;
   onPick: (columnId: string, edit: boolean) => void;
   editor: FieldEditorActions;
+  /** Text selected inside this value, offered to the glossary (Phase 19). */
+  selectedText: string | null;
+  onSelectText: (cellId: string, text: string | null) => void;
+  onAddToGlossary: (text: string) => void;
 };
 
 const VALUE_STATE_LABEL: Record<string, string> = { ILLEGIBLE: "unreadable", DASH: "dash", NOT_APPLICABLE: "not applicable", EMPTY: "empty" };
@@ -33,8 +38,11 @@ const VALUE_STATE_LABEL: Record<string, string> = { ILLEGIBLE: "unreadable", DAS
  * One cell of the row under review as a form field: label, where it was read, the value rendered with the cell
  * channels of docs/08, confidence, validation messages and whether it's reviewed.
  */
-export const ReviewField = memo(function ReviewField({ column, cell, source, cellSource, active, editing, onPick, editor }: Props) {
+export const ReviewField = memo(function ReviewField({ column, cell, source, cellSource, active, editing, onPick, editor, selectedText, onSelectText, onAddToGlossary }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const valueRef = useRef<HTMLDivElement>(null);
+  /** The press began on the active value, so its release decides between a selection and an edit. */
+  const selecting = useRef(false);
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });
   }, [active]);
@@ -51,6 +59,30 @@ export const ReviewField = memo(function ReviewField({ column, cell, source, cel
   const extractedText = cellText({ value: cell.extractedValue, state: cell.extractedState });
   const paths = cellSource?.paths ?? [];
 
+  /** The end of a press that began on the active value: a selection offers it to the glossary, a plain click edits. */
+  const release = () => {
+    if (!selecting.current) return;
+    selecting.current = false;
+    const v = valueRef.current;
+    const selection = window.getSelection();
+    let text = "";
+    if (v && selection && !selection.isCollapsed && selection.rangeCount > 0) {
+      // Only the part inside this value: a drag that ran on into the label or the next field brought their text too.
+      const range = selection.getRangeAt(0).cloneRange();
+      if (v.contains(range.startContainer) || v.contains(range.endContainer)) {
+        if (!v.contains(range.startContainer)) range.setStart(v, 0);
+        if (!v.contains(range.endContainer)) range.setEnd(v, v.childNodes.length);
+        // The ditto arrow is drawn inside the value; it was never written on the paper.
+        text = range.toString().replace(/^⇡\s*/, "").trim();
+      }
+    }
+    if (text) onSelectText(cell.id, text);
+    else {
+      onSelectText(cell.id, null);
+      onPick(column.id, true);
+    }
+  };
+
   return (
     <div
       ref={ref}
@@ -60,6 +92,14 @@ export const ReviewField = memo(function ReviewField({ column, cell, source, cel
       data-column={column.id}
       onMouseDown={(e) => {
         if (editing !== null) return;
+        // A single press on the active cell's value is left to the browser, so its text can be selected (Phase 19);
+        // letting go without a selection edits, as the press itself did before.
+        selecting.current = active && e.detail === 1 && !!valueRef.current?.contains(e.target as Node);
+        if (selecting.current) {
+          // A drag can end outside the value, where its own mouseup never fires: take the release wherever it lands.
+          document.addEventListener("mouseup", release, { once: true });
+          return;
+        }
         e.preventDefault();
         onPick(column.id, active || e.detail >= 2);
       }}
@@ -103,9 +143,35 @@ export const ReviewField = memo(function ReviewField({ column, cell, source, cel
       {editing !== null && active ? (
         <FieldEditor initial={editing} label={column.label} editor={editor} />
       ) : (
-        <div className={cn("flex min-h-9 items-center rounded px-2 text-base", `cell-authorship-${visual.authorship}`)} title={title}>
-          <CellValue cell={cell} visual={visual} numeric={false} />
-          {visual.semantics !== "ok" ? <span className="text-muted-foreground ml-2 text-xs">{VALUE_STATE_LABEL[cell.state] ?? ""}</span> : null}
+        <div className="flex items-center gap-2">
+          <div
+            ref={valueRef}
+            className={cn("flex min-h-9 min-w-0 flex-1 items-center rounded px-2 text-base", active && "cursor-text", `cell-authorship-${visual.authorship}`)}
+            title={title}
+
+          >
+            <CellValue cell={cell} visual={visual} numeric={false} />
+            {visual.semantics !== "ok" ? <span className="text-muted-foreground ml-2 text-xs">{VALUE_STATE_LABEL[cell.state] ?? ""}</span> : null}
+          </div>
+          {selectedText ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              // Not a pick: the card's own press would open the editor on the active cell.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }} onClick={() => onAddToGlossary(selectedText)} title="G">
+              <span className="flex min-w-0 items-baseline">
+                Add “
+                <span className="font-value max-w-24 truncate" lang={valueLang(selectedText)}>
+                  {selectedText}
+                </span>
+                ” to glossary
+              </span>
+            </Button>
+          ) : null}
         </div>
       )}
 

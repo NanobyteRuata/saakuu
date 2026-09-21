@@ -1,6 +1,6 @@
 # 06 — Build Plan
 
-Phases 0–18 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–19 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
 Phase 19.
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–18
+## Shipped — Phases 0–19
 
 | Phase | What shipped |
 |---|---|
@@ -40,9 +40,10 @@ previous one's criteria pass.
 | **16** | The AI proposes the template: `Propose fields` reads a specimen into a flat field list, priced in money with the key named first, confirmed with per-field toggles and a count; `FieldProposal` records `template-v1`. |
 | **17** | The second book: `Duplicate` copies a template into another book (source layer, never mappings), `New book from this one` copies a book's whole setup and none of its work, and the books list shows review progress with its own `Resume review`. |
 | **18** | Documents, and what the machine is doing: a run drawer per document and per page with the failure reason and retry, one Status select in place of the run-state select and four tri-states, upload date as a column, filter and sort, and the phone's upload screen in full. |
+| **19** | Review, where the time actually goes: the photo runs the full height of the workspace, review resumes in the document it stopped in (and a reopened book offers it), `G` or a selection adds a value to the glossary, and `Pace` reads out seconds per reviewed cell per review source. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 18's are
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 19's are
 below; their reasoning is decisions 66–77.
 
 ---
@@ -596,7 +597,7 @@ existing endpoint. One E2E, `e2e/documents.spec.ts`:
 
 ---
 
-## Phase 19 — Review, where the time actually goes
+## Phase 19 — Review, where the time actually goes ✅ shipped
 
 Review is the part of v1 that works. This is polish on the screen the operator spends ninety percent of
 their time on, plus the two entry points it should have had.
@@ -621,6 +622,43 @@ their time on, plus the two entry points it should have had.
 - Reopening a half-reviewed book offers the document review stopped in.
 - A value can be added to the glossary from review, and the next extraction's prompt contains it.
 - The readout reports seconds per reviewed cell, separated by review source.
+
+**Tests:** none new under the unit policy — everything added reads, and the one write is the glossary's existing
+create. The full-flow E2E's review step presses `G`, adds the entry and opens `Pace`.
+
+**As built.** Notes for the phase after it:
+
+- **The photo got its height by moving the review header, not by shrinking anything.** Position, progress,
+  `Pace` and `Next unreviewed` used to span both panes; they now sit at the top of the values pane, so the photo
+  runs from under the book header to the bottom of the window — 690px of a 1280×800 screen. Still two panes at
+  1600: a third would have been spent on chrome, and the photo is what the width is for. The split was already
+  remembered under `review` and needed nothing.
+- **Where review stopped is derived, not stored.** The document review stopped in is the one holding the book's
+  most recently reviewed cell (`resumePoint`, `lib/review/service.ts`), and review resumes at the first row with an
+  unreviewed cell at or after it, wrapping to the top. It needs no storage, follows the operator to another browser,
+  and cannot go stale the way a remembered row id can after a rebuild. A book with nothing reviewed isn't
+  half-reviewed and offers nothing.
+- **Every way into Review resumes there**: the nav's `Review N left`, the books list's `Resume review` and a reopened
+  book's offer. The offer is a toast from the landing redirect (`GET /api/books/:id/review-resume`) rather than a
+  banner, because a banner would spend the photo's pixels in every workspace for something read once; landing on
+  Review itself needs no offer. `?row=` still wins.
+- **`G` joins I, R and N as a letter key**, so a value starting with `g` is typed after F2, like the other three. It
+  offers the text selected in the active value; else what was **written on the paper** for it, from the raw layer
+  (`CellSource.written`), so a ditto cell offers `ဒီ` rather than the value it resolved to; else the value. A drag that
+  runs past the value keeps only the part inside it. Selecting with the mouse needed the value to stop
+  swallowing presses: a single press on the **active** cell's value is left to the browser, and releasing it without
+  a selection opens the editor, exactly as the press used to.
+- **The glossary needed no new endpoint.** The worker reads the glossary when it claims each run, so an entry added
+  from review is in the very next extraction's prompt — confirmed by building `v1`'s prompt from the book's glossary.
+- **Pace counts events, not cells.** Every cell stamped at one instant by one source is one event — a row mark, or
+  a batch of row marks sent together, is one event of N cells — and an event's time is the gap since the book's
+  previous event of any source. A pause over five minutes is a break: its cells are counted but not timed, as is
+  the book's first event and any event sharing its instant with another source's (`lib/review/pace.ts`). A cell
+  reviewed and then un-reviewed leaves a hole the next event's gap absorbs, so figures lean slightly slow. Both
+  queries sort the book's reviewed cells with no index behind `Cell.reviewedAt`; the index they want is
+  `(isReviewed, reviewedAt)`, for whenever a schema change is next allowed. Sources are never blended. On the demo data, an `Enter` every
+  1.5 s read as 1.2 s per cell and the `⌘Enter` that followed as 0.6 s per cell over its four cells. Cells reviewed
+  before Phase 12 have no source and are left out.
 
 ---
 

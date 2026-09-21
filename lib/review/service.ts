@@ -13,7 +13,7 @@ import { loadTemplateContext } from "@/lib/transform/service";
 
 import type { ReviewQueueInput } from "./schemas";
 import { cellSources, type RegionValue } from "./sources";
-import type { ReviewProgress, ReviewQueuePage, RowSources } from "./types";
+import type { ResumePoint, ReviewProgress, ReviewQueuePage, RowSources } from "./types";
 
 /**
  * Row review (docs/05 §13): where each cell was read, what is left to review and how far along a book is.
@@ -37,14 +37,14 @@ export async function getRowSources(userId: string, rowId: string): Promise<RowS
 
   const [ctx, values] = await Promise.all([
     loadTemplateContext(prisma, row.document.templateId),
-    prisma.rawValue.findMany({ where: { rawRecordId: row.rawRecordId }, select: { fieldId: true, photoId: true, bbox: true }, take: MAX_VALUES_PER_RECORD }),
+    prisma.rawValue.findMany({ where: { rawRecordId: row.rawRecordId }, select: { fieldId: true, photoId: true, bbox: true, valueText: true }, take: MAX_VALUES_PER_RECORD }),
   ]);
   if (!ctx) return { ...base, cells: {} };
   const tree = buildTree(ctx.groups, ctx.fields);
   const working = firstWorkingMappings(ctx.mappings, { tree, liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
   const regions = values.map((v): RegionValue => {
     const bbox = bboxSchema.safeParse(v.bbox);
-    return { fieldId: v.fieldId, photoId: v.photoId, bbox: bbox.success ? bbox.data : null };
+    return { fieldId: v.fieldId, photoId: v.photoId, bbox: bbox.success ? bbox.data : null, valueText: v.valueText };
   });
   return { ...base, cells: cellSources(tree, working, regions, base.photoId) };
 }
@@ -117,4 +117,48 @@ export async function reviewQueue(userId: string, bookId: string, input: ReviewQ
     nextCursor: found.length > input.limit && last ? encodeCursor(last.position, last.id) : null,
     progress,
   };
+}
+
+type ResumeRecord = { rowId: string; documentId: string; documentLabel: string | null };
+
+/**
+ * Where review stopped (docs/06 Phase 19). The unit of returning work is the document, and the document review stopped
+ * in is the one holding the book's most recently reviewed cell: derived from `reviewedAt`, so it needs no storage and
+ * follows the operator to another browser. Resumes at the first row with an unreviewed cell at or after that row, in
+ * review order, wrapping to the top. Null when nothing is reviewed yet (the book isn't half-reviewed) or nothing is left.
+ *
+ * `stopped` sorts the book's reviewed cells by `reviewedAt` with no index behind it; see `reviewPace` for when that
+ * stops being fine and which index answers both.
+ */
+export async function resumePoint(userId: string, bookId: string): Promise<ResumePoint | null> {
+  await requireBookAccess(userId, bookId);
+  const [found] = await prisma.$queryRaw<ResumeRecord[]>`
+    WITH stopped AS (
+      SELECT r.id, r.position
+      FROM "Row" r
+      JOIN "Document" d ON d.id = r."documentId"
+      JOIN "Template" t ON t.id = d."templateId"
+      JOIN "Cell" c ON c."rowId" = r.id AND c."isReviewed" AND c."reviewedAt" IS NOT NULL
+      JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
+      WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid" AND ${COUNTING_DOC_TEMPLATE_SQL}
+      ORDER BY c."reviewedAt" DESC, r.position COLLATE "C" DESC, r.id DESC
+      LIMIT 1
+    ), open_rows AS (
+      SELECT r.id, r."documentId", r.position, d.label
+      FROM "Row" r
+      JOIN "Document" d ON d.id = r."documentId"
+      JOIN "Template" t ON t.id = d."templateId"
+      WHERE r."bookId" = ${bookId} AND r."deletedAt" IS NULL AND NOT r."isVoid" AND ${COUNTING_DOC_TEMPLATE_SQL}
+        AND EXISTS (
+          SELECT 1 FROM "Cell" c JOIN "OutputColumn" oc ON oc.id = c."outputColumnId" AND oc."deletedAt" IS NULL
+          WHERE c."rowId" = r.id AND NOT c."isReviewed"
+        )
+    )
+    SELECT o.id AS "rowId", o."documentId", o.label AS "documentLabel"
+    FROM open_rows o CROSS JOIN stopped s
+    -- Rows before the stopping point sort after the rest: at or after it first, then wrap to the top.
+    ORDER BY (o.position COLLATE "C" < s.position COLLATE "C" OR (o.position COLLATE "C" = s.position COLLATE "C" AND o.id < s.id)),
+             o.position COLLATE "C", o.id
+    LIMIT 1`;
+  return found ?? null;
 }

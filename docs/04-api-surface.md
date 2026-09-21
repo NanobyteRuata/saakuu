@@ -574,6 +574,8 @@ GET    /api/books/:id/review-queue         ?cursor&limit (≤ 500) -> { items: [
                                                 progress: { cells, reviewedCells, documents, reviewedDocuments } }
 GET    /api/rows/:id/sources               -> { rowId, photoId, bbox, cells: { columnId: { photoId, bbox, paths[] } } }
 POST   /api/cells/review                   (Phase 7) marks cells or whole rows; row review batches rows marked quickly
+GET    /api/books/:id/review-resume        (Phase 19) -> { rowId, documentId, documentLabel } | null
+GET    /api/books/:id/review-pace          (Phase 19) -> { sources: [{ via, cells, timedCells, seconds }], breakSeconds }
 ```
 - Review covers live, non-void rows and cells of live columns. A document counts once it has such a cell and is complete when
   all of them are reviewed; the Documents list shows `reviewed` and filters `?reviewed=true|false` on the same rule.
@@ -587,6 +589,18 @@ mark stamps N cells at one instant and every later "seconds per cell" figure is 
 nulls both columns. The `isReviewed: !input.isReviewed` filter already there is also what stops a row mark restamping a
 cell the operator had confirmed on its own. Nothing reads these columns yet — the readouts are deliberately later, the
 collection is not (decision 56).
+
+**Phase 19:** the first readers.
+- `GET /api/rows/:id/sources` gained `cells[columnId].written`: the raw text, when the cell reads exactly one field
+  that was read as text — a ditto mark rather than what it resolved to. `G` in review offers it as the glossary term.
+- `review-resume`: the first row with an unreviewed cell at or after the row holding the book's most recently reviewed
+  cell, in review order, wrapping to the top. `null` when nothing is reviewed or nothing is left. The Review page uses
+  the same function when opened without `?row=`.
+- `review-pace`: reviewed cells grouped into events by `(reviewedAt, reviewedVia)`, each timed by the gap since the
+  book's previous event. Events after a gap over `breakSeconds` (300) count toward `cells` but not `timedCells` or
+  `seconds`, and so do the first event and an event with a zero gap (another source's at the same instant). A cell
+  reviewed and then un-reviewed leaves no event, so the next gap includes its time; the skew is small and towards slower. Seconds per cell is `seconds / timedCells`, per source. Cells with no
+  `reviewedVia` (reviewed before Phase 12) are left out. All three sources are always present, in a fixed order.
 
 ## Worker-only internals
 

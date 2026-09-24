@@ -354,10 +354,9 @@ number from the operator's own paper is what the line is for.
   Phase 18 rebuilds this screen and should keep the distinction.
 - **Properties render outside the sortable list** when they open under their row. Inside it, the
   drag projection counted the panel as another item to reorder.
-- **`Read this page` needs no gate of its own.** The estimate call costs nothing and the server
-  already refuses a template with no fields set to Extract, in words an operator can act on, so the
-  button is offered from the first specimen and the refusal is shown in place. Nothing is hidden and
-  nothing is spent.
+- **`Test on this page` (was `Read this page`) is disabled until a field is set to Extract**, with a
+  hover tooltip saying so. Offering it and letting the server refuse made the operator click to learn
+  something the screen already knew. The server's refusal stays as the backstop.
 - **The E2E's batch upload became the specimen upload**, as this phase's line asked. The batch
   dialog is no longer exercised end to end by name, but it renders the same `PhotoIntake` over the
   same upload hook that the specimen path covers. Phase 18 rebuilds that screen and should take the

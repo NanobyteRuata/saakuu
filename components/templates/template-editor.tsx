@@ -204,6 +204,7 @@ export function TemplateEditor({
             templateKind={template.kind}
             userId={userId}
             lang={lang}
+            hasExtractFields={template.fields.some((f) => f.mode === "EXTRACT")}
             onFieldsAdded={() => void reload()}
             onRead={() => {
               void reload();

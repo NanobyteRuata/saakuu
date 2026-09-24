@@ -167,8 +167,8 @@ with no image on it, while review, which types the least, had one. Properties ar
 (decision 72): moving to another field saves the one being left, and nothing asks to discard.
 
 The page it is built from is a **specimen**: an ordinary Document carrying `isSpecimen` (decision
-71), uploaded through the same intake as everything else. `Read this page` is offered on it from the
-start, before a single field exists, and reports what that paper actually produced. See §6.7.
+71), uploaded through the same intake as everything else. `Test on this page` is offered on it once
+one field is set to Extract, and reports what that paper actually produced. See §6.7.
 
 **The AI proposes the fields** (Phase 16, decision 73). `Propose fields` reads the specimen and lists
 its fields: for a Form, every labelled place a value goes, in reading order; for a Table, the grid's

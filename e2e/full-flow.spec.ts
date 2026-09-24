@@ -35,7 +35,7 @@ test("sign in → book → template → upload → extract → review → export
   // The paper goes on screen first (Phase 15): the page is uploaded as a specimen, in the workspace
   // where the fields are then typed from it.
   await page.getByRole("button", { name: "Drop a photo here, or click to choose one" }).locator("input[type=file]").setInputFiles(FIXTURE);
-  await expect(page.getByRole("button", { name: "Read this page" })).toBeEnabled({ timeout: 60_000 });
+  await expect(page.getByRole("button", { name: "Propose fields" })).toBeEnabled({ timeout: 60_000 });
 
   const newField = page.getByLabel("New field label, as written on the paper");
   for (const label of ["Name", "Village"]) {
@@ -56,7 +56,7 @@ test("sign in → book → template → upload → extract → review → export
   // Read the specimen where it already is, beside the tree. This is the trust moment, and it is the
   // ordinary extraction of one document (Phase 15).
   await page.goto(templateUrl);
-  await page.getByRole("button", { name: "Read this page" }).click();
+  await page.getByRole("button", { name: "Test on this page" }).click();
   await expect(page.getByText("Name 1")).toBeVisible({ timeout: 90_000 });
 
   // A specimen is out of everything that counts as work: the table has no rows, and the template

@@ -226,15 +226,15 @@ rebuilds the same nesting with worse deep links (decision 62). What was wrong wa
 the missing URL, not the nesting.
 
 **`Try one document`** (Phase 10, moved to the front in Phase 15) is offered from the mapping
-preview's empty state and the Documents tab's empty state for a template, and — as `Read this page`,
-with no dialog, because the page is already in the pane — in the template workspace, where it no
-longer waits for the tree to have fields. It
+preview's empty state and the Documents tab's empty state for a template, and — as `Test on this page`,
+with no dialog, because the page is already in the pane — in the template workspace, enabled as soon as
+one field is set to Extract (a hover tooltip says why it is disabled before then). It
 uploads or picks a single document, extracts only it, and shows what was read beside the photo —
 hovering a value moves the photo to where it was read. It is the product's trust moment — the first time anyone sees what the AI actually
 read — and it is also what fills the mapping preview, so one action answers two problems. (A third **Validation** tab for per-template rule overrides is
 post-v1, see docs/06; book rules live in Settings.)
 
-**`Propose fields`** (Phase 16, decision 73) sits beside `Read this page` under the specimen, and
+**`Propose fields`** (Phase 16, decision 73) sits beside `Test on this page` under the specimen, and
 the empty tree points at it. It is the one place the operator used to author from nothing, now
 done the product's way: the machine proposes and the human decides. It is a dialog in three stages:
 

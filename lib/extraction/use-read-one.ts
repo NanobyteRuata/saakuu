@@ -106,8 +106,8 @@ export function useReadOne(onRead?: () => void): ReadOne {
       setStage("extracting");
       /*
        * The estimate costs nothing and is also the gate: a template with no fields set to Extract is
-       * refused here, in the server's own words, so `Read this page` can be offered from the first
-       * moment without ever spending on a template that has nothing to ask for (Phase 15).
+       * refused here, in the server's own words, so nothing is ever spent on a template that has
+       * nothing to ask for (Phase 15).
        */
       const estimate = await postJson<ExtractionEstimate>("/api/extractions/estimate", { documentIds: [documentId] });
       if (!estimate.ok) return fail(estimate.error.message);

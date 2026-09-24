@@ -67,7 +67,7 @@ export function SpecimenPane({
   const [specimens, setSpecimens] = useState<SpecimenDocument[] | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
-  const [zoomStep, setZoomStep] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const [editing, setEditing] = useState<PhotoView | null>(null);
   const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +77,8 @@ export function SpecimenPane({
   const [focusedValue, setFocusedValue] = useState<{ photoId: string | null; bbox: Bbox | null } | null>(null);
 
   const reading = useReadOne(onRead);
-  const zoom = ZOOM_STEPS[zoomStep] ?? 1;
+  const zoomOutTo = [...ZOOM_STEPS].reverse().find((s) => s < zoom - 0.001);
+  const zoomInTo = ZOOM_STEPS.find((s) => s > zoom + 0.001);
 
   // The fields as they were when this reading appeared, to notice edits made since.
   const [shown, setShown] = useState<{ raw: unknown; fieldsKey: string }>({ raw: null, fieldsKey });
@@ -215,17 +216,17 @@ export function SpecimenPane({
           </div>
         ) : null}
         <div className="ml-auto flex items-center gap-0.5">
-          <Button size="icon" variant="ghost" className="size-7" aria-label="Zoom out" disabled={zoomStep === 0} onClick={() => setZoomStep((s) => Math.max(s - 1, 0))}>
+          <Button size="icon" variant="ghost" className="size-7" aria-label="Zoom out" disabled={zoomOutTo === undefined} onClick={() => zoomOutTo !== undefined && setZoom(zoomOutTo)}>
             <ZoomOut />
           </Button>
-          <span className="text-muted-foreground w-9 text-center text-xs tabular-nums">{Math.round(zoom * 100)}%</span>
+          <span className="text-muted-foreground w-9 text-center text-xs tabular-nums" title="Pinch or ⌘-scroll the page to zoom · drag to move">{Math.round(zoom * 100)}%</span>
           <Button
             size="icon"
             variant="ghost"
             className="size-7"
             aria-label="Zoom in"
-            disabled={zoomStep >= ZOOM_STEPS.length - 1}
-            onClick={() => setZoomStep((s) => Math.min(s + 1, ZOOM_STEPS.length - 1))}
+            disabled={zoomInTo === undefined}
+            onClick={() => zoomInTo !== undefined && setZoom(zoomInTo)}
           >
             <ZoomIn />
           </Button>
@@ -246,6 +247,7 @@ export function SpecimenPane({
             // Only when the hovered value was read from the page actually on screen.
             boxes={box ? [{ bbox: box, tone: "active" }] : []}
             zoom={zoom}
+            onZoomChange={setZoom}
             center={box}
             className="h-full"
           />

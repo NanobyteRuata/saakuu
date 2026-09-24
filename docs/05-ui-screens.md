@@ -54,6 +54,12 @@ else yields to it. For the same reason the app stays **light-first** (decision 7
 is dark to stop a bright surround biasing colour judgement; here the job is reading pencil on white
 paper, and contrast is the whole task.
 
+**Every page photo zooms and pans by hand** (`RegionImage`): pinch or ⌘/Ctrl-scroll zooms about the
+cursor, up to 8×, and dragging moves the page; plain scroll still scrolls. Where a screen zooms for
+the operator — a new row or cell in review, holding Space — that takes the view back, so a gesture
+never fights the keyboard. The specimen pane's zoom is the operator's alone, and its − / + step
+from wherever a gesture left it.
+
 ## Global
 
 **Top bar** (sticky): `SaaKuu` wordmark left; nav (`Books`) and avatar right.

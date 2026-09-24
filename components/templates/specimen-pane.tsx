@@ -259,35 +259,38 @@ export function SpecimenPane({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t px-2 py-1.5">
-        {/* A disabled button takes no pointer events, so the tooltip sits on a wrapper. */}
-        <span
-          title={
-            !hasExtractFields
-              ? "Add a field set to Extract first. This tests your fields against the page."
-              : processing
-                ? "Wait for the page to finish processing."
-                : busy
-                  ? undefined
-                  : "Extract this page with your current fields, to check them before reading the whole batch."
-          }
-        >
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || processing || !hasExtractFields}
-            onClick={() => current && void reading.read(current.id)}
-          >
-            <Sparkles />
-            {busy ? READ_STAGE_LABEL[reading.stage as "processing" | "extracting"] : reading.raw ? "Test again" : "Test on this page"}
-          </Button>
-        </span>
         <Button size="sm" variant="outline" disabled={processing || !current} onClick={() => setProposing(true)}>
           <ListPlus />
           Propose fields
         </Button>
-        <Button size="sm" variant="ghost" disabled={promoting} onClick={promote}>
-          {promoting ? "Using…" : "Use as a real document"}
-        </Button>
+        {/* Building on the left; checking the template, then finishing with the page, on the right. */}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="ghost" disabled={promoting} onClick={promote}>
+            {promoting ? "Using…" : "Use as a real document"}
+          </Button>
+          {/* A disabled button takes no pointer events, so the tooltip sits on a wrapper. */}
+          <span
+            title={
+              !hasExtractFields
+                ? "Add a field set to Extract first. This tests your fields against the page."
+                : processing
+                  ? "Wait for the page to finish processing."
+                  : busy
+                    ? undefined
+                    : "Extract this page with your current fields, to check them before reading the whole batch."
+            }
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || processing || !hasExtractFields}
+              onClick={() => current && void reading.read(current.id)}
+            >
+              <Sparkles />
+              {busy ? READ_STAGE_LABEL[reading.stage as "processing" | "extracting"] : reading.raw ? "Test again" : "Test on this page"}
+            </Button>
+          </span>
+        </div>
       </div>
       {reading.error ? (
         <div className="px-2 pb-2">

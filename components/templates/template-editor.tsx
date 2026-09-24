@@ -60,6 +60,11 @@ export function TemplateEditor({
   const layout = useLayoutTarget();
   const lang = langOf(template.languageHint);
   const tree = useMemo(() => buildTree(template.groups, template.fields), [template.groups, template.fields]);
+  // Local edits don't refresh `updatedAt`, so the specimen pane also watches the fields themselves.
+  const fieldsKey = useMemo(() => {
+    const byId = <T extends { id: string }>(a: T, b: T) => a.id.localeCompare(b.id);
+    return JSON.stringify([[...template.fields].sort(byId), [...template.groups].sort(byId)]);
+  }, [template.groups, template.fields]);
   const selectedField = selected?.kind === "field" ? (template.fields.find((f) => f.id === selected.id) ?? null) : null;
   const selectedGroup = selected?.kind === "group" ? (template.groups.find((g) => g.id === selected.id) ?? null) : null;
 
@@ -205,6 +210,8 @@ export function TemplateEditor({
             userId={userId}
             lang={lang}
             hasExtractFields={template.fields.some((f) => f.mode === "EXTRACT")}
+            templateUpdatedAt={template.updatedAt}
+            fieldsKey={fieldsKey}
             onFieldsAdded={() => void reload()}
             onRead={() => {
               void reload();

@@ -231,7 +231,11 @@ with no dialog, because the page is already in the pane — in the template work
 one field is set to Extract (a hover tooltip says why it is disabled before then). It
 uploads or picks a single document, extracts only it, and shows what was read beside the photo —
 hovering a value moves the photo to where it was read. It is the product's trust moment — the first time anyone sees what the AI actually
-read — and it is also what fills the mapping preview, so one action answers two problems. (A third **Validation** tab for per-template rule overrides is
+read — and it is also what fills the mapping preview, so one action answers two problems. In the
+workspace the reading survives a reload: opening a specimen shows its latest reading, or picks up
+one still running, rather than inviting a second paid read of the same page. A reading older than
+the latest field change says so (`Read before your latest field changes`), and a failed one says it
+failed. (A third **Validation** tab for per-template rule overrides is
 post-v1, see docs/06; book rules live in Settings.)
 
 **`Propose fields`** (Phase 16, decision 73) sits beside `Test on this page` under the specimen, and

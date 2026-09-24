@@ -42,6 +42,8 @@ export function SpecimenPane({
   userId,
   lang,
   hasExtractFields,
+  templateUpdatedAt,
+  fieldsKey,
   onRead,
   onFieldsAdded,
 }: {
@@ -53,6 +55,10 @@ export function SpecimenPane({
   lang: string | undefined;
   /** A test reading extracts only fields set to Extract; with none, there is nothing to read. */
   hasExtractFields: boolean;
+  /** Bumped by every field, group or template setting change saved on the server. */
+  templateUpdatedAt: string;
+  /** Changes whenever the fields or groups on screen change, saved or not yet reloaded. */
+  fieldsKey: string;
   /** A reading changes the book's counts and the mapping preview. */
   onRead: () => void;
   /** Accepted proposed fields are in the tree now. */
@@ -72,6 +78,13 @@ export function SpecimenPane({
 
   const reading = useReadOne(onRead);
   const zoom = ZOOM_STEPS[zoomStep] ?? 1;
+
+  // The fields as they were when this reading appeared, to notice edits made since.
+  const [shown, setShown] = useState<{ raw: unknown; fieldsKey: string }>({ raw: null, fieldsKey });
+  if (shown.raw !== reading.raw) setShown({ raw: reading.raw, fieldsKey });
+  const readAt = reading.detail?.lastExtractedAt ?? null;
+  const readBeforeChanges =
+    reading.raw !== null && (shown.fieldsKey !== fieldsKey || (readAt !== null && Date.parse(readAt) < Date.parse(templateUpdatedAt)));
 
   const load = useCallback(async () => {
     setError(null);
@@ -102,6 +115,11 @@ export function SpecimenPane({
   }, [processing, load, specimens]);
 
   useEffect(() => setPageIndex(0), [currentId]);
+
+  const { resume } = reading;
+  useEffect(() => {
+    if (currentId) void resume(currentId);
+  }, [currentId, resume]);
 
   async function promote() {
     if (!current) return;
@@ -296,6 +314,9 @@ export function SpecimenPane({
         <PaneHandle orientation="vertical" />
         <Pane id="reading" defaultSize="38%" minSize={120} collapsible>
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+            {reading.stage === "done" && reading.raw && readBeforeChanges ? (
+              <FormMessage tone="info">Read before your latest field changes. Test again to see what your fields read now.</FormMessage>
+            ) : null}
             {reading.stage === "done" && reading.raw ? (
               <ReadingResult
                 raw={reading.raw}

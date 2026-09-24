@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getJson, postJson } from "@/lib/api-client";
+import { ACTIVE_RUN_STATES } from "@/lib/documents/schemas";
 import type { DocumentDetail, DocumentRawValues } from "@/lib/documents/service";
 
 import type { ExtractionEstimate, ExtractionStatus } from "./service";
@@ -33,11 +34,17 @@ export type ReadOne = {
   detail: DocumentDetail | null;
   raw: DocumentRawValues | null;
   read: (documentId: string) => Promise<void>;
+  /** Picks up a reading this document already has, or one still running, without starting a new one. */
+  resume: (documentId: string) => Promise<void>;
   reset: () => void;
   setError: (message: string | null) => void;
 };
 
+const RUN_FAILED = "The page couldn't be read. The Documents tab can retry it.";
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type Check = () => Promise<"done" | "waiting" | { problem: string }>;
 
 export function useReadOne(onRead?: () => void): ReadOne {
   const [stage, setStage] = useState<ReadStage>("idle");
@@ -45,6 +52,8 @@ export function useReadOne(onRead?: () => void): ReadOne {
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
   const [raw, setRaw] = useState<DocumentRawValues | null>(null);
   const cancelled = useRef(false);
+  /** Each read or resume supersedes the last, so a slow poll for one page never lands on another. */
+  const generation = useRef(0);
   const onReadRef = useRef(onRead);
   onReadRef.current = onRead;
 
@@ -53,6 +62,14 @@ export function useReadOne(onRead?: () => void): ReadOne {
     return () => {
       cancelled.current = true;
     };
+  }, []);
+
+  /** Starts a new attempt, clearing the last one; the returned check is true once it is superseded. */
+  const begin = useCallback(() => {
+    const mine = ++generation.current;
+    setError(null);
+    setRaw(null);
+    return () => cancelled.current || generation.current !== mine;
   }, []);
 
   const fail = useCallback((message: string) => {
@@ -66,11 +83,12 @@ export function useReadOne(onRead?: () => void): ReadOne {
    * inside it is not visible to this loop, so the reason has to travel back through the result.
    */
   const waitFor = useCallback(
-    async (check: () => Promise<"done" | "waiting" | { problem: string }>, timedOut: string): Promise<boolean> => {
+    async (stale: () => boolean, check: Check, timedOut: string): Promise<boolean> => {
       const until = Date.now() + MAX_WAIT_MS;
       for (;;) {
-        if (cancelled.current) return false;
+        if (stale()) return false;
         const state = await check();
+        if (stale()) return false;
         if (state === "done") return true;
         if (state !== "waiting") {
           fail(state.problem);
@@ -86,22 +104,59 @@ export function useReadOne(onRead?: () => void): ReadOne {
     [fail],
   );
 
+  /** Waits out the document's run. Only a finished state counts. */
+  const waitForRun = useCallback(
+    (stale: () => boolean, documentId: string) =>
+      waitFor(
+        stale,
+        async () => {
+          const result = await getJson<ExtractionStatus[]>(`/api/extractions/status?documentIds=${documentId}`);
+          const status = result.ok ? result.data[0] : undefined;
+          if (status === undefined) return "waiting";
+          if (status.runState === "FAILED") return { problem: RUN_FAILED };
+          return status.runState === "COMPLETE" || status.runState === "PARTIAL" ? "done" : "waiting";
+        },
+        "The reading is taking longer than usual. It will finish on the Documents tab.",
+      ),
+    [waitFor],
+  );
+
+  /** Fetches what the document's latest run read and shows it. */
+  const show = useCallback(
+    async (stale: () => boolean, documentId: string, notify: boolean) => {
+      const [values, fresh] = await Promise.all([
+        getJson<DocumentRawValues>(`/api/documents/${documentId}/raw`),
+        getJson<DocumentDetail>(`/api/documents/${documentId}`),
+      ]);
+      if (stale()) return;
+      if (!values.ok) return fail(values.error.message);
+      if (fresh.ok) setDetail(fresh.data);
+      setRaw(values.data);
+      setStage("done");
+      if (notify) onReadRef.current?.();
+    },
+    [fail],
+  );
+
   /** Waits for the pages to be ready, reads the document, then keeps what came back. */
   const read = useCallback(
     async (documentId: string) => {
-      setError(null);
-      setRaw(null);
+      const stale = begin();
       setStage("processing");
-      const ready = await waitFor(async () => {
-        const result = await getJson<DocumentDetail>(`/api/documents/${documentId}`);
-        if (!result.ok) return "waiting";
-        const photos = result.data.photos;
-        const failed = photos.find((p) => p.status === "FAILED");
-        if (failed) return { problem: failed.errorMessage ?? "That page couldn't be processed. Try a different photo." };
-        setDetail(result.data);
-        return photos.length > 0 && photos.every((p) => p.status === "DONE" && p.workingUrl !== null) ? "done" : "waiting";
-      }, "The photo is taking longer than usual to prepare. It will appear on the Documents tab when it's ready.");
-      if (!ready || cancelled.current) return;
+      const ready = await waitFor(
+        stale,
+        async () => {
+          const result = await getJson<DocumentDetail>(`/api/documents/${documentId}`);
+          if (!result.ok) return "waiting";
+          const photos = result.data.photos;
+          const failed = photos.find((p) => p.status === "FAILED");
+          if (failed) return { problem: failed.errorMessage ?? "That page couldn't be processed. Try a different photo." };
+          if (!stale()) setDetail(result.data);
+          return photos.length > 0 && photos.every((p) => p.status === "DONE" && p.workingUrl !== null) ? "done" : "waiting";
+        },
+        "The photo is taking longer than usual to prepare. It will appear on the Documents tab when it's ready.",
+      );
+      if (!ready) return;
 
       setStage("extracting");
       /*
@@ -110,6 +165,7 @@ export function useReadOne(onRead?: () => void): ReadOne {
        * nothing to ask for (Phase 15).
        */
       const estimate = await postJson<ExtractionEstimate>("/api/extractions/estimate", { documentIds: [documentId] });
+      if (stale()) return;
       if (!estimate.ok) return fail(estimate.error.message);
       if (estimate.data.providerProblem !== null) return fail(estimate.data.providerProblem);
       if (estimate.data.extractable === 0) {
@@ -121,38 +177,50 @@ export function useReadOne(onRead?: () => void): ReadOne {
         model: estimate.data.model,
         nonce: crypto.randomUUID(),
       });
+      if (stale()) return;
       if (!started.ok) return fail(started.error.message);
 
-      // Only a finished state counts. `NEVER_RUN` is still waiting: the poll can outrun the run row
-      // this document was just given, and reading its raw values then shows an empty page.
-      const finished = await waitFor(async () => {
-        const result = await getJson<ExtractionStatus[]>(`/api/extractions/status?documentIds=${documentId}`);
-        const status = result.ok ? result.data[0] : undefined;
-        if (status === undefined) return "waiting";
-        if (status.runState === "FAILED") return { problem: "The page couldn't be read. The Documents tab can retry it." };
-        return status.runState === "COMPLETE" || status.runState === "PARTIAL" ? "done" : "waiting";
-      }, "The reading is taking longer than usual. It will finish on the Documents tab.");
-      if (!finished || cancelled.current) return;
-
-      const [values, fresh] = await Promise.all([
-        getJson<DocumentRawValues>(`/api/documents/${documentId}/raw`),
-        getJson<DocumentDetail>(`/api/documents/${documentId}`),
-      ]);
-      if (!values.ok) return fail(values.error.message);
-      if (fresh.ok) setDetail(fresh.data);
-      setRaw(values.data);
-      setStage("done");
-      onReadRef.current?.();
+      // `NEVER_RUN` is still waiting: the poll can outrun the run row this document was just given,
+      // and reading its raw values then shows an empty page.
+      if (!(await waitForRun(stale, documentId))) return;
+      await show(stale, documentId, true);
     },
-    [fail, waitFor],
+    [begin, fail, waitFor, waitForRun, show],
+  );
+
+  /*
+   * The run lives on the server, the progress only in this hook: after a reload the page would
+   * otherwise show nothing, and pressing the button again would pay for a reading that exists.
+   */
+  const resume = useCallback(
+    async (documentId: string) => {
+      const stale = begin();
+      setDetail(null);
+      setStage("idle");
+      const result = await getJson<ExtractionStatus[]>(`/api/extractions/status?documentIds=${documentId}`);
+      if (stale()) return;
+      if (!result.ok) return fail(result.error.message);
+      const runState = result.data[0]?.runState;
+      if (runState === undefined) return;
+      if (runState === "FAILED") return fail(RUN_FAILED);
+      if (ACTIVE_RUN_STATES.includes(runState)) {
+        setStage("extracting");
+        if (!(await waitForRun(stale, documentId))) return;
+        await show(stale, documentId, true);
+      } else if (runState === "COMPLETE" || runState === "PARTIAL") {
+        await show(stale, documentId, false);
+      }
+    },
+    [begin, fail, waitForRun, show],
   );
 
   const reset = useCallback(() => {
+    generation.current++;
     setStage("idle");
     setError(null);
     setDetail(null);
     setRaw(null);
   }, []);
 
-  return { stage, error, detail, raw, read, reset, setError };
+  return { stage, error, detail, raw, read, resume, reset, setError };
 }

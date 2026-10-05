@@ -696,13 +696,6 @@ function DocumentFlags({ d, onOpenRuns }: { d: DocumentSummary; onOpenRuns: () =
   if (d.failedPages > 0) flags.push({ text: `${plural(d.failedPages, "page")} failed`, tone: "error" });
   // High on purpose: only the first two chips are shown, and this is the one with an action behind it.
   if (d.changedSinceLastRead) flags.push({ text: "changed since last read", tone: "warn" });
-  /*
-   * Below that chip deliberately (Phase 15). A specimen explains every other number on the row — it
-   * is out of the table, the export and the template's count until it is promoted in its drawer
-   * (decision 71) — but only two chips render, and `changed since last read` is the one that has
-   * something to do about it.
-   */
-  if (d.isSpecimen) flags.push({ text: "specimen", tone: "info" });
   if (d.templateMatchScore !== null && d.templateMatchScore < MISMATCH_THRESHOLD) flags.push({ text: "possible template mismatch", tone: "warn" });
   if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in runs", tone: "error", onClick: onOpenRuns });
   if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });

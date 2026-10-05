@@ -178,6 +178,9 @@ model Template {
   // reserved for the deferred source-definition library:
   sourceDefId      String?
   sourceDefVersion Int?
+  // Decision 78: when the part a reading depends on last changed (fields, groups, language hint,
+  // instructions, sequence field). Mappings bump `updatedAt` but not this, so a test stays current.
+  fieldsChangedAt  DateTime     @default(now()) @db.Timestamptz(3)
   createdAt        DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
   deletedAt        DateTime?    @db.Timestamptz(3)
@@ -387,6 +390,8 @@ model Document {
   transformFlags     Json? // Phase 6: document review flags from the last transform: [{ kind, message }]
   contentChangedAt   DateTime?    @db.Timestamptz(3) // Phase 11: a page was transformed, replaced or added
   lastExtractedAt    DateTime?    @db.Timestamptz(3) // Phase 11: finishedAt of the latest COMPLETE run; only ever moves forward
+  copyKey              String?      @unique // decision 78: idempotency key of the copy that created this document
+  copiedFromDocumentId String? // decision 78: soft reference (no FK), counts earlier copies of a specimen
   createdAt          DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime     @updatedAt @db.Timestamptz(3)
   deletedAt          DateTime?    @db.Timestamptz(3)
@@ -404,6 +409,7 @@ model Document {
   @@index([templateId, runState])
   @@index([templateId, isSpecimen])
   @@index([batchId])
+  @@index([copiedFromDocumentId])
 }
 
 model Photo {

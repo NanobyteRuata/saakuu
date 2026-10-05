@@ -22,11 +22,11 @@ export async function requireDocumentAccess(
   userId: string | null | undefined,
   documentId: string,
   db: Db = prisma,
-): Promise<{ id: string; bookId: string; templateId: string }> {
+): Promise<{ id: string; bookId: string; templateId: string; isSpecimen: boolean }> {
   const uid = requireUserId(userId);
   const doc = await db.document.findFirst({
     where: { id: documentId, ...liveOwnedDocument(uid) },
-    select: { id: true, bookId: true, templateId: true },
+    select: { id: true, bookId: true, templateId: true, isSpecimen: true },
   });
   if (!doc) throw new AppError("NOT_FOUND", DOCUMENT_NOT_FOUND);
   return doc;
@@ -78,6 +78,17 @@ export async function lockBook(tx: Db, bookId: string): Promise<void> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT id FROM "Book" WHERE id = ${bookId} AND "deletedAt" IS NULL FOR UPDATE`;
   if (rows.length === 0) throw new AppError("NOT_FOUND", "That book doesn't exist or was deleted.");
+}
+
+/**
+ * Refuses restructuring a template's specimens (decision 78). They live in the template workspace, which
+ * never offers these actions; this is the server's backstop for a request made by id.
+ */
+export async function assertNotSpecimens(db: Db, documentIds: string[]): Promise<void> {
+  const specimens = await db.document.count({ where: { id: { in: documentIds }, isSpecimen: true } });
+  if (specimens > 0) {
+    throw new AppError("VALIDATION", "This page belongs to the template's specimens. Manage it in the template.");
+  }
 }
 
 /** Refuses restructuring documents whose extraction output would silently stop matching their pages. */

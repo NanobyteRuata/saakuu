@@ -163,6 +163,7 @@ model Template {
   // reserved for the deferred source-definition library:
   sourceDefId      String?
   sourceDefVersion Int?
+  fieldsChangedAt DateTime      @default(now()) // decision 78: what a reading depends on last changed
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?
@@ -175,6 +176,15 @@ model Template {
 
   @@index([bookId, deletedAt])
 }
+
+/*
+ * Decision 78 — `fieldsChangedAt` is when the part of the template a reading depends on last changed:
+ * a group or field created, edited, moved, deleted or restored, proposed fields accepted, or the
+ * language hint, instructions or sequence field changed (`markSourceChanged`, lib/templates/access.ts).
+ * Mappings, the name, the model and anchors don't bump it. It is not `updatedAt` because every mapping
+ * save recomputes the config state and so touches the template row. A specimen's test is *current*
+ * when `lastExtractedAt >= fieldsChangedAt` and no page changed since (`testReadingState`).
+ */
 
 enum GroupSelection { NONE  ONE_OF  ANY_OF }   // Phase 3.1
 enum NoneMarked     { BLANK  REVIEW  ERROR }   // Phase 3.1
@@ -294,6 +304,8 @@ model Document {
   templateMatchScore Float?       // anchor detection, 0..1
   needsReview        Boolean      @default(false)
   isSpecimen         Boolean      @default(false) // Phase 15: a page uploaded to build a template against
+  copyKey              String?    @unique // decision 78: idempotency key of the copy that made this document
+  copiedFromDocumentId String?    // decision 78: soft reference, counts earlier copies of a specimen
   lastRunAt          DateTime?
   lastModel          String?
   manualValues       Json?        // MANUAL-mode field values: { fieldId: value }
@@ -313,24 +325,31 @@ model Document {
   @@index([bookId, deletedAt])
   @@index([templateId, runState])
   @@index([templateId, isSpecimen])
+  @@index([copiedFromDocumentId])
 }
 
 /*
  * Phase 15 — `isSpecimen` (decision 71). A specimen is a real Document: same upload, same
  * processing, same extraction, same raw layer, and its rows are built like any other document's.
- * What makes it one is only which numbers leave it out.
  *
- * Excluded (the numbers that mean *work to do*): the output table, the export, review progress and
- * the review queue, duplicate detection and failing-cell counts, the template's document and photo
- * counts, and `Extract all in <template>`. The predicates live in one place, `lib/db/scope.ts`,
- * because the rule was previously spelled out independently in five raw queries and two Prisma ones.
+ * Decision 78 — a specimen belongs to its template.
  *
- * Kept (the numbers that mean *files I have*): the Documents list and the nav's document count, the
- * mapping preview's document picker — the specimen is exactly the page the template was built
- * against — and account usage, because reading it cost real money.
+ * Excluded (the book's work): the output table, the export, review progress and the review queue,
+ * duplicate detection and failing-cell counts, the template's document and photo counts, and
+ * `Extract all in <template>` — via `lib/db/scope.ts`. Also excluded (Documents): the list, its search,
+ * filters and upload days, the run drawer, and the nav's and books list's document counts.
  *
- * Clearing the flag promotes it with no re-extraction and no rebuild; it does trigger a book
- * revalidation, because `UNIQUE` reads across rows and its rows have just entered scope.
+ * Kept: the mapping preview's document picker — the specimen's test reading is exactly the page the
+ * template was built against — and account usage, because reading it cost real money.
+ *
+ * The flag is never flipped after creation. A page crosses in either direction by **copy**
+ * (`lib/documents/copy.ts`): new Document, new Photo rows, and every file copied server-side (original,
+ * base, working, thumbnail) — never shared, because renders live under `photos/{photoId}/` and upload
+ * idempotency is keyed by `originalKey`. Copying a specimen into the documents with a current test also
+ * copies the reading: the current `ExtractionRun`s (token counts null, so spend isn't counted twice;
+ * `rawResponse` reduced to its summary), their `RawRecord`s and `RawValue`s with every id and `photoId`
+ * remapped, values exactly as read. `Row` and `Cell` are never copied; the transform builds them.
+ * `copyKey` makes a copy idempotent (a double click is one copy).
  */
 
 model Photo {

@@ -34,7 +34,7 @@ test("sign in → book → template → upload → extract → review → export
 
   // The paper goes on screen first (Phase 15): the page is uploaded as a specimen, in the workspace
   // where the fields are then typed from it.
-  await page.getByRole("button", { name: "Drop a photo here, or click to choose one" }).locator("input[type=file]").setInputFiles(FIXTURE);
+  await page.getByRole("button", { name: "Drop photos here, or click to choose them" }).locator("input[type=file]").setInputFiles(FIXTURE);
   await expect(page.getByRole("button", { name: "Propose fields" })).toBeEnabled({ timeout: 60_000 });
 
   const newField = page.getByLabel("New field label, as written on the paper");
@@ -59,22 +59,30 @@ test("sign in → book → template → upload → extract → review → export
   await page.getByRole("button", { name: "Test on this page" }).click();
   await expect(page.getByText("Name 1")).toBeVisible({ timeout: 90_000 });
 
-  // A specimen is out of everything that counts as work: the table has no rows, and the template
-  // card counts it apart from its documents (decision 71).
+  // A specimen belongs to its template (decision 78): the table has no rows, and the template card
+  // counts it apart from its documents.
   await page.goto(bookUrl);
   await expect(page.getByText("Name 1")).toBeHidden();
   await page.goto(`${bookUrl}/templates`);
   await expect(page.getByText("0 documents")).toBeVisible();
   await expect(page.getByText("1 specimen")).toBeVisible();
 
-  // Promoting it is a flag flip: the rows were built when it was read, so nothing is extracted again.
+  // Adding it to the documents is a copy. The test is current, so its reading travels with it and
+  // nothing is read again; the specimen and its reading stay with the template.
+  await page.goto(templateUrl);
+  await expect(page.getByText("Name 1")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Add to documents" }).click();
+  const promote = page.getByRole("alertdialog");
+  await expect(promote.getByText(/Nothing is read again\./)).toBeVisible();
+  await promote.getByRole("button", { name: "Add to documents" }).click();
+  await expect(promote).toBeHidden();
+  await expect(page.getByText("Test reading")).toBeVisible();
+  await expect(page.getByText("Name 1")).toBeVisible();
+
+  // Documents lists the copy, and only the copy.
   await page.goto(`${bookUrl}/documents`);
-  await expect(page.getByText("specimen", { exact: true })).toBeVisible();
-  await page.getByRole("row").nth(1).click();
-  const drawer = page.getByRole("dialog");
-  await drawer.getByRole("button", { name: "Use as a real document" }).click();
-  await expect(drawer.getByRole("button", { name: "Use as a real document" })).toBeHidden();
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("row")).toHaveCount(2);
+  await expect(page.getByText("specimen", { exact: true })).toBeHidden();
 
   // Straight to the table. Nothing in this flow picked a tab, so the landing memory has nothing
   // stored and the book opens where it is asked to (Phase 10).

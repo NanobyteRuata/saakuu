@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -100,6 +101,21 @@ export async function getObjectBuffer(key: string): Promise<Buffer> {
 export async function putObject(key: string, body: Buffer, contentType: string): Promise<void> {
   if (key.includes("/uploads/")) throw new Error(`refusing to overwrite an original upload: ${key}`);
   await getS3().send(new PutObjectCommand({ Bucket: getBucket(), Key: key, Body: body, ContentType: contentType }));
+}
+
+/**
+ * Copies an object inside the bucket, server-side (decision 78: a specimen and a document never share
+ * a file). The destination must be a fresh key: a copy is written once, like every other original.
+ */
+export async function copyObject(sourceKey: string, destinationKey: string): Promise<void> {
+  if (sourceKey === destinationKey) throw new Error(`refusing to copy an object onto itself: ${sourceKey}`);
+  await getS3().send(
+    new CopyObjectCommand({
+      Bucket: getBucket(),
+      CopySource: `${getBucket()}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+      Key: destinationKey,
+    }),
+  );
 }
 
 export type StoredObject = { key: string; lastModified: Date };

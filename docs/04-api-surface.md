@@ -258,6 +258,12 @@ GET    /api/templates/:id/specimens             -> { documents: [{ id, label, cr
                                                    Phase 15: the pages a template is built against, with
                                                    fresh presigned URLs; its own endpoint because the pane
                                                    refetches them after an upload or a crop
+POST   /api/templates/:id/specimens/from-document  { documentId, nonce } -> { documentId }
+                                                   decision 78: copies a document of this template into a new
+                                                   specimen; the document is untouched and the copy is unread
+GET    /api/documents/:id/promote-impact        -> { impactHash, mode, pages, values, reason, estimate, earlierCopies }
+POST   /api/documents/:id/promote               { impactHash, nonce } -> { documentId, mode }
+                                                   decision 78: adds a copy of a specimen to the documents
 POST   /api/templates/:id/retransform           -> { state, done, total }   202
 GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | "running", done, total,
                                                      lastRun: { documents, failed, error, finishedAt } | null }
@@ -308,8 +314,8 @@ layer and derived rows; the document lands in `NEVER_RUN`. Warn hard when edits 
 GET    /api/books/:id/documents            ?templateId&runState&needsReview&hasEdits&reviewed&needsReextraction&q&cursor&limit
                                            ordered by position (code-unit collation); cursor is opaque
 POST   /api/templates/:id/documents        { photoIds[] } -> { documentId, removedDocuments }
-PATCH  /api/documents/:id                  { label?, manualValues?: { fieldId: string | null },
-                                             isSpecimen? }   Phase 15: clearing it promotes a specimen
+PATCH  /api/documents/:id                  { label?, manualValues?: { fieldId: string | null } }
+                                           (Phase 15's `isSpecimen` is gone: decision 78 copies instead)
 POST   /api/documents/delete-impact        { ids[] } -> { impactHash, documents, photos, rows, editedCells }
 POST   /api/documents/delete               { ids[], impactHash, confirm }   soft delete
 POST   /api/documents/move-impact          { ids[], targetTemplateId } -> { impactHash, targetTemplateName, documents,
@@ -345,7 +351,26 @@ GET    /api/books/:id/documents/upload-days ?tz -> [{ day: "YYYY-MM-DD", count }
   server page reads `tz` from the `saakuu.tz` cookie, which the Documents view keeps in step with the browser.
 - `sort` is `book` (default; `position`), `newest` or `oldest` (`createdAt`, then id). The opaque cursor carries
   its sort, and a cursor from another sort is refused with `VALIDATION` rather than read as this one's.
-- Upload days count the same documents the unfiltered list shows, specimens included.
+- Upload days count the same documents the unfiltered list shows. Neither includes specimens (decision 78).
+
+**Decision 78 — specimens by copy.** A specimen belongs to its template and never appears in Documents:
+the list, upload days, the run drawer (`GET /api/books/:id/runs`, including `?documentId=` for a specimen,
+which is `NOT_FOUND`) and the nav's document count leave it out. Group, split and move refuse a specimen with
+`VALIDATION`; delete accepts it, which is how the template workspace removes one.
+- `from-document`: both documents must be in a book the user owns, the source must be a live non-specimen
+  document of *this* template with every page processed (`CONFLICT` otherwise), and the template may hold at most
+  20 specimens. The nonce makes a double click one copy (`Document.copyKey`).
+- `promote-impact` decides the case on the server. `mode` is `with-reading` when the test is current (read
+  since the template's `fieldsChangedAt`, no page changed since, every page covered by a finished run), and then
+  `values` is the number of raw values copied; `read-again` when it is not but the page can be read now, with
+  `reason` (a phrase: "your fields changed since this test") and `estimate` (`estCostUsd`, `estSeconds`,
+  `keySource`, `keyHint`, `model`); `unread` otherwise, with `reason` the extraction blocker or key problem as a
+  sentence. `earlierCopies` is `{ count, lastAt }` of live documents already copied from this specimen. A test
+  still running is `CONFLICT`.
+- `promote` recomputes the impact under the book lock and the specimen's row lock and refuses a changed one with
+  `CONFLICT`. `with-reading` copies the current runs (tokens null), raw records and raw values, then queues the
+  document's transform; `read-again` queues an extraction of the copy; `unread` adds it as `NEVER_RUN`. Files are
+  copied before the transaction; a failed transaction leaves them to the daily orphan sweep.
 
 ### Upload
 ```

@@ -15,14 +15,14 @@ import { presignGet } from "@/lib/storage/s3";
 import { requireTemplateAccess } from "@/lib/templates/access";
 import { bboxSchema } from "@/lib/table/service";
 import { parseDocumentFlags, type DocumentFlag } from "@/lib/transform/flags";
-import { requestBookRevalidation, requestDocumentTransform } from "@/lib/transform/triggers";
+import { requestDocumentTransform } from "@/lib/transform/triggers";
 import type { RowType, ValueState } from "@/lib/transform/types";
 import type { FieldType, TemplateKind } from "@/lib/templates/schemas";
 import { buildTree, flattenTree, formatPath, headerPath } from "@/lib/templates/tree";
 import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
 import { idSchema } from "@/lib/validation";
 
-import { assertNoExtractionOutput, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
+import { assertNoExtractionOutput, assertNotSpecimens, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
 import { isProblem, planGroup, planReorder, planSplit, type RestructurePlan } from "./restructure";
 import { isStale, STALE_SQL } from "./staleness";
 import type { DocumentStatus } from "./status";
@@ -56,8 +56,6 @@ export type DocumentSummary = {
   runState: RunState;
   contentState: ContentState;
   needsReview: boolean;
-  /** Phase 15: a page uploaded to build the template against, kept out of the book's output (decision 71). */
-  isSpecimen: boolean;
   templateMatchScore: number | null;
   /** Review flags from building rows: sequence gaps, duplicates, flagged cells. */
   transformFlags: DocumentFlag[];
@@ -133,7 +131,6 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
         runState: true,
         contentState: true,
         needsReview: true,
-        isSpecimen: true,
         templateMatchScore: true,
         transformFlags: true,
         contentChangedAt: true,
@@ -196,7 +193,6 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
       runState: d.runState,
       contentState: d.contentState,
       needsReview: d.needsReview,
-      isSpecimen: d.isSpecimen,
       templateMatchScore: d.templateMatchScore,
       transformFlags: parseDocumentFlags(d.transformFlags),
       rowCount: s?.rows ?? 0,
@@ -313,6 +309,8 @@ export async function listDocuments(userId: string, bookId: string, input: ListD
   const conds: Prisma.Sql[] = [
     Prisma.sql`d."bookId" = ${bookId}`,
     Prisma.sql`d."deletedAt" IS NULL`,
+    // Specimens live in their template, not in Documents (decision 78).
+    Prisma.sql`NOT d."isSpecimen"`,
     Prisma.sql`t."deletedAt" IS NULL`,
   ];
   if (input.templateId) conds.push(Prisma.sql`d."templateId" = ${input.templateId}`);
@@ -361,7 +359,7 @@ export async function listUploadDays(userId: string, bookId: string, input: Uplo
   return prisma.$queryRaw<UploadDay[]>`
     SELECT to_char(${uploadDaySql(tz)}, 'YYYY-MM-DD') AS day, count(*)::int AS count
     FROM "Document" d JOIN "Template" t ON t.id = d."templateId"
-    WHERE d."bookId" = ${bookId} AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL
+    WHERE d."bookId" = ${bookId} AND d."deletedAt" IS NULL AND NOT d."isSpecimen" AND t."deletedAt" IS NULL
       ${input.templateId ? Prisma.sql`AND d."templateId" = ${input.templateId}` : Prisma.empty}
     GROUP BY 1
     ORDER BY 1 DESC
@@ -568,13 +566,12 @@ export async function getDocumentRawValues(userId: string, documentId: string): 
 export async function updateDocument(userId: string, documentId: string, input: UpdateDocumentInput): Promise<DocumentDetail> {
   const { templateId } = await requireDocumentAccess(userId, documentId);
   const detail = await prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ manualValues: Prisma.JsonValue | null; bookId: string; isSpecimen: boolean }[]>`
-      SELECT "manualValues", "bookId", "isSpecimen" FROM "Document" WHERE id = ${documentId} AND "deletedAt" IS NULL FOR UPDATE`;
+    const locked = await tx.$queryRaw<{ manualValues: Prisma.JsonValue | null }[]>`
+      SELECT "manualValues" FROM "Document" WHERE id = ${documentId} AND "deletedAt" IS NULL FOR UPDATE`;
     const row = locked[0];
     if (!row) throw new AppError("NOT_FOUND", "That document doesn't exist or was deleted.");
     const data: Prisma.DocumentUpdateInput = {};
     if (input.label !== undefined) data.label = input.label;
-    if (input.isSpecimen !== undefined) data.isSpecimen = input.isSpecimen;
     if (input.manualValues !== undefined) {
       const setting = Object.entries(input.manualValues).filter(([, v]) => v !== null);
       if (setting.length > 0) {
@@ -594,18 +591,11 @@ export async function updateDocument(userId: string, documentId: string, input: 
       data.manualValues = Object.keys(next).length === 0 ? Prisma.DbNull : next;
     }
     await tx.document.update({ where: { id: documentId }, data });
-    return { detail: await loadDetail(tx, documentId), bookId: row.bookId, specimenChanged: input.isSpecimen !== undefined && input.isSpecimen !== row.isSpecimen };
+    return loadDetail(tx, documentId);
   });
   // Manual values fill cells of every row of the document.
   if (input.manualValues !== undefined) await requestDocumentTransform(documentId);
-  /*
-   * Promoting or demoting a specimen moves its rows in or out of everything the book counts, and
-   * `UNIQUE` rules are the one check that reads across rows: a value that was unique while the
-   * specimen's rows were out of scope may not be once they are in it. Nothing is rebuilt — the rows
-   * already exist — so this is a re-check, not a re-extraction (decision 71).
-   */
-  if (detail.specimenChanged) await requestBookRevalidation(detail.bookId);
-  return detail.detail;
+  return detail;
 }
 
 async function applyPlan(tx: Db, plan: RestructurePlan): Promise<void> {
@@ -662,6 +652,7 @@ export async function groupPhotos(
       throw new AppError("VALIDATION", "Only documents of the same template can be grouped. Move them to one template first.");
     }
     const documentIds = [...new Set(photos.map((p) => p.documentId))];
+    await assertNotSpecimens(tx, documentIds);
     await assertNoExtractionOutput(tx, documentIds, "group");
     const plan = planGroup(await pagesOf(tx, documentIds), input.photoIds);
     if (isProblem(plan)) throw new AppError("VALIDATION", plan.problem);
@@ -681,6 +672,7 @@ export async function splitDocument(userId: string, documentId: string, input: S
   return prisma.$transaction(async (tx) => {
     await lockBook(tx, bookId);
     await requireDocumentAccess(userId, documentId, tx);
+    await assertNotSpecimens(tx, [documentId]);
     await assertNoExtractionOutput(tx, [documentId], "split");
     const [pages] = await pagesOf(tx, [documentId]);
     if (!pages) throw new Error("document pages missing");
@@ -794,6 +786,7 @@ export type DocumentsMoveImpact = {
 
 async function computeMoveImpact(userId: string, input: MoveImpactInput, db: Db): Promise<{ impact: DocumentsMoveImpact; moving: string[] }> {
   const { bookId, documents } = await requireDocumentsAccess(userId, input.ids, db);
+  await assertNotSpecimens(db, documents.map((d) => d.id));
   const target = await requireTemplateAccess(userId, input.targetTemplateId, db);
   if (target.bookId !== bookId) throw new AppError("NOT_FOUND", "That template isn't in this book.");
   const moving = documents.filter((d) => d.templateId !== target.id).map((d) => d.id).sort();

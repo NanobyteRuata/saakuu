@@ -60,7 +60,7 @@ export function TemplateEditor({
   const layout = useLayoutTarget();
   const lang = langOf(template.languageHint);
   const tree = useMemo(() => buildTree(template.groups, template.fields), [template.groups, template.fields]);
-  // Local edits don't refresh `updatedAt`, so the specimen pane also watches the fields themselves.
+  // Local edits don't refresh `fieldsChangedAt`, so the specimen pane also watches the fields themselves.
   const fieldsKey = useMemo(() => {
     const byId = <T extends { id: string }>(a: T, b: T) => a.id.localeCompare(b.id);
     return JSON.stringify([[...template.fields].sort(byId), [...template.groups].sort(byId)]);
@@ -204,14 +204,18 @@ export function TemplateEditor({
       <PaneGroup workspace={layout === "three" ? "template-3" : "template-2"} userId={userId}>
         <Pane id="photo" defaultSize={layout === "three" ? "40%" : "48%"} minSize={PHOTO_MIN_PX} collapsible>
           <SpecimenPane
+            bookId={template.bookId}
             templateId={template.id}
             templateName={template.name}
             templateKind={template.kind}
             userId={userId}
             lang={lang}
             hasExtractFields={template.fields.some((f) => f.mode === "EXTRACT")}
-            templateUpdatedAt={template.updatedAt}
+            fieldsChangedAt={template.fieldsChangedAt}
             fieldsKey={fieldsKey}
+            flushPending={async () => {
+              await flushRef.current?.();
+            }}
             onFieldsAdded={() => void reload()}
             onRead={() => {
               void reload();

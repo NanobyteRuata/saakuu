@@ -19,7 +19,7 @@ async function templateWithSpecimen(page: Page, name: string, kind: "Form" | "Ta
   await dialog.getByRole("radio", { name: new RegExp(`^${kind}`) }).check();
   await dialog.getByRole("button", { name: "Create template" }).click();
   await expect(page).toHaveURL(/\/templates\/[a-z0-9]{24}$/);
-  await page.getByRole("button", { name: "Drop a photo here, or click to choose one" }).locator("input[type=file]").setInputFiles(FIXTURE);
+  await page.getByRole("button", { name: "Drop photos here, or click to choose them" }).locator("input[type=file]").setInputFiles(FIXTURE);
   await expect(page.getByRole("button", { name: "Propose fields" })).toBeEnabled({ timeout: 60_000 });
 }
 

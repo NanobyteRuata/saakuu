@@ -56,6 +56,8 @@ export type TemplateDetail = {
   instructions: string | null;
   sequenceFieldId: string | null;
   updatedAt: string;
+  /** Decision 78: a test reading older than this was read with different fields. */
+  fieldsChangedAt: string;
   groups: GroupView[];
   fields: FieldView[];
   deletedFields: DeletedFieldView[];
@@ -70,6 +72,8 @@ export type TemplatesDeleteImpact = {
   impactHash: string;
   templates: number;
   documents: number;
+  /** Counted apart from documents: they live in the template, not in Documents (decision 78). */
+  specimens: number;
   photos: number;
   rows: number;
   editedCells: number;
@@ -158,6 +162,7 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
       instructions: true,
       sequenceFieldId: true,
       updatedAt: true,
+      fieldsChangedAt: true,
     },
   });
   const groups = await db.fieldGroup.findMany({ where: { templateId }, select: groupSelect, take: MAX_GROUPS });
@@ -179,6 +184,7 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
   return {
     ...t,
     updatedAt: t.updatedAt.toISOString(),
+    fieldsChangedAt: t.fieldsChangedAt.toISOString(),
     groups: sortByPosition(groups),
     fields: sortByPosition(fields).map(toFieldView),
     deletedFields: deleted.map(({ deletedAt, ...f }) => ({
@@ -245,9 +251,27 @@ export async function updateTemplate(userId: string, templateId: string, input: 
       }
     }
 
+    // What goes into the prompt makes a test reading stale (decision 78); the name, model and anchors don't.
+    const touchesReading = rest.languageHint !== undefined || rest.instructions !== undefined || sequenceFieldId !== undefined;
+    const before = touchesReading
+      ? await tx.template.findUniqueOrThrow({
+          where: { id: templateId },
+          select: { languageHint: true, instructions: true, sequenceFieldId: true },
+        })
+      : null;
+    const readingChanged =
+      before !== null &&
+      ((rest.languageHint !== undefined && rest.languageHint !== before.languageHint) ||
+        (rest.instructions !== undefined && rest.instructions !== before.instructions) ||
+        (sequenceFieldId !== undefined && sequenceFieldId !== before.sequenceFieldId));
+
     await tx.template.update({
       where: { id: templateId },
-      data: { ...rest, ...(sequenceFieldId !== undefined ? { sequenceFieldId } : {}) },
+      data: {
+        ...rest,
+        ...(sequenceFieldId !== undefined ? { sequenceFieldId } : {}),
+        ...(readingChanged ? { fieldsChangedAt: new Date() } : {}),
+      },
     });
     return loadTemplateDetail(tx, templateId);
   });
@@ -266,11 +290,12 @@ export async function templatesDeleteImpact(userId: string, ids: string[], db: D
     throw new AppError("NOT_FOUND", "One or more of these templates doesn't exist or has already been deleted.");
   }
   const liveDocuments = { templateId: { in: unique }, deletedAt: null } satisfies Prisma.DocumentWhereInput;
-  const documents = await db.document.count({ where: liveDocuments });
+  const documents = await db.document.count({ where: { ...liveDocuments, isSpecimen: false } });
+  const specimens = await db.document.count({ where: { ...liveDocuments, isSpecimen: true } });
   const photos = await db.photo.count({ where: { deletedAt: null, document: liveDocuments } });
   const rows = await db.row.count({ where: { deletedAt: null, document: liveDocuments } });
   const editedCells = await db.cell.count({ where: { isEdited: true, row: { deletedAt: null, document: liveDocuments } } });
-  const counts = { templates: unique.length, documents, photos, rows, editedCells };
+  const counts = { templates: unique.length, documents, specimens, photos, rows, editedCells };
   return { impactHash: impactHash({ action: "templates.delete", ids: unique, ...counts }), ...counts };
 }
 

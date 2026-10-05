@@ -1,14 +1,14 @@
 import { Prisma } from "@prisma/client";
 
 /**
- * What counts as the book's output (Phase 15, decision 71).
+ * What counts as the book's output (Phase 15, decisions 71 and 78).
  *
  * A specimen is a real Document — same upload, same processing, same extraction, same raw layer —
- * uploaded to build a template against. Its rows are built like any other document's, so promoting
- * it is a flag flip rather than a re-extraction. What makes it a specimen is only that it is left
- * out of the numbers that mean *work to do*: the output table, the export, review progress, the
- * template's document count and `Extract all`. It stays in the Documents list, which is where the
- * number means *files I have* and where the promote action lives.
+ * uploaded to build a template against. It is left out of the numbers that mean *work to do*: the
+ * output table, the export, review progress, the template's document count and `Extract all`. Since
+ * decision 78 it belongs to its template and is out of Documents too (the list, upload days, the run
+ * drawer, the nav count; those filter on `isSpecimen` directly). It reaches the documents only as a
+ * copy, never by clearing the flag.
  *
  * These predicates exist because that rule was spelled out independently in five raw queries and
  * two Prisma ones. One specimen rule, one place to change it.

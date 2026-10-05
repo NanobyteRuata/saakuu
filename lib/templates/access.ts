@@ -76,6 +76,16 @@ export async function lockTemplate(tx: Db, templateId: string): Promise<void> {
   if (rows.length === 0) throw new AppError("NOT_FOUND", TEMPLATE_NOT_FOUND);
 }
 
+/**
+ * Marks the part of the template a reading depends on as changed (decision 78): fields, groups, and
+ * the settings that go into the prompt. A test reading older than this is stale. Mapping changes don't
+ * call it, which is why it isn't `updatedAt`: every mapping save touches the template row.
+ */
+export async function markSourceChanged(tx: Db, templateId: string): Promise<void> {
+  const now = new Date();
+  await tx.template.update({ where: { id: templateId }, data: { fieldsChangedAt: now, updatedAt: now } });
+}
+
 /** Recomputes and stores `Template.configState`. Call in the same transaction as the change. */
 export async function recomputeConfigState(tx: Db, templateId: string): Promise<ConfigState> {
   const liveFields = await tx.field.count({ where: { templateId, deletedAt: null } });

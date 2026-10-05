@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { modelIdSchema } from "@/lib/ai/models";
 import { impactHashSchema } from "@/lib/books/schemas";
+import { nonceSchema } from "@/lib/extraction/schemas";
 import { confirmSchema, idListSchema, idSchema, labelSchema } from "@/lib/validation";
 
 /** Template source-layer input schemas. Client-safe: shared by forms and handlers. */
@@ -255,3 +256,7 @@ export const fieldsImpactRequestSchema = z.object({ ids: idListSchema });
 export const deleteFieldsSchema = z.object({ ids: idListSchema, impactHash: impactHashSchema, confirm: confirmSchema });
 
 export type DeleteFieldsInput = z.infer<typeof deleteFieldsSchema>;
+
+/** Decision 78: an uploaded page of this template becomes a specimen by copy. */
+export const specimenFromDocumentSchema = z.object({ documentId: idSchema, nonce: nonceSchema });
+export type SpecimenFromDocumentInput = z.infer<typeof specimenFromDocumentSchema>;

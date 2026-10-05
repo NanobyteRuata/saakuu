@@ -268,6 +268,34 @@ done the product's way: the machine proposes and the human decides. It is a dial
 Fields land flat at the top level. Groups, headers and tick groups stay manual, because a wrong
 group costs more to undo than a missing one.
 
+*As built (decision 78):* **the specimen pane owns the template's specimens**, which appear nowhere
+else.
+- **Empty pane, and `New specimen`** (the `+` in the pane header, "a different form") show the same two
+  choices. `Upload a photo` takes several photos at once, and they become the pages of **one** specimen in
+  the order picked (the first registers the specimen, the rest are added to it as pages). `Choose an
+  uploaded page` lists this template's documents with a thumbnail and page count; picking one copies it
+  into a new specimen. The document is untouched, and the copy is unread: Test reads it on its own.
+- **The image icon adds a page** to the specimen on screen (`Add a page to this specimen`), through the
+  page intake. The toast says `Page 2 added to this specimen. Test again to read it.`, the pane shows the
+  new page, and the test reading turns stale.
+- **The trash icon removes the specimen**, after a confirmation stating its page count and that the
+  documents, including any copy added from it, aren't affected.
+- **`Add to documents`** (it replaced `Use as a real document`) adds a *copy*; the specimen stays. It
+  saves the properties form being edited first, then asks the server which case applies:
+  - test current — "Adds a copy of this page to your documents, with this reading (14 values). Nothing
+    is read again.";
+  - fields or pages changed, or no test yet — "… It's read again there (2 pages), because your fields
+    changed since this test.", with the cost and key line;
+  - can't be read now — "… unread. *reason* Extract it from Documents later.".
+  Every case adds "This specimen stays here for building the template.", and a warning when the page was
+  already added before ("… on 2026-09-24 (1 copy). Adding it again puts its rows in the table twice.").
+- **The reading pane has a heading**: `Test reading · stays with this template, not in your table`.
+- **Stale, one rule on both sides.** `Read before your latest field changes` shows when the reading is
+  older than the template's `fieldsChangedAt`, when a page was added, replaced or cropped since it, or
+  when the fields on screen changed since it appeared. `fieldsChangedAt` moves with fields, groups and
+  the prompt settings — not with mappings, which is why it is not `updatedAt`. The server's promote
+  check uses the same columns.
+
 ### Fields tab
 Two-pane. Left: the field tree (groups → fields), drag-reorderable, with an add bar above it.
 Right: the selected field's or group's properties.
@@ -448,9 +476,10 @@ uploads still in flight; finishing — `Done`, or a single-file mode's success �
 count that guard reads is reported a render after the file it describes has landed.
 
 A **specimen** is created by the same upload with `isSpecimen` set, so it is born one and there is
-no moment where it counts as an ordinary document. In the Documents list it carries a `Specimen`
-chip, placed first because it explains every other number on the row; its drawer offers
-`Use as a real document`, which is a flag flip with no re-extraction and no rebuild.
+no moment where it counts as an ordinary document. Several photos picked at once become one specimen's
+pages. Since decision 78 it never appears in the Documents workspace — no chip, no drawer action — and
+reaches the documents only as a copy, from `Add to documents` in the template workspace (§7). The page
+intake's `specimen` purpose changes only its toast: a specimen is tested, not extracted.
 
 **Upload:** drop zone, progress per file, then a staging grid of uploaded photos.
 Default is one document per photo. Multi-select → `Group into one document`. A grouped

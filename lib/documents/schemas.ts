@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { confirmSchema, idListSchema, idSchema, labelSchema, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from "@/lib/validation";
 
+import { nonceSchema } from "@/lib/extraction/schemas";
+
 import { DOCUMENT_STATUSES } from "./status";
 
 export const RUN_STATES = ["NEVER_RUN", "QUEUED", "RUNNING", "PARTIAL", "FAILED", "COMPLETE"] as const;
@@ -78,16 +80,15 @@ export const updateDocumentSchema = z
   .object({
     label: labelSchema.optional(),
     manualValues: z.record(idSchema, z.string().max(MAX_MANUAL_VALUE_LENGTH).nullable()).optional(),
-    /**
-     * Phase 15: clearing the flag promotes a specimen to an ordinary document (decision 71). Its
-     * rows were always built, so this is a flag flip — no re-extraction, no rebuild.
-     */
-    isSpecimen: z.boolean().optional(),
   })
-  .refine((v) => v.label !== undefined || v.manualValues !== undefined || v.isSpecimen !== undefined, "Nothing to update.");
+  .refine((v) => v.label !== undefined || v.manualValues !== undefined, "Nothing to update.");
 export type UpdateDocumentInput = z.infer<typeof updateDocumentSchema>;
 
 const impactHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+
+/** Decision 78: a specimen is added to the documents as a copy; the template keeps its reference page. */
+export const promoteSpecimenSchema = z.object({ impactHash: impactHashSchema, nonce: nonceSchema });
+export type PromoteSpecimenInput = z.infer<typeof promoteSpecimenSchema>;
 
 export const documentsImpactSchema = z.object({ ids: idListSchema });
 

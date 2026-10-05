@@ -94,7 +94,7 @@ async function rankedDocuments(bookId: string, input: RunActivityInput): Promise
             JOIN "Document" rd ON rd.id = r."documentId"
             WHERE rd."bookId" = ${bookId} AND rd."deletedAt" IS NULL
             GROUP BY r."documentId") l ON l."documentId" = d.id
-      WHERE d."bookId" = ${bookId} AND d."deletedAt" IS NULL AND t."deletedAt" IS NULL
+      WHERE d."bookId" = ${bookId} AND d."deletedAt" IS NULL AND NOT d."isSpecimen" AND t."deletedAt" IS NULL
     ) x
     WHERE (rank < 2 OR at_ts > ${since.toISOString()}::timestamptz)
       ${
@@ -175,7 +175,7 @@ export async function listRunActivity(userId: string, bookId: string, input: Run
     input.documentId ? focusedDocument(userId, bookId, input.documentId) : rankedDocuments(bookId, input),
     prisma.document.groupBy({
       by: ["runState"],
-      where: { bookId, deletedAt: null, template: { deletedAt: null }, runState: { in: ["QUEUED", "RUNNING", "FAILED", "PARTIAL"] } },
+      where: { bookId, deletedAt: null, isSpecimen: false, template: { deletedAt: null }, runState: { in: ["QUEUED", "RUNNING", "FAILED", "PARTIAL"] } },
       _count: { _all: true },
     }),
   ]);
@@ -190,6 +190,7 @@ export async function listRunActivity(userId: string, bookId: string, input: Run
 /** A row's own `Running 3/12` opens the drawer on that document, however far down the list it would sort. */
 async function focusedDocument(userId: string, bookId: string, documentId: string): Promise<Page<{ id: string }>> {
   const doc = await requireDocumentAccess(userId, documentId);
-  if (doc.bookId !== bookId) throw new AppError("NOT_FOUND", "That document doesn't exist or was deleted.");
+  // A specimen belongs to its template, not this drawer (decision 78): same answer as an unknown id.
+  if (doc.bookId !== bookId || doc.isSpecimen) throw new AppError("NOT_FOUND", "That document doesn't exist or was deleted.");
   return { items: [{ id: documentId }], nextCursor: null };
 }

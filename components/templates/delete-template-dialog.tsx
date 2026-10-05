@@ -77,8 +77,9 @@ export function DeleteTemplateDialog({ template, open, onOpenChange, onDeleted }
               {impact ? (
                 <>
                   <p>
-                    Delete 1 template, {plural(impact.documents, "document")}, {plural(impact.photos, "photo")} and{" "}
-                    {plural(impact.rows, "row")}?
+                    Delete 1 template, {plural(impact.documents, "document")},{" "}
+                    {impact.specimens > 0 ? `${plural(impact.specimens, "specimen")}, ` : ""}
+                    {plural(impact.photos, "photo")} and {plural(impact.rows, "row")}?
                   </p>
                   <p>
                     {impact.editedCells === 0

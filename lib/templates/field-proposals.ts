@@ -17,7 +17,7 @@ import { normalizeTransform, outputSize, transformHash, WORKING_MAX_EDGE } from 
 import { enqueueFieldProposal } from "@/lib/queue";
 import { requestTemplateTransform } from "@/lib/transform/triggers";
 
-import { lockTemplate, recomputeConfigState, requireTemplateAccess, type Db } from "./access";
+import { lockTemplate, markSourceChanged, recomputeConfigState, requireTemplateAccess, type Db } from "./access";
 import type {
   AcceptFieldProposalInput,
   FieldProposalEstimate,
@@ -325,6 +325,7 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
       position: positions[i] ?? "",
     }));
     await tx.field.createMany({ data });
+    await markSourceChanged(tx, templateId);
     await tx.fieldProposal.update({ where: { id: proposalId }, data: { acceptedAt: new Date(), acceptedFieldIds: data.map((d) => d.id) } });
     const { repaired } = await recomputeMappingStates(tx, templateId);
     await recomputeConfigState(tx, templateId);

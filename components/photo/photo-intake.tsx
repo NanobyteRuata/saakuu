@@ -47,12 +47,25 @@ export type PageUploadTarget =
 export type IntakeMode =
   /** Documents workspace: many files, each its own document, staged for grouping. */
   | { kind: "batch"; templates: TemplateOption[]; initialTemplateId: string | null; lockTemplate?: boolean }
-  /** Template workspace: the page the template is being built against (decision 71). */
+  /**
+   * Template workspace: the page the template is being built against (decisions 71 and 78). Several
+   * photos picked at once are the pages of one form, so they become one specimen.
+   */
   | { kind: "specimen"; templateId: string; templateName: string }
   /** One page to read now, either newly uploaded or one already in the book. */
   | { kind: "try"; templateId: string; templateName: string }
-  /** Re-shooting a page, or adding one to a document photographed incompletely (Phase 11). */
-  | { kind: "page"; templateId: string; documentId: string; documentLabel: string | null; target: PageUploadTarget };
+  /**
+   * Re-shooting a page, or adding one to a document photographed incompletely (Phase 11). `specimen`
+   * is a page added to a template's specimen, which is tested rather than extracted (decision 78).
+   */
+  | {
+      kind: "page";
+      templateId: string;
+      documentId: string;
+      documentLabel: string | null;
+      target: PageUploadTarget;
+      purpose?: "document" | "specimen";
+    };
 
 export type IntakeResult =
   | { kind: "batch" }
@@ -154,12 +167,21 @@ function SingleIntake({ mode, onDone, onBusyChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const templateId = mode.kind === "batch" ? null : mode.templateId;
   const replacing = mode.kind === "page" && mode.target.kind === "replace";
+  const forSpecimen = mode.kind === "page" && mode.purpose === "specimen";
+  /** The specimen the first picked photo became; the rest are added to it as pages, in pick order. */
+  const specimenRef = useRef<string | null>(null);
+  const [specimenId, setSpecimenId] = useState<string | null>(null);
 
   const intake = useIntakeUploads<IntakeResult>({
     templateId,
     parallel: 1,
     accept: replacing ? REPLACE_TYPES : UPLOAD_MIME_TYPES,
     register: async ({ key, file }) => {
+      if (mode.kind === "specimen" && specimenRef.current !== null) {
+        const documentId = specimenRef.current;
+        const result = await postJson<{ photo: PhotoView }>(`/api/documents/${documentId}/pages`, { key, filename: file.name });
+        return result.ok ? { ok: true as const, data: { kind: "document" as const, documentId } } : result;
+      }
       if (mode.kind === "page") {
         const url = mode.target.kind === "replace" ? `/api/photos/${mode.target.photoId}/replace` : `/api/documents/${mode.documentId}/pages`;
         const result = await postJson<{ photo: PhotoView }>(url, { key, filename: file.name });
@@ -172,14 +194,22 @@ function SingleIntake({ mode, onDone, onBusyChange }: Props) {
         // A specimen is born one, so there is never a moment where it counts as an ordinary document.
         ...(mode.kind === "specimen" ? { isSpecimen: true } : {}),
       });
+      if (result.ok && mode.kind === "specimen") specimenRef.current = result.data.documentId;
       return result.ok ? { ok: true as const, data: { kind: "document" as const, documentId: result.data.documentId } } : result;
     },
     onRegistered: (result) => {
+      // A specimen finishes once every picked photo has landed on it (below), not per photo.
+      if (mode.kind === "specimen" && result.kind === "document") {
+        setSpecimenId(result.documentId);
+        return;
+      }
       if (result.kind === "photo" && mode.kind === "page") {
         toast.success(
-          mode.target.kind === "replace"
-            ? `Page ${mode.target.page} replaced. Extract this document again to read the new photo.`
-            : "Page added. Extract this document again to read it.",
+          forSpecimen
+            ? `Page ${result.photo.pageIndex + 1} added to this specimen. Test again to read it.`
+            : mode.target.kind === "replace"
+              ? `Page ${mode.target.page} replaced. Extract this document again to read the new photo.`
+              : "Page added. Extract this document again to read it.",
         );
       }
       onDone(result);
@@ -188,6 +218,21 @@ function SingleIntake({ mode, onDone, onBusyChange }: Props) {
 
   const busy = intake.unfinished > 0;
   useEffect(() => onBusyChange?.(intake.unfinished), [intake.unfinished, onBusyChange]);
+
+  const failed = intake.files.filter((f) => f.phase === "failed").length;
+  const finishedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode.kind !== "specimen" || specimenId === null || intake.unfinished > 0) return;
+    // `onDone` is usually an inline callback, so this runs on every parent render: finish once.
+    if (finishedRef.current === specimenId) return;
+    finishedRef.current = specimenId;
+    if (failed > 0) toast.error(`${plural(failed, "photo")} didn't upload, so the specimen is missing ${failed === 1 ? "that page" : "those pages"}. Add ${failed === 1 ? "it" : "them"} with Add a page.`);
+    // The next pick, if this intake stays on screen, is a new specimen, not more pages of this one.
+    specimenRef.current = null;
+    setSpecimenId(null);
+    intake.reset();
+    onDone({ kind: "document", documentId: specimenId });
+  }, [mode.kind, specimenId, intake, failed, onDone]);
 
   const file = intake.files.at(-1);
   const accept = (replacing ? REPLACE_TYPES : UPLOAD_MIME_TYPES).join(",");
@@ -203,7 +248,7 @@ function SingleIntake({ mode, onDone, onBusyChange }: Props) {
           </p>
         </div>
       ) : null}
-      {mode.kind === "page" && mode.target.kind === "add" ? (
+      {mode.kind === "page" && mode.target.kind === "add" && !forSpecimen ? (
         <p className="text-muted-foreground text-sm">
           The document is marked <span className="text-foreground">Changed since last read</span> so you can find it again.
           Extract it to read the new page.
@@ -214,14 +259,18 @@ function SingleIntake({ mode, onDone, onBusyChange }: Props) {
         inputRef={inputRef}
         onFiles={intake.addFiles}
         accept={mode.kind === "page" ? accept : UPLOAD_ACCEPT}
-        multiple={false}
+        multiple={mode.kind === "specimen"}
         disabled={busy}
         compact={mode.kind === "page"}
-        title={busy ? "Uploading…" : "Drop a photo here, or click to choose one"}
+        title={
+          busy ? "Uploading…" : mode.kind === "specimen" ? "Drop photos here, or click to choose them" : "Drop a photo here, or click to choose one"
+        }
         hint={
           replacing
             ? "JPEG, PNG, WebP or HEIC, up to 25 MB. A PDF is several pages, so use Upload documents for one."
-            : "JPEG, PNG, WebP, HEIC or PDF, up to 25 MB."
+            : mode.kind === "specimen"
+              ? "Several photos of one form become its pages, in the order you pick them. JPEG, PNG, WebP, HEIC or PDF, up to 25 MB each."
+              : "JPEG, PNG, WebP, HEIC or PDF, up to 25 MB."
         }
       />
 

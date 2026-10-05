@@ -8,7 +8,7 @@ import { impactHash } from "@/lib/impact";
 import { recomputeMappingStates } from "@/lib/mappings/state";
 import { requestTemplateTransform } from "@/lib/transform/triggers";
 
-import { lockTemplate, recomputeConfigState, requireFieldAccess, requireGroupAccess, requireTemplateAccess, type Db } from "./access";
+import { lockTemplate, markSourceChanged, recomputeConfigState, requireFieldAccess, requireGroupAccess, requireTemplateAccess, type Db } from "./access";
 import { appendPosition, positionAfter } from "./positions";
 import {
   fieldShapeProblem,
@@ -79,7 +79,7 @@ export async function createGroup(userId: string, templateId: string, input: Cre
       note: input.note ?? null,
     };
     const created = await tx.fieldGroup.create({ data: { templateId, ...group }, select: groupSelect });
-    await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
+    await markSourceChanged(tx, templateId);
     return created;
   });
 }
@@ -162,7 +162,7 @@ export async function updateGroup(userId: string, groupId: string, input: Update
       },
       select: groupSelect,
     });
-    await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
+    await markSourceChanged(tx, templateId);
     const ordered = [tree, afterTree].some((t) => nearestSelectionGroup(t, next.parentGroupId) !== undefined);
     const affectsRows = groupOutputKey(next, ordered) !== groupOutputKey(current.group, ordered);
     if (affectsRows) {
@@ -244,7 +244,7 @@ export async function deleteGroup(
     await tx.field.updateMany({ where: { templateId, groupId, deletedAt: { not: null } }, data: { groupId: plan.parentId } });
     // parentGroupId is ON DELETE RESTRICT: this fails rather than lose a sub-group that wasn't moved.
     await tx.fieldGroup.delete({ where: { id: groupId } });
-    await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
+    await markSourceChanged(tx, templateId);
     // Mapping inputs on the group were set to null by the delete: those mappings are now broken.
     await recomputeMappingStates(tx, templateId);
     await recomputeConfigState(tx, templateId);
@@ -292,6 +292,7 @@ export async function createField(userId: string, templateId: string, input: Cre
       data: { ...draft, templateId, markSymbols: jsonOrNull(markSymbols), typeOptions: jsonOrNull(typeOptions) },
       select: fieldSelect,
     });
+    await markSourceChanged(tx, templateId);
     // A new option can repair a tick group's mapping.
     const { repaired } = await recomputeMappingStates(tx, templateId);
     await recomputeConfigState(tx, templateId);
@@ -364,7 +365,7 @@ export async function updateField(userId: string, fieldId: string, input: Update
       },
       select: fieldSelect,
     });
-    await tx.template.update({ where: { id: templateId }, data: { updatedAt: new Date() } });
+    await markSourceChanged(tx, templateId);
     const ordered =
       (current.dataType === "MARK" && nearestSelectionGroup(tree, current.groupId) !== undefined) ||
       (next.dataType === "MARK" && nearestSelectionGroup(afterTree, next.groupId) !== undefined);

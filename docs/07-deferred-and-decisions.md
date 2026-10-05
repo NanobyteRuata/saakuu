@@ -384,6 +384,9 @@ table, the export, review progress, the template's document count, `Extract all`
 a home. Those predicates were spelled out independently in five raw queries and two Prisma ones, so
 they moved to `lib/db/scope.ts` first: one specimen rule, one place to change it. (Phase 15)
 
+*Superseded in part by decision 78:* the specimen flag stays, but promotion is no longer a flag flip,
+and specimens left the Documents list.
+
 **72. Autosave replaces save-and-discard in the template editor.** Switching fields with unsaved
 changes used to raise `Discard unsaved changes?`. Quick-add only sets a label and a type, so every
 field is finished in the properties form, which made that modal a toll paid once per field while
@@ -467,6 +470,38 @@ worse than no knob, because it invites an operator to spend attention where atte
 Defaulting it would have left the column and the question; dropping it leaves a constant in
 `lib/table/cellState.ts` and nobody notices. The general rule the phase applied: every setting has to
 beat "pick a good default and let them fix it where it is wrong." (Phase 14)
+
+**78. Specimens belong to the template: in and out by copy, never a flag flip.** Decision 71 kept the
+specimen a real Document, and that half stands — extraction, `Test on this page` and the reading pane all
+depend on it. The other half, promotion as a flag flip from the Documents list, had four costs once used:
+- **The template lost its reference page** the moment the page became real data.
+- **A Test re-read real data.** Once a page was a document, testing new fields against it re-extracted
+  a document whose rows were in the table and possibly edited. The only safe place for a test is a page
+  nothing else depends on.
+- **Specimens sat among real documents**, with a chip on every row explaining why the numbers didn't
+  add up.
+- **A page already uploaded couldn't be the reference** without photographing it again — the reverse
+  flip would have taken its rows out of the table and the export.
+
+So a specimen now lives only in its template, and a page crosses in either direction by copy. An
+uploaded page is copied into a new, unread specimen; the document is untouched. A specimen is added to
+the documents as a copy, and the template keeps it. When its test is current, the copy carries the
+reading — runs, raw records and raw values, ids and pages remapped, values exactly as read, token counts
+left off so spend is never counted twice — and the transform builds its rows for nothing. When the fields
+or pages changed since the test, the copy is read again, and the confirmation says so and what it costs.
+
+The copy is independent all the way down: every file is copied, not shared. The storage lifecycle would
+in fact have kept a shared original alive (it never deletes a key a Photo row references), but a photo's
+renders live under its own id, and an upload's idempotency check is keyed by `originalKey`, so two photos
+on one key would make "was this upload already used?" ambiguous.
+
+"Current" needed a column of its own. `Template.updatedAt` moves with every mapping save, because the
+config state is recomputed on the template row, so a test would have looked stale after merely visiting
+Mapping, and promotion would have paid for a read it didn't need. `fieldsChangedAt` moves only with what
+a reading depends on: fields, groups, the language hint, instructions and the sequence field.
+
+Repeat promotion is warned about, with the count and date of earlier copies, and not blocked: an operator
+may really want a second copy, and `UNIQUE` rules flag the duplicate rows either way. (Specimens by copy)
 
 ---
 

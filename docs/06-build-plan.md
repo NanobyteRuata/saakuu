@@ -325,7 +325,8 @@ number from the operator's own paper is what the line is for.
 - **Promotion revalidates the book.** Rows enter duplicate detection at that moment, and `UNIQUE` is
   the one rule that reads across rows, so a value that was unique while the specimen was out of
   scope may not be once it is in. Nothing is rebuilt — the rows already exist — so it is a re-check,
-  not a re-extraction.
+  not a re-extraction. *Superseded by decision 78:* promotion is now a copy whose rows are built by the
+  document transform, which runs the same checks as any newly read document.
 - **A remembered pane layout could take the workspace down.** Two panes and three are different
   shapes, and `useLayoutTarget` only knows which one it is *after* hydration, so a stored three-pane
   layout was being applied to a group that still had two panes: `Invalid 2 panel layout`, caught by
@@ -752,7 +753,8 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 
 Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped, 76–77 when
 Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did, 74 when Phase 17 did and 75 when Phase 18 did; the rest need writing up in the decision log with their reasoning, in the same form as
-1–65, as their phases ship:
+1–65, as their phases ship. **78** came after Phase 20, when specimens moved into the template and began
+crossing to the documents by copy; it was written up with that change:
 
 | # | Decision |
 |---|---|
@@ -766,6 +768,7 @@ Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did, 74 when Phase 17 
 | 73 | The AI proposes flat fields only; groups and selection structure stay manual. ✅ written up |
 | 74 | Cross-book copy now, versioned library never until asked for. ✅ written up |
 | 75 | Jobs is a drawer on Documents, not a workspace. ✅ written up |
+| 78 | Specimens belong to the template: in and out by copy, never a flag flip. Replaces the promotion half of 71. ✅ written up |
 
 ---
 

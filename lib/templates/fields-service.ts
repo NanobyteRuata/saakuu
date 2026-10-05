@@ -7,7 +7,7 @@ import { impactHash, type BrokenMapping, type ImpactReport } from "@/lib/impact"
 import { recomputeMappingStates } from "@/lib/mappings/state";
 import { requestTemplateTransform } from "@/lib/transform/triggers";
 
-import { lockTemplate, recomputeConfigState, requireFieldAccess, type Db } from "./access";
+import { lockTemplate, markSourceChanged, recomputeConfigState, requireFieldAccess, type Db } from "./access";
 import { positionAfter } from "./positions";
 import { MAX_FIELDS, type ConfigState, type DeleteFieldsInput } from "./schemas";
 import { applySiblingRewrites, loadSourceTree } from "./source-tree";
@@ -139,6 +139,7 @@ export async function deleteFields(
     if (impact.clearsSequence) {
       await tx.template.update({ where: { id: templateId }, data: { sequenceFieldId: null } });
     }
+    await markSourceChanged(tx, templateId);
     // Breaks mappings that read these fields, and tick-group mappings left with too few options.
     await recomputeMappingStates(tx, templateId);
     const configState = await recomputeConfigState(tx, templateId);
@@ -205,6 +206,7 @@ export async function restoreField(
       select: fieldSelect,
     });
 
+    await markSourceChanged(tx, templateId);
     // Repair the mappings that work again: every input and the column live, tick groups valid.
     const { repaired } = await recomputeMappingStates(tx, templateId);
 

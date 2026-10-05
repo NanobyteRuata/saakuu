@@ -66,10 +66,11 @@ export type BookCounts = {
  */
 async function countsOf(bookId: string): Promise<BookCounts> {
   const [documents, rows, progress, running] = await Promise.all([
-    prisma.document.count({ where: { bookId, deletedAt: null } }),
+    // Specimens live in their template (decision 78): a Test is not a document the nav should poll for.
+    prisma.document.count({ where: { bookId, deletedAt: null, isSpecimen: false } }),
     prisma.row.count({ where: { bookId, ...countingRowWhere } }),
     reviewProgress(prisma, bookId),
-    prisma.document.count({ where: { bookId, deletedAt: null, runState: { in: ["QUEUED", "RUNNING"] } } }),
+    prisma.document.count({ where: { bookId, deletedAt: null, isSpecimen: false, runState: { in: ["QUEUED", "RUNNING"] } } }),
   ]);
   return { documents, rows, unreviewedCells: progress.cells - progress.reviewedCells, runActive: running > 0 };
 }
@@ -117,7 +118,7 @@ export async function listBooks(userId: string, page: PaginationInput): Promise<
       _count: {
         select: {
           columns: { where: { deletedAt: null } },
-          documents: { where: { deletedAt: null } },
+          documents: { where: { deletedAt: null, isSpecimen: false } },
           rows: { where: { deletedAt: null, document: { deletedAt: null, isSpecimen: false } } },
         },
       },

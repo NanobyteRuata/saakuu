@@ -167,8 +167,11 @@ with no image on it, while review, which types the least, had one. Properties ar
 (decision 72): moving to another field saves the one being left, and nothing asks to discard.
 
 The page it is built from is a **specimen**: an ordinary Document carrying `isSpecimen` (decision
-71), uploaded through the same intake as everything else. `Test on this page` is offered on it once
-one field is set to Extract, and reports what that paper actually produced. See §6.7.
+71), uploaded through the same intake as everything else. It **belongs to the template** (decision
+78): it is shown and managed only in the template workspace, never in Documents. A multi-page form is
+one specimen with several pages. `Test on this page` is offered on it once one field is set to
+Extract, and reports what that paper actually produced; the reading is headed *Test reading · stays
+with this template, not in your table*. See §6.7.
 
 **The AI proposes the fields** (Phase 16, decision 73). `Propose fields` reads the specimen and lists
 its fields: for a Form, every labelled place a value goes, in reading order; for a Table, the grid's
@@ -248,11 +251,22 @@ alike, two of which a first-time operator met within ten minutes, over three dif
 implementations. What differs between them is only what an uploaded file becomes.
 
 **Specimens.** A page uploaded to build a template against is a real Document with `isSpecimen` set
-(decision 71) — same upload, same processing, same extraction, same raw layer. It is left out of
-the numbers that mean *work to do*: the output table, the export, review progress, the template's
-document count and `Extract all`. It stays in the Documents list, with a `Specimen` chip and
-`Use as a real document`, because that number means *files I have* and promotion needs a home.
-Its rows are built when it is read, so promoting it is a flag flip: nothing is extracted again.
+(decision 71) — same upload, same processing, same extraction, same raw layer. It belongs to its
+template (decision 78): it is out of the output table, the export, review progress, the template's
+document count and `Extract all`, and out of the Documents list, its filters, the run drawer and the
+nav count. It is managed only in the template workspace.
+
+Pages cross between a template's specimens and the book's documents **by copy, never by a flag**:
+- **Choose an uploaded page** copies a document of this template into a new specimen. The document
+  is untouched; the specimen is unread, and Test reads it on its own.
+- **Add to documents** copies a specimen into the documents; the template keeps its reference page.
+  If the test is current (nothing about the fields or pages changed since), the reading is copied
+  too and nothing is read again. Otherwise the copy is queued for extraction, or added unread when
+  it can't be read now (no field set to Extract, no AI key). The confirmation says which, with counts,
+  and warns when the same specimen was already added before.
+
+Every file is copied, not shared, so a crop, a replace or a deletion on one side never touches the
+other.
 
 - Drag-drop or file picker. Accepts JPEG, PNG, HEIC, WebP, PDF (each PDF page
   becomes one photo).

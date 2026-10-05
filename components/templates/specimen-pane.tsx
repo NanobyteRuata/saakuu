@@ -1,18 +1,17 @@
 "use client";
 
-import { Crop, ImageUp, ListPlus, Sparkles, ZoomIn, ZoomOut } from "lucide-react";
+import { Crop, FilePlus2, ImageUp, ListPlus, Plus, Sparkles, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 
 import { FormMessage } from "@/components/auth/form-message";
 import { ERROR_RATE_LINE, ReadingResult } from "@/components/documents/reading-result";
 import { PhotoEditor } from "@/components/photo/photo-editor";
-import { PhotoIntake } from "@/components/photo/photo-intake";
+import { PhotoIntake, PhotoIntakeDialog } from "@/components/photo/photo-intake";
 import { RegionImage } from "@/components/photo/region-image";
 import { Pane, PaneGroup, PaneHandle } from "@/components/shell/pane";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getJson, patchJson } from "@/lib/api-client";
+import { getJson } from "@/lib/api-client";
 import { READ_STAGE_LABEL, useReadOne } from "@/lib/extraction/use-read-one";
 import type { PhotoView } from "@/lib/photos/views";
 import type { Bbox } from "@/lib/table/types";
@@ -21,6 +20,7 @@ import type { SpecimenDocument } from "@/lib/templates/specimens";
 import { cn } from "@/lib/utils";
 
 import { ProposeFieldsDialog } from "./propose-fields-dialog";
+import { ChoosePageDialog, PromoteSpecimenDialog, RemoveSpecimenDialog } from "./specimen-dialogs";
 
 const ZOOM_STEPS = [1, 1.5, 2, 3, 4];
 const PROCESSING_POLL_MS = 2000;
@@ -34,19 +34,26 @@ const PROCESSING_POLL_MS = 2000;
  * and reports what this paper actually produced rather than only the stated rate.
  * Phase 16 adds the other half of that: `Propose fields` reads the same page for its labels, so the
  * twenty labels need not be typed at all.
+ *
+ * Decision 78: specimens belong to the template and live only here. A multi-page form is one specimen
+ * with several pages; a page already uploaded becomes one by copy; and `Add to documents` adds a copy,
+ * so the template keeps its reference page and the test reading never becomes real data by accident.
  */
 export function SpecimenPane({
+  bookId,
   templateId,
   templateName,
   templateKind,
   userId,
   lang,
   hasExtractFields,
-  templateUpdatedAt,
+  fieldsChangedAt,
   fieldsKey,
+  flushPending,
   onRead,
   onFieldsAdded,
 }: {
+  bookId: string;
   templateId: string;
   templateName: string;
   templateKind: TemplateKind;
@@ -55,10 +62,12 @@ export function SpecimenPane({
   lang: string | undefined;
   /** A test reading extracts only fields set to Extract; with none, there is nothing to read. */
   hasExtractFields: boolean;
-  /** Bumped by every field, group or template setting change saved on the server. */
-  templateUpdatedAt: string;
+  /** Bumped by every saved change to what a reading depends on: fields, groups, prompt settings (decision 78). */
+  fieldsChangedAt: string;
   /** Changes whenever the fields or groups on screen change, saved or not yet reloaded. */
   fieldsKey: string;
+  /** Saves the properties form being edited, so the promote check sees the fields as they are on screen. */
+  flushPending: () => Promise<void>;
   /** A reading changes the book's counts and the mapping preview. */
   onRead: () => void;
   /** Accepted proposed fields are in the tree now. */
@@ -70,8 +79,12 @@ export function SpecimenPane({
   const [zoom, setZoom] = useState(1);
   const [editing, setEditing] = useState<PhotoView | null>(null);
   const [promoting, setPromoting] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  /** Starting a new specimen (a different form): the same two choices as the empty pane. */
+  const [starting, setStarting] = useState(false);
+  const [choosingPage, setChoosingPage] = useState(false);
+  const [addingPage, setAddingPage] = useState(false);
   const [proposing, setProposing] = useState(false);
   /** The value under the cursor in the reading below, boxed on the page above. */
   const [focusedValue, setFocusedValue] = useState<{ photoId: string | null; bbox: Bbox | null } | null>(null);
@@ -83,11 +96,14 @@ export function SpecimenPane({
   // The fields as they were when this reading appeared, to notice edits made since.
   const [shown, setShown] = useState<{ raw: unknown; fieldsKey: string }>({ raw: null, fieldsKey });
   if (shown.raw !== reading.raw) setShown({ raw: reading.raw, fieldsKey });
+  // The same rule the server applies before copying a test into the documents (`testReadingState`).
   const readAt = reading.detail?.lastExtractedAt ?? null;
+  const pagesChanged = reading.detail?.changedSinceLastRead ?? false;
   const readBeforeChanges =
-    reading.raw !== null && (shown.fieldsKey !== fieldsKey || (readAt !== null && Date.parse(readAt) < Date.parse(templateUpdatedAt)));
+    reading.raw !== null &&
+    (shown.fieldsKey !== fieldsKey || pagesChanged || (readAt !== null && Date.parse(readAt) < Date.parse(fieldsChangedAt)));
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (select?: string) => {
     setError(null);
     const result = await getJson<{ documents: SpecimenDocument[] }>(`/api/templates/${templateId}/specimens`);
     if (!result.ok) {
@@ -96,7 +112,8 @@ export function SpecimenPane({
       return;
     }
     setSpecimens(result.data.documents);
-    setCurrentId((prev) => (prev && result.data.documents.some((d) => d.id === prev) ? prev : (result.data.documents[0]?.id ?? null)));
+    const has = (id: string | null | undefined) => id != null && result.data.documents.some((d) => d.id === id);
+    setCurrentId((prev) => (has(select) ? (select ?? null) : has(prev) ? prev : (result.data.documents[0]?.id ?? null)));
   }, [templateId]);
 
   useEffect(() => {
@@ -122,21 +139,11 @@ export function SpecimenPane({
     if (currentId) void resume(currentId);
   }, [currentId, resume]);
 
-  async function promote() {
-    if (!current) return;
+  /** Saves the form being edited first: the server then judges the test against the fields on screen. */
+  async function openPromote() {
     setError(null);
+    await flushPending();
     setPromoting(true);
-    const result = await patchJson(`/api/documents/${current.id}`, { isSpecimen: false });
-    setPromoting(false);
-    if (!result.ok) {
-      setError(result.error.message);
-      return;
-    }
-    toast.success(
-      `“${current.label ?? "This page"}” is an ordinary document now. Its rows are in the table — it was read like any other page, so nothing is extracted again.`,
-    );
-    await load();
-    onRead();
   }
 
   const busy = reading.stage === "processing" || reading.stage === "extracting";
@@ -149,29 +156,52 @@ export function SpecimenPane({
     );
   }
 
-  if (specimens.length === 0 || adding) {
+  const choosePage = (
+    <ChoosePageDialog
+      bookId={bookId}
+      templateId={templateId}
+      lang={lang}
+      open={choosingPage}
+      onOpenChange={setChoosingPage}
+      onChosen={(id) => {
+        setStarting(false);
+        void load(id);
+      }}
+    />
+  );
+
+  if (specimens.length === 0 || starting) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         <div>
-          <h2 className="font-medium">{adding ? "Add another page" : "Put the paper on screen"}</h2>
+          <h2 className="font-medium">{starting ? "New specimen" : "Put the paper on screen"}</h2>
           <p className="text-muted-foreground text-sm">
-            Photograph the page you&apos;re building “{templateName}” from, so you can read its labels while you type them.
-            It stays out of the table, the export and this template&apos;s document count until you say otherwise.
+            {starting
+              ? "A different form of this template, to build against beside the one you have. To add a page to the form on screen, use Add a page instead."
+              : `Photograph the page you're building “${templateName}” from, so you can read its labels while you type them.`}{" "}
+            A specimen stays with this template: it isn&apos;t in your documents, your table or your export.
           </p>
         </div>
         <PhotoIntake
           mode={{ kind: "specimen", templateId, templateName }}
-          onDone={() => {
-            setAdding(false);
-            void load();
+          onDone={(result) => {
+            setStarting(false);
+            void load(result.kind === "document" ? result.documentId : undefined);
           }}
         />
-        {adding ? (
-          <Button variant="outline" className="self-start" onClick={() => setAdding(false)}>
-            Cancel
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setChoosingPage(true)}>
+            <FilePlus2 />
+            Choose an uploaded page
           </Button>
-        ) : null}
+          {starting ? (
+            <Button variant="ghost" onClick={() => setStarting(false)}>
+              Cancel
+            </Button>
+          ) : null}
+        </div>
         {error ? <FormMessage tone="error">{error}</FormMessage> : null}
+        {choosePage}
       </div>
     );
   }
@@ -233,8 +263,37 @@ export function SpecimenPane({
           <Button size="icon" variant="ghost" className="size-7" aria-label="Crop or straighten this page" disabled={!photo || photo.status !== "DONE"} onClick={() => photo && setEditing(photo)}>
             <Crop />
           </Button>
-          <Button size="icon" variant="ghost" className="size-7" aria-label="Add another page" onClick={() => setAdding(true)}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            aria-label="Add a page to this specimen"
+            title="Add a page to this specimen"
+            disabled={!current || busy}
+            onClick={() => setAddingPage(true)}
+          >
             <ImageUp />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            aria-label="New specimen, a different form"
+            title="New specimen, a different form"
+            onClick={() => setStarting(true)}
+          >
+            <Plus />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            aria-label="Remove this specimen"
+            title="Remove this specimen"
+            disabled={!current || busy}
+            onClick={() => setRemoving(true)}
+          >
+            <Trash2 />
           </Button>
         </div>
       </div>
@@ -265,9 +324,11 @@ export function SpecimenPane({
         </Button>
         {/* Building on the left; checking the template, then finishing with the page, on the right. */}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost" disabled={promoting} onClick={promote}>
-            {promoting ? "Using…" : "Use as a real document"}
-          </Button>
+          <span title={busy ? "Wait for the test to finish." : "Add a copy of this page to your documents. The specimen stays here."}>
+            <Button size="sm" variant="ghost" disabled={busy || processing || !current} onClick={() => void openPromote()}>
+              Add to documents
+            </Button>
+          </span>
           {/* A disabled button takes no pointer events, so the tooltip sits on a wrapper. */}
           <span
             title={
@@ -319,6 +380,9 @@ export function SpecimenPane({
         <PaneHandle orientation="vertical" />
         <Pane id="reading" defaultSize="38%" minSize={120} collapsible>
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+            <h3 className="text-sm font-medium">
+              Test reading <span className="text-muted-foreground font-normal">· stays with this template, not in your table</span>
+            </h3>
             {reading.stage === "done" && reading.raw && readBeforeChanges ? (
               <FormMessage tone="info">Read before your latest field changes. Test again to see what your fields read now.</FormMessage>
             ) : null}
@@ -349,6 +413,49 @@ export function SpecimenPane({
           onAdded={onFieldsAdded}
         />
       ) : null}
+      {current ? (
+        <>
+          <PromoteSpecimenDialog
+            bookId={bookId}
+            specimen={current}
+            open={promoting}
+            onOpenChange={setPromoting}
+            onPromoted={() => onRead()}
+          />
+          <RemoveSpecimenDialog
+            specimen={{ id: current.id, label: current.label, pages: photos.length }}
+            templateName={templateName}
+            open={removing}
+            onOpenChange={setRemoving}
+            onRemoved={() => {
+              reading.reset();
+              void load();
+            }}
+          />
+          <PhotoIntakeDialog
+            mode={{
+              kind: "page",
+              templateId,
+              documentId: current.id,
+              documentLabel: current.label,
+              target: { kind: "add" },
+              purpose: "specimen",
+            }}
+            open={addingPage}
+            onOpenChange={setAddingPage}
+            description="The page is added after the last one. Test again to read it with the rest."
+            onDone={(result) => {
+              const id = current.id;
+              void load(id).then(() => {
+                if (result.kind === "photo") setPageIndex(result.photo.pageIndex);
+              });
+              // The test now predates a page: refresh it so its note says so.
+              void resume(id);
+            }}
+          />
+        </>
+      ) : null}
+      {choosePage}
       {editing ? (
         <PhotoEditor
           photo={editing}

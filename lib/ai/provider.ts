@@ -163,6 +163,21 @@ export class ProviderError extends Error {
 }
 
 /**
+ * A missing or refused **server** key (Phase 21). The operator reading this cannot fix either, so it
+ * says whose problem it is and stops; the kind is in the worker's log for whoever can.
+ */
+export const SERVER_SIDE_PROBLEM = "Reading pages isn't working right now. This is a problem on SaaKuu's side, not with your pages. Try again later.";
+
+/**
+ * The server's own key is missing or refused: nobody can read anything until whoever runs the
+ * deployment fixes it, and the operator has been told only to wait. Callers log this as an error, not
+ * as one more failed run.
+ */
+export function isServerKeyFailure(err: ProviderError, keySource: "user" | "server" | "fake"): boolean {
+  return keySource === "server" && (err.kind === "KEY_REFUSED" || err.kind === "NOT_CONFIGURED");
+}
+
+/**
  * Plain-language message stored on a failed run and shown next to its pages. `keySource` decides who
  * is being asked to fix a key problem (Phase 12): the user who brought their own, or whoever runs the
  * server. Telling a user to "check the server's key" when it is their own key that was refused sends
@@ -178,11 +193,11 @@ export function providerErrorMessage(err: ProviderError, keySource: "user" | "se
     case "NOT_CONFIGURED":
       // Only reachable for the server key: a `user` source carries a decrypted, non-empty key by
       // construction, and one that would not decrypt never reaches the provider at all.
-      return "The AI service isn't set up on this server: the worker has no API key. Add it and restart the worker.";
+      return SERVER_SIDE_PROBLEM;
     case "KEY_REFUSED":
       return ownKey
         ? "The AI service refused your own API key. Check it on your account page, including whether it can use this model."
-        : "The AI service refused this server's API key. Check the key and its access to this model.";
+        : SERVER_SIDE_PROBLEM;
     case "BAD_REQUEST":
       return `The AI service refused these pages. ${err.message}`;
     case "INVALID_RESPONSE":

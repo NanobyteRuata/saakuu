@@ -26,8 +26,11 @@ async function templateWithSpecimen(page: Page, name: string, kind: "Form" | "Ta
 async function propose(page: Page) {
   await page.getByRole("button", { name: "Propose fields" }).click();
   const dialog = page.getByRole("dialog", { name: "Propose fields from this page" });
-  // The estimate names money and the key before anything runs.
-  await expect(dialog.getByText(/About (less than )?\$[0-9.]*/)).toBeVisible();
+  // The estimate states the work and the time before anything runs, and no money: the suite reads on
+  // the server's side, where the figure is the deployment's cost and not a price (Phase 21).
+  const estimate = dialog.getByText(/one request to the model\. (Under a minute|About \d+ (minute|hour)s?)\./);
+  await expect(estimate).toBeVisible();
+  await expect(estimate).not.toContainText("$");
   await dialog.getByRole("button", { name: "Propose fields" }).click();
   const list = dialog.getByRole("list", { name: "Proposed fields in paper order" });
   await expect(list).toBeVisible({ timeout: 90_000 });

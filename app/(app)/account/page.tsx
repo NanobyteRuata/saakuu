@@ -27,11 +27,15 @@ function Section({ title, description, children }: { title: string; description:
   );
 }
 
-/** The account area (Phase 12): the AI key this user reads with, and what that reading has cost. */
+/** The account area (Phase 12): what this user's books have read, and their own AI key where a deployment allows one. */
 export default async function AccountPage() {
   const userId = await requireSessionUserId();
   const account = await aiAccount(userId);
   const { spend } = account;
+  // Money is this user's own bill only on their own key (Phase 21); on the server's, counts alone.
+  const ownKey = account.hint !== null;
+  const documents = spend.documents;
+  const readings = spend.runs + spend.unpricedRuns;
 
   return (
     <PageScroll>
@@ -47,16 +51,33 @@ export default async function AccountPage() {
           </p>
         </div>
 
-        <Section
-          title="AI key"
-          description="Which key pays for reading your pages. Your own key puts extraction on your own account; without one, the server's key is used where it has been set up."
-        >
-          <AiKeyForm account={account} />
-        </Section>
+        {account.canStoreKey ? (
+          <Section
+            title="AI key"
+            description="Which key pays for reading your pages. Your own key puts extraction on your own account; without one, the server's key is used where it has been set up."
+          >
+            <AiKeyForm account={account} />
+          </Section>
+        ) : null}
 
-        <Section title="Reading so far" description="Everything your books have read, priced at the model's list prices. An estimate, not a bill.">
+        <Section
+          title="Reading so far"
+          description={
+            ownKey
+              ? "Everything your books have read, priced at the model's list prices. An estimate, not a bill."
+              : "Everything your books have read so far."
+          }
+        >
           {spend.runs === 0 && spend.unpricedRuns === 0 ? (
             <p className="text-muted-foreground text-sm">Nothing has been read yet.</p>
+          ) : !ownKey ? (
+            <p className="text-sm">
+              <span className="text-2xl font-semibold">{documents.toLocaleString("en-US")}</span>{" "}
+              <span className="text-muted-foreground">
+                {documents === 1 ? "document" : "documents"} read, in {readings.toLocaleString("en-US")}{" "}
+                {readings === 1 ? "reading" : "readings"}.
+              </span>
+            </p>
           ) : (
             <div className="flex flex-col gap-1">
               <p className="text-sm">

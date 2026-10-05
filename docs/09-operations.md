@@ -143,16 +143,53 @@ To follow one extraction from click to finish, take `X-Request-Id` from the brow
 logs for it: the request line has it as `requestId`, the worker's lines as `correlationId`. Error pages show a
 **Reference** (Next.js digest) that matches the server's error line.
 
-## 8. AI cost and keys (Phase 12)
+## 8. AI cost and keys (Phase 12, Phase 21)
 
 Extraction is the only thing this product does that costs money per use, and until Phase 12 none of it
 was visible: `ExtractionRun.inputTokens` and `outputTokens` had been recorded since Phase 5 and were
 surfaced nowhere, there was no quota and no per-user cap, and a single server key meant every user's
 extraction landed on the owner's bill.
 
-**Two key sources** (decision 54). A user can save their own Gemini key; the deployment's
-`GEMINI_API_KEY` remains the fallback for people the owner invites directly. `providerStatus()` resolves
-per user, and the Extract dialog always names which key a run will use.
+**One key in use** (decision 79). Every reading runs on the deployment's `GEMINI_API_KEY`, so every
+reading is on the owner's bill. Two things follow, and both are configuration:
+
+- **`SIGNUP_ALLOWED_EMAILS` is the spend limit.** The invite list: comma-separated addresses, or `*`
+  for anyone. There is no quota (below), so it is the only bound on what the key spends. It is asked
+  in two places:
+  - **creating an account**, by password or by a first Google sign-in;
+  - **reading on the server's key** — extraction and `Propose fields`, resolved in the worker.
+
+  Signing in is never gated. Taking someone off the list therefore stops their spending and nothing
+  else: they keep their books, can review and can export, and the Extract dialog tells them reading
+  isn't switched on for their account. The same goes for an account made before there was a list —
+  **put your own address on it**.
+  - Addresses match exactly after trimming and lowercasing. Gmail's dots and `+tags` are not folded:
+    invite the address the person will actually sign up with.
+  - Adding or removing someone is an edit and a restart of the app **and the worker**.
+  - **Fails closed.** A value that is set but names nobody (a stray space, `,,`), or has an entry that
+    isn't an address, stops the app at boot. In production, leaving it unset while `GEMINI_API_KEY` is
+    set stops it too: open sign-up on a paid key has to be chosen, with `*`. Outside production,
+    unset means anyone, which is what local work and the E2E suite use.
+- **`ENCRYPTION_KEY` stays blank.** It is the switch for personal keys (decision 54), which are dormant:
+  with it unset there is no key section on the account page, no dialog names a key, and operators see
+  pages and time rather than money. Setting it brings all of that back for whoever saves a key.
+
+**Before letting anyone in:**
+
+1. `GEMINI_API_KEY` is on a **paid** tier. Operators' paper — often clinic registers — goes through this
+   Google account, and unpaid-tier requests may be used to improve Google's models.
+2. `SIGNUP_ALLOWED_EMAILS` lists the testers **and you**, and the sign-up page says `invite-only`.
+3. `ENCRYPTION_KEY` is blank, and `/account` shows only `Reading so far`.
+4. `EXTRACTION_RPM` and `EXTRACTION_CONCURRENCY` match the key's real limits. They are **queue-wide**:
+   one operator's five-hundred-page batch is ahead of everyone else's single page.
+5. The two spend queries below are run weekly. Their history is what sets a price and a quota.
+6. Something watches the worker's log for `server AI key is missing or refused` at `error` level. When
+   the key expires or loses access to a model, every operator is told only to try again later; that
+   line is the one place it is said to you.
+
+**Personal keys, where they are switched on** (decision 54). A user can save their own Gemini key and
+it wins over the server's. `providerStatus()` resolves per user, and the dialogs name that key and
+state the cost in money, because the run lands on that user's own bill.
 
 - User keys are encrypted at rest (`lib/crypto`, `ENCRYPTION_KEY`). They are never logged, never
   returned to the client and never included in an error message. Only the last four characters are
@@ -164,10 +201,10 @@ per user, and the Extract dialog always names which key a run will use.
 - A restored backup carries ciphertext. It is only usable with the `ENCRYPTION_KEY` that was live when
   the dump was taken.
 - `ENCRYPTION_KEY` is 32 bytes, base64 or hex (`openssl rand -base64 32`), validated at boot. It is
-  **optional**: without it the app runs, the account page says personal keys can't be stored, and
-  everyone uses `GEMINI_API_KEY`. A key that cannot be decrypted fails that user's run with "save it
-  again" and never falls back to the server key — that fallback would put their spending back on the
-  owner's bill.
+  **optional**: without it the app runs, the account page has no key section, and everyone uses
+  `GEMINI_API_KEY`. A key saved earlier is then simply not read. With it set, a key that cannot be
+  decrypted fails that user's run with "save it again" and never falls back to the server key — that
+  fallback would put their spending back on the owner's bill.
 - A run uses the **book owner's** key however it was started, resolved from `Book.userId` in the worker.
 
 ### What the estimate is estimating
@@ -227,7 +264,8 @@ field list, not a page of values, and it is outside the 30-day strip below.
 **Build the quota when both are true:** extraction on the server key is a cost line worth naming in a
 month, and the query above has enough history to set a number that is not a guess. The unit — documents,
 pages or tokens — is still open (docs/07 Part C, question 12). Until then, the exposure is bounded by
-who the owner invites, since self-serve users bring their own key.
+`SIGNUP_ALLOWED_EMAILS` and by nothing else. **The quota is what has to exist before that list is
+removed and sign-up opens.**
 
 ### `rawResponse` retention
 

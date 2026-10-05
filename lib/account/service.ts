@@ -13,7 +13,7 @@ import { AppError } from "@/lib/errors";
  */
 
 export type AiAccount = {
-  /** Last four characters of the saved key, or null when the user has none. */
+  /** Last four characters of the key this user reads with, or null when they read on the server's. */
   hint: string | null;
   /** Whether this deployment can store a user key at all (ENCRYPTION_KEY is set). */
   canStoreKey: boolean;
@@ -34,13 +34,15 @@ export type AiSpend = {
 
 export async function aiAccount(userId: string): Promise<AiAccount> {
   const uid = requireUserId(userId);
+  const canStoreKey = canStoreUserKeys();
   const [user, spend] = await Promise.all([
-    prisma.user.findUnique({ where: { id: uid }, select: { aiApiKeyHint: true, aiApiKeyCipher: true } }),
+    canStoreKey ? prisma.user.findUnique({ where: { id: uid }, select: { aiApiKeyHint: true, aiApiKeyCipher: true } }) : null,
     aiSpend(uid),
   ]);
   return {
+    // A key saved while personal keys were on is not in use once they are off (`resolveAiKey`).
     hint: user?.aiApiKeyCipher ? (user.aiApiKeyHint ?? "") : null,
-    canStoreKey: canStoreUserKeys(),
+    canStoreKey,
     serverKey: serverKeyConfigured(),
     spend,
   };

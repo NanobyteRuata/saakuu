@@ -141,15 +141,20 @@ styling: SAFE applies immediately with a toast; ADDITIVE applies with a notice; 
 requires typing nothing but does require an explicit confirm on a screen that shows
 `38 of the 412 affected cells have been edited by you`.
 
-## 5.1 Account page (Phase 12)
+## 5.1 Account page (Phase 12, Phase 21)
 
 `/account`, reached from the avatar menu. Settings that belong to the person, not to a book.
+
+*As launched (Phase 21, decision 79):* the deployment leaves `ENCRYPTION_KEY` unset, so this page is
+**`Reading so far` alone**, as a count of documents and readings with no money, and the menu item reads
+`Account`. What follows about the key and the money figure describes a deployment that switches
+personal keys on.
 
 **AI key.** Paste your own Gemini key, see its last four characters, remove it. One line says where a
 key comes from (a link to Google AI Studio) and that it is stored encrypted and never shown again.
 A user without one falls back to the server key where the deployment has configured one, and the
-Extract dialog always says which is in use (decision 54). When the deployment has no `ENCRYPTION_KEY`
-the section says so plainly instead of offering a field that cannot work.
+Extract dialog names a personal key when one is in use (decision 54). When the deployment has no
+`ENCRYPTION_KEY` the section is not rendered at all.
 
 **Reading so far.** One figure: what every completed reading in this user's books has cost, at the
 models' list prices, with the document and reading counts beside it. It is stated as an estimate, not
@@ -250,8 +255,9 @@ done the product's way: the machine proposes and the human decides. It is a dial
 
 1. **Estimate.** "The AI reads *page* as a form and lists each labelled place a value is written,
    in reading order." (For a table: "each column, from its header, left to right".) Then the model
-   select, `About $0.00x, under a minute`, and the key line (`Uses your own AI key (····1234).` /
-   `Uses this server's AI key.`), the same wording as the Extract dialog (`lib/ai/cost-lines.ts`).
+   select and the time, `Under a minute.` On a personal key it reads `About $0.00x, under a minute.`
+   with the key line (`Uses your own AI key (····1234).`); the server's key shows neither money nor a
+   key line (Phase 21). The same wording as the Extract dialog (`lib/ai/cost-lines.ts`).
    Blockers and a missing key are shown in place, and `Propose fields` stays disabled.
 2. **Reading.** The dialog polls. Closing it is safe and says so: the proposal has been paid for,
    so reopening the dialog on the same page resumes it rather than charging again.
@@ -285,7 +291,7 @@ else.
   - test current — "Adds a copy of this page to your documents, with this reading (14 values). Nothing
     is read again.";
   - fields or pages changed, or no test yet — "… It's read again there (2 pages), because your fields
-    changed since this test.", with the cost and key line;
+    changed since this test.", with the time (and the cost and key line on a personal key);
   - can't be read now — "… unread. *reason* Extract it from Documents later.".
   Every case adds "This specimen stays here for building the template.", and a warning when the page was
   already added before ("… on 2026-09-24 (1 copy). Adding it again puts its rows in the table twice.").
@@ -622,6 +628,11 @@ second, quieter line says it is estimated at list prices and names the key the r
 the user's own (with its last four characters) or the server's — because the operator is about to
 pay for it and should know whose account it lands on before they confirm, not after. Below a cent
 it says "less than $0.01" rather than "$0.00", which would read as free.
+
+*As built (Phase 21, decision 79):* that is now what the dialog says **on a personal key only**. On the
+deployment's key, which is what every operator reads on at launch, the line is *"12 documents · 14 pages ·
+2 requests to the model. About 2 minutes."* and there is no second line: the money would be the
+deployment's cost rather than a price, and with one key there is none to name.
 
 ## 12. Result Table workspace (output table)
 Virtualised grid filling the workspace. Sticky header, sticky first column optional. The grid is the

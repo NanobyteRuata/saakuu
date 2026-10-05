@@ -72,14 +72,21 @@ an **Extraction** or **Run**. Use these terms consistently in code and UI.
   creating a duplicate. If the password account's email is *not* yet verified, do not
   auto-link — require verification first (prevents account takeover by pre-registration).
 - Email verification required for credentials sign-up.
+- **Sign-up is by invitation** (Phase 21, decision 79). `SIGNUP_ALLOWED_EMAILS` lists who may create
+  an account, by password or by a first Google sign-in, and who may read pages; an address that
+  isn't on it is told plainly at either point. Signing in is never gated, so an account taken off
+  the list keeps its books and its export. `*` opens it to anyone.
 - Password reset via emailed single-use token, 1 hour expiry.
 - Sessions: 30-day rolling, database-backed.
-- **AI key, per account** (Phase 12, decision 54). A user may save their own Gemini key;
-  the deployment's server key remains the fallback for people the owner invites directly.
-  Stored encrypted, never shown again beyond its last four characters. Bring-your-own
-  removes the owner's cost exposure for self-serve signups; the server key keeps friction
-  at zero for invited users, which matters because the audience is explicitly
-  non-technical. No quota is set until pricing is understood (decision 55, docs/09 §8).
+- **One AI key, the deployment's** (Phase 21, decision 79). Every reading runs on it, so an
+  operator never makes, pastes or hears about a key, which matters because the audience is
+  explicitly non-technical. The invitation list above is what bounds its spend; no quota is
+  set until pricing is understood (decision 55, docs/09 §8), and the quota is what opening
+  sign-up waits on. On this key the app shows pages and time, never money.
+- **A personal key, dormant** (Phase 12, decision 54). Where a deployment sets
+  `ENCRYPTION_KEY`, a user may save their own Gemini key; it wins over the server's, is stored
+  encrypted and is never shown again beyond its last four characters. Only then do the
+  dialogs name a key and state a cost.
 
 ## 5. Navigation shell
 
@@ -176,7 +183,7 @@ with this template, not in your table*. See §6.7.
 **The AI proposes the fields** (Phase 16, decision 73). `Propose fields` reads the specimen and lists
 its fields: for a Form, every labelled place a value goes, in reading order; for a Table, the grid's
 column headers, left to right. Labels come back as written, in their own script, with an English
-meaning. The operator sees the cost in money and whose key pays before it runs. What comes back is a
+meaning. The operator sees how long it will take before it runs (and, on a personal key, the cost in money and that the key is theirs). What comes back is a
 **proposal, not a write**: every field has a toggle, the confirmation states the exact count
 ("Adds 11 fields … 1 is left out"), and only the ticked fields are created, flat, at the end of the
 tree, where they are corrected like any other. Groups and tick groups stay manual.
@@ -281,7 +288,7 @@ other.
 1. On the Documents tab the user selects documents and presses `Extract`, or — with a template
    filter active and nothing selected — presses `Extract all in <template>` for the whole template.
 2. Modal: choose model (pre-filled from template override, else book default),
-   shows document count, page count and an estimated cost/time. Warns if any
+   shows document count, page count and an estimated time (plus the cost, on a personal key). Warns if any
    selected documents already have human-edited cells.
 3. Confirm → one job enqueued per document, with an **idempotency key** so a
    double-click cannot double-charge.

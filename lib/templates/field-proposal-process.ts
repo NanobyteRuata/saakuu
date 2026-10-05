@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { getProvider } from "@/lib/ai";
 import { keyMaterial, resolveAiKey } from "@/lib/ai/keys";
 import { modelIdSchema } from "@/lib/ai/models";
-import { ProviderError, providerErrorMessage, type ResponseLog } from "@/lib/ai/provider";
+import { isServerKeyFailure, ProviderError, providerErrorMessage, type ResponseLog } from "@/lib/ai/provider";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
 import { loadImages, RetryLater, RunFailure } from "@/lib/extraction/process";
@@ -140,7 +140,11 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
         await prisma.fieldProposal.updateMany({ where: fence, data: { state: "QUEUED", startedAt: null } });
         throw new RetryLater(err.kind === "RATE_LIMITED", err);
       }
-      if (err.kind !== "INVALID_RESPONSE") log.warn("field proposal provider error", { proposalId, kind: err.kind, error: err.message });
+      if (isServerKeyFailure(err, keySource)) {
+        log.error("server AI key is missing or refused: nothing can be read until it is fixed", err, { proposalId, kind: err.kind });
+      } else if (err.kind !== "INVALID_RESPONSE") {
+        log.warn("field proposal provider error", { proposalId, kind: err.kind, error: err.message });
+      }
       await fail(failureMessage(err, keySource), { usage: err.usage, responses: err.rawResponse?.responses });
       return "failed";
     }

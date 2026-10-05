@@ -16,8 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { aboutTime, keyLine } from "@/lib/ai/cost-lines";
-import { formatMoney } from "@/lib/ai/models";
+import { costLine, keyLine } from "@/lib/ai/cost-lines";
 import { getJson, postJson } from "@/lib/api-client";
 import type { Page } from "@/lib/db/pagination";
 import type { DocumentsDeleteImpact, DocumentSummary } from "@/lib/documents/service";
@@ -246,7 +245,7 @@ export function PromoteSpecimenDialog({
                   <p>{promoteSentence(impact)}</p>
                   {impact.mode === "read-again" && impact.estimate ? (
                     <p>
-                      About {formatMoney(impact.estimate.estCostUsd)}, {aboutTime(impact.estimate.estSeconds)}. {keyLine(impact.estimate)}
+                      {costLine(impact.estimate)} {keyLine(impact.estimate)}
                     </p>
                   ) : null}
                   <p>This specimen stays here for building the template.</p>

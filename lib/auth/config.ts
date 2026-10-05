@@ -9,6 +9,7 @@ import Google from "next-auth/providers/google";
 import { prisma } from "@/lib/db/client";
 import { log } from "@/lib/log";
 
+import { isInvited } from "./allowlist";
 import { decideGoogleSignIn } from "./linking";
 import { verifyPassword } from "./password";
 import { signInSchema } from "./schemas";
@@ -77,7 +78,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const email = typeof profile?.email === "string" ? profile.email.toLowerCase() : null;
       if (!email) return false;
       const existingUser = await prisma.user.findUnique({ where: { email }, select: { emailVerified: true } });
-      const decision = decideGoogleSignIn({ googleEmailVerified: profile?.email_verified === true, existingUser });
+      const decision = decideGoogleSignIn({
+        googleEmailVerified: profile?.email_verified === true,
+        existingUser,
+        signUpAllowed: isInvited(email),
+      });
       if (decision.kind === "allow") return true;
 
       log.info("google sign-in blocked", { reason: decision.reason });

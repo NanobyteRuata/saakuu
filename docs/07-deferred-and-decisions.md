@@ -269,7 +269,9 @@ tree.*)
 the server key stays as the fallback for people the owner invites directly. BYO alone would have removed
 the owner's cost exposure at the price of onboarding friction — "go make an API key" — landing in exactly
 the first hour Phase 10 exists to smooth, for an audience that is explicitly non-technical. Server-key
-alone would have put every stranger's extraction on the owner's bill. (Phase 12)
+alone would have put every stranger's extraction on the owner's bill. (Phase 12; *superseded by
+decision 79: the server's key is the only one in use, and bring-your-own is dormant behind
+`ENCRYPTION_KEY`.*)
 
 **55. Quota is not built until pricing is known.** Token counts have been recorded per run since Phase 5,
 so the data to size a limit is already accumulating. Setting a number before hosted extraction is a real
@@ -503,6 +505,33 @@ a reading depends on: fields, groups, the language hint, instructions and the se
 Repeat promotion is warned about, with the count and date of earlier copies, and not blocked: an operator
 may really want a second copy, and `UNIQUE` rules flag the duplicate rows either way. (Specimens by copy)
 
+**79. One AI key, the deployment's; sign-up by invitation; no money shown on it.** Decision 54 shipped
+both key sources and described the server's as the fallback "for people the owner invites directly".
+Nothing made that true: sign-up was open, so the fallback was for anyone. Two ways to close it. Require
+a personal key from everyone who isn't invited — which sends a clinic's data-entry clerk to Google AI
+Studio in the first hour, the hour decision 64 says users are lost in, and leaves the product with two
+bills to explain. Or keep one key and bound who can use it. The second was chosen: it is the simpler
+product, and it makes pricing one question (what a page costs the operator) instead of two.
+
+What it costs is that the owner's exposure is now bounded by a list of email addresses and nothing
+else. `SIGNUP_ALLOWED_EMAILS` gates the two places an account is created and the one place the key is
+handed out, and never a sign-in: taking someone off stops their spending and leaves them their data.
+Because it is the whole limit it fails closed — an unreadable value, or none at all in production,
+stops the app rather than opening the door. Decision 55's quota is unchanged in substance
+but changed in standing: it was a thing to build when the bill was worth naming, and is now the thing
+that has to exist before the list can be removed.
+
+Money is hidden where the server's key pays. Phase 12 put the estimate in money because the operator
+was about to pay it. On the deployment's key they are not, the number is a cost rather than a price,
+and a tester who has seen "$0.05 for 14 pages" has been given an anchor before any price exists. The
+rule is stated once (`showsMoney`): money appears when the run lands on the operator's own bill.
+
+Bring-your-own stays in the code, off. It is switched by `ENCRYPTION_KEY`, as it always was, and an
+organisation with its own Google contract may yet ask for it. Delete it when pricing is settled and
+nobody has. A paid-tier key is a condition of this decision, not a detail: operators' paper now goes
+through the owner's Google account, and free-tier requests may be used to improve Google's models.
+(Phase 21)
+
 ---
 
 ## Part C — Open questions for later
@@ -539,8 +568,9 @@ Not blocking v1, but worth revisiting once real data exists.
     to the `RawRecord`s that point at it? Current answer: blocked. Phase 11 supports replace and add,
     which cover the real need (a re-shot page, an incompletely photographed form) without having to
     decide what a dangling record means.
-11. Does BYO API key actually clear for a non-technical operator, or does it cost more signups than it
-    saves in bill? Both key sources ship (decision 54); watch which one new users actually complete at.
+11. ~~Does BYO API key actually clear for a non-technical operator, or does it cost more signups than it
+    saves in bill?~~ Not put to the test: decision 79 chose one key before launch. It reopens only if an
+    organisation asks to read on its own Google account.
 12. When quota is finally built (decision 55), what is the right unit — documents, pages or tokens?
     Documents is what an operator counts, tokens is what the bill counts, pages is what the cost
     actually scales with. Answer it from the first months of recorded token data, not now.

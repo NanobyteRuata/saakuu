@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, LogOut } from "lucide-react";
+import { KeyRound, LogOut, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -23,7 +23,18 @@ function initials(name: string | null, email: string): string {
   return letters.toUpperCase();
 }
 
-export function UserMenu({ email, name, image }: { email: string; name: string | null; image: string | null }) {
+export function UserMenu({
+  email,
+  name,
+  image,
+  personalKeys,
+}: {
+  email: string;
+  name: string | null;
+  image: string | null;
+  /** Whether this deployment lets a user save their own AI key; the account link only names it then. */
+  personalKeys: boolean;
+}) {
   const [signOutOpen, setSignOutOpen] = useState(false);
 
   return (
@@ -47,8 +58,8 @@ export function UserMenu({ email, name, image }: { email: string; name: string |
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link href="/account">
-              <KeyRound />
-              Account and AI key
+              {personalKeys ? <KeyRound /> : <UserRound />}
+              {personalKeys ? "Account and AI key" : "Account"}
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />

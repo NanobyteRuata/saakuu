@@ -18,6 +18,7 @@ const URL_ERRORS: Record<string, string> = {
   VerifyEmailFirst:
     "There is already a SaaKuu account with this email that hasn't been confirmed. Confirm it from the email we sent (or send a new link below), then continue with Google.",
   GoogleEmailUnverified: "Google hasn't verified this email address, so it can't be used to sign in.",
+  InviteOnly: "SaaKuu is invite-only for now, and this Google account hasn't been invited. Ask for an invitation with this email address.",
   OAuthAccountNotLinked: "This email is already used by another sign-in method. Sign in with your password instead.",
   AccessDenied: "Sign-in was cancelled or not allowed.",
   Configuration: "Sign-in isn't available right now. Try again in a moment.",

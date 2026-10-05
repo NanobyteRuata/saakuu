@@ -15,6 +15,32 @@ const encryptionKeyBytes = (raw: string): number => {
   return Buffer.from(trimmed, /^[0-9a-fA-F]+$/.test(trimmed) ? "hex" : "base64").length;
 };
 
+/**
+ * The invite list (Phase 21, `lib/auth/allowlist.ts`): `*` for everyone, or comma-separated addresses.
+ * A value that is set but names nobody is refused rather than read as "no list", because no list
+ * means anyone, and this list is what bounds the AI key's spend.
+ */
+const inviteList = (raw: string | undefined, ctx: z.RefinementCtx): "open" | ReadonlySet<string> | undefined => {
+  if (raw === undefined) return undefined;
+  const entries = raw
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== "");
+  if (entries.length === 1 && entries[0] === "*") return "open";
+  const bad = entries.filter((entry) => !/^[^\s@]+@[^\s@]+$/.test(entry));
+  if (entries.length === 0 || bad.length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      message:
+        entries.length === 0
+          ? "is set but lists no addresses; use comma-separated emails, or * to let anyone sign up"
+          : `has entries that are not email addresses: ${bad.join(", ")}`,
+    });
+    return z.NEVER;
+  }
+  return new Set(entries);
+};
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.url(),
@@ -53,6 +79,9 @@ const envSchema = z.object({
   AUTH_URL: z.url().default("http://localhost:3000"),
   AUTH_GOOGLE_ID: optional(z.string().min(1)),
   AUTH_GOOGLE_SECRET: optional(z.string().min(1)),
+  // Phase 21: who may create an account and read on GEMINI_API_KEY — comma-separated addresses, or `*`
+  // for anyone. It is what bounds that key's spend, so production refuses to start without a choice.
+  SIGNUP_ALLOWED_EMAILS: optional(z.string()).transform(inviteList),
 
   // Request limits on auth and extraction endpoints (lib/rate-limit.ts). Only turn off for local debugging.
   RATE_LIMIT_ENABLED: z
@@ -83,6 +112,13 @@ const envSchema = z.object({
   }
   if (env.ENCRYPTION_KEY !== undefined && encryptionKeyBytes(env.ENCRYPTION_KEY) !== 32) {
     ctx.addIssue({ code: "custom", path: ["ENCRYPTION_KEY"], message: "must decode to 32 bytes (base64 or hex)" });
+  }
+  if (env.NODE_ENV === "production" && env.AI_PROVIDER === "gemini" && env.GEMINI_API_KEY && env.SIGNUP_ALLOWED_EMAILS === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SIGNUP_ALLOWED_EMAILS"],
+      message: "required in production while GEMINI_API_KEY is set: list who is invited, or set * to let anyone sign up and read on that key",
+    });
   }
   if (Boolean(env.AUTH_GOOGLE_ID) !== Boolean(env.AUTH_GOOGLE_SECRET)) {
     ctx.addIssue({ code: "custom", path: ["AUTH_GOOGLE_ID"], message: "set both AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET, or neither" });

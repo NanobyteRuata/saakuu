@@ -16,8 +16,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { aboutTime, keyLine } from "@/lib/ai/cost-lines";
-import { AI_MODELS, formatMoney, type AIModelId } from "@/lib/ai/models";
+import { costLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
+import { AI_MODELS, type AIModelId } from "@/lib/ai/models";
 import { postJson } from "@/lib/api-client";
 import type { ExtractionEstimate, StartResult } from "@/lib/extraction/service";
 import { plural } from "@/lib/format";
@@ -135,12 +135,14 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
             <div className="flex flex-col gap-1">
               <p>
                 {plural(estimate.extractable, "document")} · {plural(estimate.pages, "page")} · {plural(estimate.requests, "request")} to the
-                model. About {formatMoney(estimate.estCostUsd)}, {aboutTime(estimate.estSeconds)}.
+                model. {costLine(estimate)}
               </p>
-              <p className="text-muted-foreground text-xs">
-                Estimated at the model&apos;s list prices; what it actually costs depends on the pages.{" "}
-                {keyLine(estimate)}
-              </p>
+              {showsMoney(estimate.keySource) ? (
+                <p className="text-muted-foreground text-xs">
+                  Estimated at the model&apos;s list prices; what it actually costs depends on the pages.{" "}
+                  {keyLine(estimate)}
+                </p>
+              ) : null}
             </div>
             {estimate.firstExtraction ? (
               <p className="text-muted-foreground bg-muted/50 rounded-md border p-3">

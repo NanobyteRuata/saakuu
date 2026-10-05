@@ -36,6 +36,11 @@ POST /api/auth/reset                { token, password }   signs out every sessio
 ```
 - `register`, `resend-verification` and `forgot` return `{ emailSent: true }` whether or not
   an account exists, so they cannot be used to discover accounts.
+- Where `SIGNUP_ALLOWED_EMAILS` is set (Phase 21), `register` refuses an address that isn't on it with
+  `VALIDATION` and a plain invite-only message, before looking anything up. That reveals who is invited,
+  not who has an account. A first Google sign-in from such an address lands on `/sign-in?error=InviteOnly`.
+  The same list is asked when the server's AI key is resolved: for an account that isn't on it, the
+  extraction and proposal `estimate` endpoints return `providerProblem` and `start` refuses.
 - Credentials sign-in and sign-out are Server Actions (`lib/auth/actions.ts`), not routes.
 - `GET /api/test/outbox?to=` returns the latest in-memory email for E2E tests. It returns 404
   unless `EMAIL_TRANSPORT=test`, and that transport is refused in production.
@@ -488,7 +493,8 @@ GET    /api/runs/:id                run detail incl. rawResponse and record coun
   extract where the deployment has none, and a saved key that will not decrypt is a problem for that user
   alone. `estimate` also returns `keySource: "user" | "server" | "fake" | null` and `keyHint` (last four
   characters of the user's own key), so the dialog names whose key a run spends, plus `estOutputTokens` and
-  `estCostUsd`. The dialog states the cost **in money**; tokens mean nothing to an operator. Output tokens are
+  `estCostUsd`. The dialog states the cost **in money** when `keySource` is `user`, and time alone otherwise
+  (Phase 21: on the server's key the figure is a cost, not a price); tokens mean nothing to an operator. Output tokens are
   averaged from the book's own completed runs where it has any, and from constants on a first reading — a page
   of a TABLE register holds however many rows the paper holds. A run always uses the **book owner's** key.
 

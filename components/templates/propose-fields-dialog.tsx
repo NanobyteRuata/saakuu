@@ -19,8 +19,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { aboutTime, keyLine } from "@/lib/ai/cost-lines";
-import { AI_MODELS, formatMoney, type AIModelId } from "@/lib/ai/models";
+import { costLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
+import { AI_MODELS, type AIModelId } from "@/lib/ai/models";
 import { getJson, postJson } from "@/lib/api-client";
 import { plural } from "@/lib/format";
 import type { FieldProposalEstimate, FieldProposalView } from "@/lib/templates/field-proposal-schemas";
@@ -265,12 +265,13 @@ export function ProposeFieldsDialog({
               {estimate ? (
                 <div className="flex flex-col gap-1">
                   <p>
-                    {plural(estimate.pages, "photo")}, one request to the model. About {formatMoney(estimate.estCostUsd)},{" "}
-                    {aboutTime(estimate.estSeconds)}.
+                    {plural(estimate.pages, "photo")}, one request to the model. {costLine(estimate)}
                   </p>
-                  <p className="text-muted-foreground text-xs">
-                    Estimated at the model&apos;s list prices. {keyLine(estimate)}
-                  </p>
+                  {showsMoney(estimate.keySource) ? (
+                    <p className="text-muted-foreground text-xs">
+                      Estimated at the model&apos;s list prices. {keyLine(estimate)}
+                    </p>
+                  ) : null}
                 </div>
               ) : error ? null : (
                 <p className="text-muted-foreground">Counting pages…</p>

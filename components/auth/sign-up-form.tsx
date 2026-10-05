@@ -30,7 +30,7 @@ export function PasswordRules({ password }: { password: string }) {
   );
 }
 
-export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
+export function SignUpForm({ googleEnabled, inviteOnly }: { googleEnabled: boolean; inviteOnly: boolean }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
@@ -77,7 +77,11 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
     <Card>
       <CardHeader>
         <CardTitle>Create your account</CardTitle>
-        <CardDescription>You&apos;ll confirm your email before you can start.</CardDescription>
+        <CardDescription>
+          {inviteOnly
+            ? "SaaKuu is invite-only for now. Use the email address you were invited with; you'll confirm it before you can start."
+            : "You'll confirm your email before you can start."}
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {googleEnabled ? (

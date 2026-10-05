@@ -177,9 +177,27 @@ Needs `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` and `<AUTH_URL>/api/auth/callback/
 
 | ID | Steps | Expected |
 |---|---|---|
-| AUTH-26 | Avatar → menu shows the email, `Account and AI key`, `Sign out` → `Sign out` | Modal `Sign out of SaaKuu?`; `Cancel` keeps you in; `Sign out` returns to sign-in |
+| AUTH-26 | Avatar → menu shows the email, `Account` (`Account and AI key` when `ENCRYPTION_KEY` is set), `Sign out` → `Sign out` | Modal `Sign out of SaaKuu?`; `Cancel` keeps you in; `Sign out` returns to sign-in |
 | AUTH-27 | After signing out, press Back | Protected pages redirect to sign-in rather than showing cached data |
 | AUTH-28 | psql: check `"Session"."expires"` for U1, use the app, check again | Expiry rolls forward (30-day rolling session) |
+
+### Invite-only sign-up (Phase 21)
+
+Set `SIGNUP_ALLOWED_EMAILS=invited@example.com` and restart the app. Unset it again afterwards: the rest of
+this plan signs up freely.
+
+| ID | Steps | Expected |
+|---|---|---|
+| AUTH-29 | Open sign-up | Says SaaKuu is invite-only and to use the address you were invited with |
+| AUTH-30 | Sign up with an address that isn't on the list | Refused in place: `SaaKuu is invite-only for now. Ask for an invitation with this email address.` No `User` row, no email |
+| AUTH-31 | Sign up with `Invited@Example.com ` (caps, trailing space) | `Check your email`, as AUTH-02. The list is matched trimmed and lowercase |
+| AUTH-32 | **[Google]** `Continue with Google` with a Gmail that isn't on the list and has no account | Back on sign-in with the invite-only message naming the Google account. No `User`, no `Account` row |
+| AUTH-33 | Sign in as U1 (created before the list was set, not on it), by password and by Google | Both work. The list gates creating an account, never an existing one |
+| AUTH-34 | With the list set, `Forgot password` for an address not on it | Same `Check your email` as always; no link, no account discovery |
+| AUTH-35 | As U1 (signed in, not on the list), open an Extract dialog and `Propose fields` | Both say reading isn't switched on for this account, and their buttons stay disabled. Books, review and export all still work |
+| AUTH-36 | Add U1's address to the list, restart app and worker, repeat AUTH-35 | Both dialogs give an estimate and run |
+| AUTH-37 | Set `SIGNUP_ALLOWED_EMAILS=" "`, then `a@x.com, bob`, and start the app | Refuses to start each time, naming the variable: lists no addresses / `bob` is not an address |
+| AUTH-38 | `NODE_ENV=production`, `AI_PROVIDER=gemini`, a `GEMINI_API_KEY`, list unset; start the app | Refuses to start: required in production. With `SIGNUP_ALLOWED_EMAILS=*` it starts and sign-up is open |
 
 ---
 
@@ -207,16 +225,18 @@ Needs `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` and `<AUTH_URL>/api/auth/callback/
 
 | ID | Steps | Expected |
 |---|---|---|
-| ACC-01 | With `ENCRYPTION_KEY` blank, open `/account` | Says personal keys can't be stored on this server; no usable key field |
+| ACC-01 | With `ENCRYPTION_KEY` blank (the launch setting), open `/account` | No `AI key` section at all. `Reading so far` counts documents and readings and shows **no money** |
 | ACC-02 | Set `ENCRYPTION_KEY` (`openssl rand -base64 32`), restart app and worker. Paste a key, `Save key` | `Your API key is saved.` Only `····` plus the last 4 characters is shown |
 | ACC-03 | psql: `SELECT "aiApiKeyCipher","aiApiKeyHint" FROM "User" WHERE email='…'` | Cipher is not the plain key; hint is the last 4 |
 | ACC-04 | Grep the app and worker logs for the key | Not present anywhere |
 | ACC-05 | `Replace with a different key`, save | New hint shown |
 | ACC-06 | Remove the key | `Key removed. Reading now uses this server's key.` (or, with no server key, says nothing can be read until you save your own) |
-| ACC-07 | Open an Extract dialog after each of ACC-02 and ACC-06 | Key line says `Uses your own AI key (····1234).` / `Uses this server's AI key.` |
+| ACC-07 | Open an Extract dialog after each of ACC-02 and ACC-06 | With a key: `About $0.05, about 2 minutes.` and `Uses your own AI key (····1234).` Without: time only, no money, no key line |
 | ACC-08 | **[Gemini]** Save an invalid key, extract one document | The run fails with a plain message pointing back to the account page (`KEY_REFUSED`); it does **not** fall back to the server key |
 | ACC-09 | Change `ENCRYPTION_KEY`, restart, extract with a user whose key was saved under the old one | Run fails asking to save the key again; no fallback to the server key |
-| ACC-10 | After some completed runs, read "Reading so far" | A money figure stated as an estimate, with document and reading counts |
+| ACC-10 | After some completed runs, read "Reading so far" with your own key saved | A money figure stated as an estimate, with document and reading counts |
+| ACC-11 | Save a key (ACC-02), then blank `ENCRYPTION_KEY`, restart app and worker, extract one document | It reads on the server's key. The saved key is ignored, not reported as broken |
+| ACC-12 | **[Gemini]** With `ENCRYPTION_KEY` blank, set `GEMINI_API_KEY` to a bad value, restart the worker, extract | The run fails saying it is a problem on SaaKuu's side, not with the pages. Nothing tells the operator to fix a key. The worker log has `server AI key is missing or refused` at `error` level, with `KEY_REFUSED` |
 
 ---
 
@@ -282,7 +302,7 @@ Prepare a source book with 2 templates (one with nested and selection groups), m
 | TPL-59 | `+` (New specimen) → `Choose an uploaded page` → pick a read document of this template | A new specimen appears, unread. The source document is unchanged: same rows, edits and run history, still in Documents and the table |
 | TPL-60 | `Choose an uploaded page` on a document still processing | Its button is disabled; the list says how many pages are still processing |
 | TPL-61 | Test a specimen, then `Add to documents` without changing anything | Confirmation: `… with this reading (N values). Nothing is read again.` Confirm: the specimen and its `Test reading` stay; the copy is in Documents; no new run appears in the run drawer; the table shows its rows once built |
-| TPL-62 | Test, edit a field label, then `Add to documents` | Confirmation says it's read again there, because your fields changed, with the cost and key line. Confirm: the copy is being read |
+| TPL-62 | Test, edit a field label, then `Add to documents` | Confirmation says it's read again there, because your fields changed, with the time (and, on your own key, the cost and key line). Confirm: the copy is being read |
 | TPL-63 | Test, change only a mapping, then back to Fields → `Add to documents` | Still `… with this reading … Nothing is read again.` (mappings don't make a test stale) |
 | TPL-64 | Set every field to Manual (or remove the AI key), then `Add to documents` | Confirmation says it's added unread and why. The copy lands as `Not read yet` |
 | TPL-65 | `Add to documents` a second time on the same specimen | Warning: `You already added this page to your documents on YYYY-MM-DD (1 copy).` Still allowed |
@@ -339,7 +359,7 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 | ID | Steps | Expected |
 |---|---|---|
 | TPL-39 | Empty tree with a specimen | The tree points at `Propose fields` |
-| TPL-40 | Open `Propose fields` | Estimate: how the page will be read (form: labelled places in reading order; table: column headers left to right), model select, `About $0.00x, under a minute`, and the key line. Nothing has been written |
+| TPL-40 | Open `Propose fields` | Estimate: how the page will be read (form: labelled places in reading order; table: column headers left to right), model select and `Under a minute.` — on your own key, `About $0.00x, under a minute.` and the key line. Nothing has been written |
 | TPL-41 | With no provider key (Gemini, no keys) | Problem shown in place; `Propose fields` disabled |
 | TPL-42 | Start it, then close the dialog while it's reading | Closing says the proposal is paid for and will resume |
 | TPL-43 | Reopen the dialog on the same page | Resumes the same proposal. psql: only one new `FieldProposal` row |
@@ -508,7 +528,7 @@ Needs an extracted document with some edited and reviewed cells.
 | EXT-02 | After the book's first completed run, open it again | That line is gone |
 | EXT-03 | Template with no mappings | Warning (not a blocker): "…has no mappings yet, so no rows will appear until you add them…" |
 | EXT-04 | Conflicted template, or documents flagged as possible mismatch | Warnings shown |
-| EXT-05 | Estimate line | "N documents · N pages · N requests to the model. About $0.05, about 2 minutes." Below a cent: "less than $0.01". Second line names the key |
+| EXT-05 | Estimate line | "N documents · N pages · N requests to the model. About 2 minutes." No money and no key line on the server's key. With your own key saved (ACC-02): "About $0.05, about 2 minutes.", below a cent "less than $0.01", and a second line naming the key |
 | EXT-06 | Include a document whose pages are still processing, a failed page, a form with >8 pages | Listed as blockers with reasons and skipped; the rest can still run |
 | EXT-07 | Include documents that have edited cells or changed pages | Counts stated; edited cells will be kept |
 | EXT-08 | `AI_PROVIDER=gemini` with no server key and no user key | Dialog says AI reading isn't set up and disables Extract |

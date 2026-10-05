@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–20 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–21 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 21, and what comes next is the Post-v1 list, re-ranked from usage.
+Phase 22, and what comes next is the Post-v1 list, re-ranked from usage.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–20
+## Shipped — Phases 0–21
 
 | Phase | What shipped |
 |---|---|
@@ -42,10 +42,11 @@ previous one's criteria pass.
 | **18** | Documents, and what the machine is doing: a run drawer per document and per page with the failure reason and retry, one Status select in place of the run-state select and four tri-states, upload date as a column, filter and sort, and the phone's upload screen in full. |
 | **19** | Review, where the time actually goes: the photo runs the full height of the workspace, review resumes in the document it stopped in (and a reopened book offers it), `G` or a selection adds a value to the glossary, and `Pace` reads out seconds per reviewed cell per review source. |
 | **20** | Column sweep: one column down every document inside the Review workspace, each value beside its own crop from its own page, keyboard only, recording reviews through the same path and sources as row review. |
+| **21** | One key, invited testers: every reading runs on the deployment's key, sign-up is gated by `SIGNUP_ALLOWED_EMAILS`, bring-your-own keys go dormant behind `ENCRYPTION_KEY`, and operators on the server's key see pages and time, never money. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 20's are
-below; their reasoning is decisions 66–77.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 21's are
+below; their reasoning is decisions 66–79.
 
 ---
 
@@ -721,6 +722,88 @@ sweep's confirm on the `Cell by cell (Enter)` line as the book's first, untimed,
 
 ---
 
+## Phase 21 — One key, invited testers ✅ shipped
+
+The soft-launch gate. Phase 12 shipped two key sources and wrote that the server's key was "for people
+the owner invites directly" — but nothing enforced it. Sign-up was open and there is no quota
+(decision 55), so anyone who signed up and skipped the key field read on the owner's bill. The owner
+chose the simpler product over closing that with bring-your-own: **one key, the deployment's**
+(decision 79). An operator who is a clinic's data-entry clerk should never be sent to make an API key,
+and one key is one pricing story later.
+
+**No schema change.**
+
+- **Sign-up is by invitation.** `SIGNUP_ALLOWED_EMAILS`: comma-separated addresses, or `*` for anyone.
+  It is asked where an account is created — password registration and a first Google sign-in — and
+  where the server's key is spent (`resolveAiKey`). Never at sign-in: someone taken off the list keeps
+  their books and their export and stops being able to read pages.
+- **Bring-your-own goes dormant, not deleted.** The switch is the one that already existed:
+  `ENCRYPTION_KEY` unset. Every surface now agrees with it — no key section on the account page, no key
+  line in a dialog, no error that tells an operator to go and fix a key.
+- **No money on the server's key.** The figure is the deployment's cost, not a price anyone is charged,
+  and showing it before a price exists anchors that price. Dialogs state pages, requests and time; the
+  account page counts documents and readings. Money comes back only where the run lands on the
+  operator's own bill, which is a personal key.
+
+**Tests:** two cases added to `lib/auth/linking.test.ts` (auth security is in policy): a brand-new
+Google user who isn't invited is turned away, and an existing account off the list still signs in.
+`e2e/propose-fields.spec.ts` now expects the estimate without money.
+
+**Done when (all met):**
+- With the list set, an address that isn't on it cannot create an account by password or by Google and
+  is told plainly why; one that is can; an existing user still signs in.
+- An account that isn't on the list cannot start a reading, and is told why before anything is queued.
+- With it unset outside production, sign-up behaves exactly as before. In production with a Gemini key
+  it does not start.
+- With `ENCRYPTION_KEY` blank, `/account` has no key section and every run uses `GEMINI_API_KEY`.
+- No dialog and no page shows a money figure or names a key to an operator on the server's key.
+- With `ENCRYPTION_KEY` set and a key saved, the key line and the money read as they did.
+
+**As built.** Notes for whatever comes after it:
+
+- **The refusal says why, and that is a deliberate exception.** Every other email-taking endpoint
+  answers identically whether or not an account exists. `register` now answers differently for an
+  address that isn't invited, because a tester who mistyped the address they were invited with has to
+  be told. It reveals who is on the list, never who has an account: an invited address still gets the
+  same `Check your email` either way. There is no `FORBIDDEN` code, so it is a `VALIDATION` (400).
+- **The Google half is in the pure decision, not the callback.** `decideGoogleSignIn` takes
+  `signUpAllowed` and returns a third reason, `InviteOnly`, only when there is no account yet. The
+  existing `/sign-in?error=<reason>` redirect carries it.
+- **A key saved while personal keys were on is not read once they are off.** `resolveAiKey` used to
+  try to decrypt it, fail, and answer "save it again" — which, on a server that reads for everyone,
+  locks that one user out for having once followed the instructions. With `ENCRYPTION_KEY` unset the
+  column is not read at all. Where personal keys are on, the Phase 12 rule is untouched: a key that
+  will not decrypt never falls back to the server's.
+- **A server-side key failure no longer gives the operator a to-do.** `NOT_CONFIGURED` and a refused
+  server key used to say "add it and restart the worker" to someone who cannot. They now say it is a
+  problem on SaaKuu's side and not with the pages; the kind is still in the worker's log.
+- **`costLine` and `showsMoney` (`lib/ai/cost-lines.ts`) are the one place that decides.** Extract,
+  `Propose fields` and the specimen's `Add to documents` all read their estimate sentence from it. The
+  server still computes `estCostUsd`; nothing in the API changed.
+- **`docker-compose.yml` passes environment by name**, so a new variable that is only in `.env` never
+  reaches the containers. `SIGNUP_ALLOWED_EMAILS` is in the shared block; the next one needs the same.
+- **The list fails closed, because the first draft failed open twice.** Reviewed after it was built: a
+  value that was set but parsed to no addresses (`" "`, `,,`) read as "no list", which means anyone;
+  and production booted silently with no list at all. Both are now boot errors (`lib/env.ts`, which
+  parses the list once so the app and the worker cannot read it differently), and open sign-up on a
+  paid key is spelled `*`.
+- **The list gates spending, not only joining.** The first draft asked it at sign-up alone, which left
+  no way to stop an account already made short of deleting the user. `resolveAiKey` now asks it before
+  handing out the server's key, so removal is revocation, with no schema change. The cost is that an
+  account older than the list — the owner's own — has to be on it.
+- **A dead server key is logged as an error, not as a failed run.** Since the operator is told only to
+  try again later, `isServerKeyFailure` raises `KEY_REFUSED` and `NOT_CONFIGURED` on the server's key to
+  `log.error` in both processors. Nothing pages anyone; that line is what to alert on.
+- **Addresses match exactly.** Gmail's dots and `+tags` are not folded: folding is Gmail-specific, wrong
+  for every other provider, and a wrong guess lets in someone who was not invited.
+- **Adding a tester is an env edit and a restart of the app and the worker.** Acceptable for a soft
+  launch of a handful of people. It is the first thing to replace when it isn't — with the quota, which
+  is what lets sign-up open.
+- **Not exercised live:** the leftover-key fall-through, because no account in the dev database has a
+  saved key. It is four lines and was read, not run.
+
+---
+
 ## Post-v1
 
 **Provisional, as before** (decision 64). Re-rank from real usage rather than building down it. Three
@@ -746,15 +829,17 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
    template workspace (docs/01 §16, decision 40). Build when a real form needs a rule the book-level one
    gets wrong.
 10. **Quota** — recorded in docs/09 §8 with the condition that triggers building it (decision 55).
+    **Since Phase 21 this is what opening sign-up waits on**: every reading is on the deployment's key,
+    and the invite list is the only bound on it. A per-user page allowance is the likely shape.
 
 ---
 
 ## Decisions to append to docs/07 Part B
 
-Phases 13–20 rest on decisions **66–77**. 66–70 were written up when Phase 13 shipped, 76–77 when
+Phases 13–21 rest on decisions **66–79**. 66–70 were written up when Phase 13 shipped, 76–77 when
 Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did, 74 when Phase 17 did and 75 when Phase 18 did; the rest need writing up in the decision log with their reasoning, in the same form as
 1–65, as their phases ship. **78** came after Phase 20, when specimens moved into the template and began
-crossing to the documents by copy; it was written up with that change:
+crossing to the documents by copy; it was written up with that change. **79** is Phase 21's:
 
 | # | Decision |
 |---|---|
@@ -769,6 +854,7 @@ crossing to the documents by copy; it was written up with that change:
 | 74 | Cross-book copy now, versioned library never until asked for. ✅ written up |
 | 75 | Jobs is a drawer on Documents, not a workspace. ✅ written up |
 | 78 | Specimens belong to the template: in and out by copy, never a flag flip. Replaces the promotion half of 71. ✅ written up |
+| 79 | One AI key, the deployment's; sign-up by invitation; no money shown on it. Bring-your-own (54) goes dormant. ✅ written up |
 
 ---
 
@@ -789,7 +875,9 @@ crossing to the documents by copy; it was written up with that change:
   prompt. Always bump `promptVersion` and never edit an existing version in place.
 - **The transform layer is the product's spine.** Keep it pure and heavily tested; if it is correct,
   mapping mistakes cost zero AI spend to fix.
-- **Extraction and template proposal are the only things that cost money per use.** Watch the per-user
-  spend query in docs/09 §8; build the quota when the number is real rather than guessed (decision 55).
+- **Extraction and template proposal are the only things that cost money per use**, and since Phase 21
+  all of it is the owner's. Watch the per-user spend query in docs/09 §8; build the quota when the number
+  is real rather than guessed (decision 55). Until it exists, `SIGNUP_ALLOWED_EMAILS` is the whole limit:
+  production will not start without it, and `*` there is a decision to let anyone spend.
 - **Gemini rate limits** will throttle real batches. Keep concurrency and RPM as single env vars and
   surface `RATE_LIMITED` clearly rather than as a generic failure.

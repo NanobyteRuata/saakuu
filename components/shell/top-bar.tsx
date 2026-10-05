@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { encryptionConfigured } from "@/lib/crypto";
 import type { SessionUser } from "@/lib/auth/session";
 
 import { NavLink } from "./nav-link";
@@ -18,7 +19,7 @@ export function TopBar({ user }: { user: SessionUser }) {
           <nav aria-label="Main" className="flex items-center gap-1">
             <NavLink href="/books">Books</NavLink>
           </nav>
-          <UserMenu email={user.email} name={user.name} image={user.image} />
+          <UserMenu email={user.email} name={user.name} image={user.image} personalKeys={encryptionConfigured()} />
         </div>
       </div>
     </header>

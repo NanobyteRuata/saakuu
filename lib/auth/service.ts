@@ -6,6 +6,7 @@ import { getEmailSender } from "@/lib/email/sender";
 import { accountExistsMessage, resetPasswordMessage, verifyEmailMessage } from "@/lib/email/templates";
 import { AppError } from "@/lib/errors";
 
+import { INVITE_ONLY_MESSAGE, isInvited } from "./allowlist";
 import { hashPassword } from "./password";
 import type { RegisterInput } from "./schemas";
 import { consumeToken, issueToken } from "./tokens";
@@ -34,6 +35,10 @@ async function sendVerification(userId: string, email: string): Promise<void> {
 }
 
 export async function register(input: RegisterInput): Promise<EmailSentResult> {
+  // Answers differently for an address that isn't invited (Phase 21). That tells a caller who is on
+  // the list, never who has an account: an invited address gets the same reply either way, below.
+  if (!isInvited(input.email)) throw new AppError("VALIDATION", INVITE_ONLY_MESSAGE);
+
   const passwordHash = await hashPassword(input.password);
   const existing = await prisma.user.findUnique({
     where: { email: input.email },

@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getProvider } from "@/lib/ai";
 import { keyMaterial, resolveAiKey } from "@/lib/ai/keys";
 import { modelIdSchema } from "@/lib/ai/models";
-import { ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog } from "@/lib/ai/provider";
+import { isServerKeyFailure, ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog } from "@/lib/ai/provider";
 import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
@@ -350,7 +350,11 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
           retryLater = new RetryLater(err.kind === "RATE_LIMITED", err);
           requeue.push(run);
         } else {
-          if (err.kind !== "INVALID_RESPONSE") log.warn("extraction provider error", { documentId, runId: run.id, kind: err.kind, error: err.message });
+          if (isServerKeyFailure(err, aiKey.source)) {
+            log.error("server AI key is missing or refused: nothing can be read until it is fixed", err, { documentId, runId: run.id, kind: err.kind });
+          } else if (err.kind !== "INVALID_RESPONSE") {
+            log.warn("extraction provider error", { documentId, runId: run.id, kind: err.kind, error: err.message });
+          }
           await failRun(run, providerErrorMessage(err, aiKey.source), { usage: err.usage, responses: err.rawResponse?.responses });
           failed++;
         }

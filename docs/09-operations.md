@@ -290,3 +290,39 @@ SELECT pg_size_pretty(sum(pg_column_size("rawResponse"))) AS raw_response_bytes,
        count(*) FILTER (WHERE "rawResponse" IS NOT NULL)  AS runs_with_response
 FROM "ExtractionRun";
 ```
+
+## 9. Deploying
+
+Production is one host running `docker-compose.prod.yml` from `/opt/saakuu`: Caddy, app, worker, Postgres and
+Redis. The host never builds. It holds three things: `.env` (secrets, template `deploy/env.example`),
+`docker-compose.prod.yml` and `deploy/`.
+
+**A push to `main` deploys itself** (`.github/workflows/ci.yml`, `deploy.yml`):
+
+1. `test`: typecheck, lint, unit and end-to-end tests. Nothing below runs unless this passes.
+2. `image`: builds the image and pushes it to `ghcr.io/nanobyteruata/saakuu`, tagged with the commit sha and
+   `latest`. The image is public and holds no secrets: `.dockerignore` keeps `.env*` out and the build has none set.
+3. `deploy`: sends that commit's compose file and `deploy/` to the host over SSH and runs
+   `deploy/release.sh <sha>` there. It pulls the image, starts `migrate`, then `app` and `worker`, and waits up to
+   five minutes for the app's health check. The released sha is written to `/opt/saakuu/.release`.
+
+A failed release exits non-zero with the `migrate` and `app` logs in the job output. The app is down for the few
+seconds its container takes to be replaced.
+
+**Roll back.** GitHub → Actions → Deploy → Run workflow, with the full sha of an earlier commit on `main`. Or on
+the host: `cd /opt/saakuu && deploy/release.sh <sha>`. This changes the code, not the database: migrations are
+not undone, so a rollback across a migration needs the older code to work with the newer schema.
+
+**Secrets.** The `production` environment in the repository's settings, limited to the `main` branch:
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_HOST` | the host's address |
+| `DEPLOY_USER` | the SSH user that owns `/opt/saakuu` and may run `docker` |
+| `DEPLOY_SSH_KEY` | private half of a key used for nothing else; its public half is in that user's `authorized_keys` |
+| `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan -t ed25519 <host>` |
+
+**A new host.** Install Docker, create `/opt/saakuu/.env` from `deploy/env.example` (`chmod 600`), point the
+domain's A record at it, add the deploy key, change `DEPLOY_HOST` and `DEPLOY_KNOWN_HOSTS`, then run the Deploy
+workflow. Moving an existing deployment: restore the database first (§3). Install the backup cron from
+`deploy/backup-db.sh`.

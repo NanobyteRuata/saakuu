@@ -6,8 +6,8 @@ name: saakuu
 # Only Caddy publishes ports; Postgres and Redis are reachable on the compose network alone.
 
 x-app: &app
-  image: saakuu-app
-  build: .
+  # Built and pushed by CI. deploy/release.sh pins APP_IMAGE to a commit sha; a bare `up` here takes the newest.
+  image: ${APP_IMAGE:-ghcr.io/nanobyteruata/saakuu:latest}
   env_file: .env
   environment:
     DATABASE_URL: postgresql://saakuu:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/saakuu

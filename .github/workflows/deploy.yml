@@ -1,0 +1,67 @@
+name: Deploy
+
+# Puts an already published image into service on the production host (docs/09 §9).
+# CI calls this after it has pushed the image for a commit on main. Run by hand, it is the rollback
+# button: give it the full sha of any commit whose image CI has published.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Commit sha of the image to deploy
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Full commit sha of the image to deploy
+        required: true
+        type: string
+
+# One deploy at a time, and never cancelled half way through a migration.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ inputs.tag }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_DIR: /opt/saakuu
+    steps:
+      - name: Check the tag is a commit sha
+        run: |
+          [[ "$TAG" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::tag must be a full 40-character commit sha"; exit 1; }
+
+      # The compose file and deploy scripts sent to the server are the ones from the commit being deployed.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host deploy\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' \
+            "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
+
+      # Only the compose file and deploy/ go to the server. Its .env sits beside them and is never sent or deleted.
+      - name: Send compose file and deploy scripts
+        run: |
+          ssh deploy "mkdir -p '$DEPLOY_DIR/deploy'"
+          rsync -az docker-compose.prod.yml "deploy:$DEPLOY_DIR/"
+          rsync -az --delete deploy/ "deploy:$DEPLOY_DIR/deploy/"
+
+      - name: Release
+        run: ssh deploy "cd '$DEPLOY_DIR' && deploy/release.sh '$TAG'"

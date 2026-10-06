@@ -1,9 +1,12 @@
 name: CI
 
+# A commit that touches only documentation runs nothing, and so deploys nothing.
 on:
   push:
     branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**.md"]
 
 # Everything runs against the docker compose Postgres, Redis and MinIO on their default host ports.
 # AI_PROVIDER=fake: nothing here touches Gemini, and no API key is configured.

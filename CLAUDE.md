@@ -35,6 +35,8 @@ Two rules follow from this and must never be violated:
 - dnd-kit for row reordering
 - Zod for all input validation, shared between client and server
 - Vitest for unit tests, Playwright for a small number of E2E flows
+- Production: one host under Docker Compose (Caddy, app, worker, Postgres, Redis), photos in Cloudflare R2;
+  GitHub Actions builds the image and deploys on push to `main` (`docs/09-operations.md` §9)
 - Gemini via `@google/genai` (Gemini 3.5 Flash default, Gemini 3.7 Flash as the second option; 2.5 models are closed to new keys)
 
 ## Architecture rules
@@ -75,6 +77,8 @@ lib/
   auth/                  Auth.js config, guards, session helpers, account service, tokens
   email/                 EmailSender interface, Resend/log/test transports, templates
 worker/                  BullMQ worker entrypoint + processors
+deploy/                  production: Caddyfile, release + backup scripts, env template, bucket CORS rule
+.github/workflows/       ci.yml (test, image, deploy), deploy.yml (release; by hand = rollback)
 prisma/schema.prisma
 docs/
 ```

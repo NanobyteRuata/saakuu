@@ -86,6 +86,12 @@ pnpm db:seed-demo      # demo@example.com / demo-password-123: a Burmese clinic 
 pnpm db:seed-table     # table-demo@example.com: 3,000 rows for checking table performance
 ```
 
+## Deploying
+
+A push to `main` that passes CI builds the image, publishes it to GHCR and releases it on the production host.
+Rolling back is running the Deploy workflow with an older commit's sha. The pipeline, its secrets, the domain
+checklist and setting up a new host: [docs/09-operations.md](docs/09-operations.md) §9.
+
 ## Operations
 
 Backups, restore, scheduled jobs (stale-run reaper, storage cleanup), rate limits and log fields:

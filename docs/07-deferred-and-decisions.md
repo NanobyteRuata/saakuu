@@ -532,6 +532,21 @@ nobody has. A paid-tier key is a condition of this decision, not a detail: opera
 through the owner's Google account, and free-tier requests may be used to improve Google's models.
 (Phase 21)
 
+**80. One host, and it never builds.** Production is a single machine running Caddy, the app, the worker,
+Postgres and Redis under Compose, with photos in an external bucket. A platform that runs each of those
+as its own service costs several times as much at this size and buys nothing a few invited testers
+need; the worker also has to be a long-running process, which rules out the serverless hosts. The first
+deploy copied the checkout to that machine and built there, and `next build` then competed with the
+live stack for 2 GB of memory. So CI builds: a push to `main` that passes the tests publishes an image
+tagged with its commit, and the host only pulls. That also makes rollback a matter of naming an older
+commit, where before it meant rebuilding one.
+
+The image is public, because the repository is: it holds no secrets, and a public image spares the host
+a registry credential. The host's `.env` is the one copy of the secrets and is never sent, overwritten
+or read by the pipeline; GitHub holds only what it needs to log in. What this leaves open is that one
+machine is one failure: the answer for now is the nightly dump and a host that can be rebuilt from
+`docs/09` §9, not a second machine. (Deployment)
+
 ---
 
 ## Part C — Open questions for later

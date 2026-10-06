@@ -24,6 +24,11 @@ pg_dump "$DATABASE_URL" -Fc -f "saakuu-$(date -u +%Y%m%dT%H%MZ).dump"
 
 A managed Postgres with point-in-time recovery is equivalent; keep its retention within the same limit.
 
+On the production host this is `deploy/backup-db.sh`, run nightly from cron (the line is in the script's
+header). It dumps from the `postgres` container and uploads to `BACKUP_S3_BUCKET`; retention is that bucket's
+lifecycle rule, not the script. The host's `.env` is in no backup: keep a copy with the deployment's other
+secrets, because a restored database is of no use without `AUTH_SECRET` and the storage keys.
+
 **Object storage.** Either turn on bucket versioning with a lifecycle rule that expires non-current versions after
 the grace period, or mirror the bucket nightly:
 
@@ -297,7 +302,8 @@ Production is one host running `docker-compose.prod.yml` from `/opt/saakuu`: Cad
 Redis. The host never builds. It holds three things: `.env` (secrets, template `deploy/env.example`),
 `docker-compose.prod.yml` and `deploy/`.
 
-**A push to `main` deploys itself** (`.github/workflows/ci.yml`, `deploy.yml`):
+**A push to `main` deploys itself** (`.github/workflows/ci.yml`, `deploy.yml`), unless it touches nothing but
+`docs/` and Markdown files, which runs nothing:
 
 1. `test`: typecheck, lint, unit and end-to-end tests. Nothing below runs unless this passes.
 2. `image`: builds the image and pushes it to `ghcr.io/nanobyteruata/saakuu`, tagged with the commit sha and
@@ -307,7 +313,11 @@ Redis. The host never builds. It holds three things: `.env` (secrets, template `
    five minutes for the app's health check. The released sha is written to `/opt/saakuu/.release`.
 
 A failed release exits non-zero with the `migrate` and `app` logs in the job output. The app is down for the few
-seconds its container takes to be replaced.
+seconds its container takes to be replaced. Caddy is restarted on every release: its Caddyfile is a bind-mounted
+file, and compose does not notice a changed one.
+
+**Changing a secret or setting.** Edit `/opt/saakuu/.env` on the host, then
+`deploy/release.sh "$(cat .release)"`: the same image, recreated with the new values. Nothing is pushed.
 
 **Roll back.** GitHub → Actions → Deploy → Run workflow, with the full sha of an earlier commit on `main`. Or on
 the host: `cd /opt/saakuu && deploy/release.sh <sha>`. This changes the code, not the database: migrations are
@@ -322,7 +332,29 @@ not undone, so a rollback across a migration needs the older code to work with t
 | `DEPLOY_SSH_KEY` | private half of a key used for nothing else; its public half is in that user's `authorized_keys` |
 | `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan -t ed25519 <host>` |
 
-**A new host.** Install Docker, create `/opt/saakuu/.env` from `deploy/env.example` (`chmod 600`), point the
-domain's A record at it, add the deploy key, change `DEPLOY_HOST` and `DEPLOY_KNOWN_HOSTS`, then run the Deploy
-workflow. Moving an existing deployment: restore the database first (§3). Install the backup cron from
+**The domain.** `DOMAIN` in the host's `.env` is the only place the app learns its hostname: the Caddyfile and
+`AUTH_URL` both come from it. Three things outside the host name it too, and each fails on its own when missed:
+
+| Where | What | Fails as |
+|---|---|---|
+| DNS | A record for the domain and one for `www`, both at the host, **not proxied** | no certificate; `www` alone missing costs only the redirect |
+| Storage bucket | the CORS rule in `deploy/r2-cors.json`, pasted into the bucket's settings | photo uploads refused by the browser |
+| Google OAuth client | origin `https://<DOMAIN>`, redirect URI `https://<DOMAIN>/api/auth/callback/google` | `redirect_uri_mismatch` at sign-in |
+
+Changing `DOMAIN` signs everyone out, since the session cookie belongs to the old hostname. Putting a CDN proxy
+in front needs `TRUSTED_PROXY_HOPS=2` (§6) and end-to-end TLS at the CDN, or the per-address rate limits see one
+address for everybody.
+
+**A new host.** Install Docker, create `/opt/saakuu/.env` from `deploy/env.example` (`chmod 600`), point the DNS
+records at it, add the deploy key, change `DEPLOY_HOST` and `DEPLOY_KNOWN_HOSTS`, then run the Deploy workflow.
+Moving an existing deployment: restore the database first (§3). Install the backup cron from
 `deploy/backup-db.sh`.
+
+**A new repository or fork.** The image name is written out in `docker-compose.prod.yml`, `deploy/release.sh`
+and `ci.yml`. GHCR creates a package private even for a public repository: after the first `image` job, make it
+public in the package's settings, or give the host a read token and `docker login ghcr.io`. Until then the
+release fails at `pull` and the old containers keep serving.
+
+**CI's own services.** Tests run against the Postgres, Redis and MinIO in `docker-compose.yml`. MinIO comes from
+Chainguard (`cgr.dev/chainguard/minio`) because MinIO's own images can no longer be pulled from Docker Hub or
+quay.io; it runs as root there so a data volume made by the old image stays writable.

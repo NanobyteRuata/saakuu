@@ -1,0 +1,109 @@
+name: saakuu
+
+# Single-host production stack: Caddy (TLS) -> app, plus worker, Postgres and Redis.
+# Photos live in an external S3-compatible bucket (Cloudflare R2), not on this host.
+# Secrets come from `.env` next to this file on the server (template: deploy/env.example).
+# Only Caddy publishes ports; Postgres and Redis are reachable on the compose network alone.
+
+x-app: &app
+  image: saakuu-app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://saakuu:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/saakuu
+    REDIS_URL: redis://redis:6379
+    AUTH_URL: https://${DOMAIN:?set DOMAIN in .env}
+    AUTH_TRUST_HOST: "true"
+    # Caddy is the only proxy that appends to X-Forwarded-For. Make it 2 behind a CDN.
+    TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+    PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: saakuu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: saakuu
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saakuu -d saakuu"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: ["pnpm", "db:deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *app
+    command: ["pnpm", "start"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["pnpm", "worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:

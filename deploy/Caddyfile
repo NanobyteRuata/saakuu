@@ -1,0 +1,5 @@
+# Caddy obtains and renews the certificate itself; DOMAIN's A record must point at this host first.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

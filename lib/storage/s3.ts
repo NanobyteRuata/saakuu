@@ -21,6 +21,10 @@ function createClient(endpoint: string): S3Client {
     endpoint,
     region: env.S3_REGION,
     forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    // The SDK's default adds a CRC32 of an empty body to presigned PUT URLs, which R2 and S3 then
+    // check against the real upload and refuse. Checksums stay on where the API requires them.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
     credentials: {
       accessKeyId: env.S3_ACCESS_KEY_ID,
       secretAccessKey: env.S3_SECRET_ACCESS_KEY,

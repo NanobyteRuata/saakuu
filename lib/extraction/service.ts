@@ -5,6 +5,8 @@ import { PROMPT_VERSION } from "@/lib/ai/prompts";
 import type { AiKeySource } from "@/lib/ai/keys";
 import { providerStatus } from "@/lib/ai/status";
 import { requireUserId } from "@/lib/auth/guards";
+import { chargesCredits, checkStart, creditEstimate, lockUser, runCharge } from "@/lib/credits/service";
+import { milliCreditsFor, shareByPages, type CreditEstimate } from "@/lib/credits/rate";
 import { prisma } from "@/lib/db/client";
 import { requireDocumentsAccess, type Db } from "@/lib/documents/access";
 import { isStale } from "@/lib/documents/staleness";
@@ -40,8 +42,13 @@ const PROMPT_TOKENS_PER_FIELD = 120;
 // Phase 12: what the model writes back, for the money estimate. Used only until the book has read
 // something of its own — a page of a TABLE register holds however many rows the paper holds, so a
 // constant is off by multiples and the book's own history is worth far more than a better guess.
-const OUTPUT_BASE_TOKENS = 200;
-const OUTPUT_TOKENS_PER_FIELD = 40;
+//
+// Output is billed with the model's thinking in it, and thinking is most of it: the first real
+// readings (2026-10-06) wrote 2,900 to 5,400 tokens for one page. These were 200 and 40, a third of
+// that, and since Phase 22 this estimate is also what a start holds of the operator's credits — an
+// estimate that low lets a new account read three times what it has.
+const OUTPUT_BASE_TOKENS = 2000;
+const OUTPUT_TOKENS_PER_FIELD = 80;
 const ACTIVE = ACTIVE_RUN_STATES;
 
 // ---------- targets ----------
@@ -141,6 +148,35 @@ async function measuredOutputTokensPerPage(bookId: string): Promise<number | nul
   return perPage !== null && Number.isFinite(perPage) && perPage > 0 ? perPage : null;
 }
 
+type TokenEstimate = { requests: number; inputTokens: number; outputTokens: number };
+
+/**
+ * What reading these pages of a document is expected to send and get back. One function for the
+ * dialog's estimate and for the credits a start holds (Phase 22), so they can't disagree.
+ * `perPage` is the book's own measured output per page, or null until it has read something.
+ */
+function estimateTokens(t: Target, pages: Target["photos"], perPage: number | null): TokenEstimate {
+  const requests = chunkPages(pages).length;
+  let inputTokens = requests * (PROMPT_BASE_TOKENS + PROMPT_TOKENS_PER_FIELD * t.extractFieldCount);
+  for (const p of pages) {
+    const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
+    const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
+    inputTokens += imageTokens(Math.round(out.width * scale), Math.round(out.height * scale));
+  }
+  const outputTokens = pages.length * (perPage ?? OUTPUT_BASE_TOKENS + OUTPUT_TOKENS_PER_FIELD * t.extractFieldCount);
+  return { requests, inputTokens, outputTokens: Math.round(outputTokens) };
+}
+
+/** Thousandths of a credit a start holds for these pages. */
+function estimateMilliCredits(model: string, t: Target, pages: Target["photos"], perPage: number | null): number {
+  return milliCreditsFor({ model, ...estimateTokens(t, pages, perPage) });
+}
+
+async function bookOutputPerPage(targets: Target[]): Promise<number | null> {
+  const bookId = targets[0]?.book.id;
+  return bookId === undefined ? null : measuredOutputTokensPerPage(bookId);
+}
+
 export type ExtractionBlocker = { documentId: string; label: string | null; reason: string };
 
 export type ExtractionEstimate = {
@@ -160,6 +196,8 @@ export type ExtractionEstimate = {
   /** What the run is expected to cost, in USD at list prices (Phase 12). */
   estCostUsd: number;
   estSeconds: number;
+  /** Phase 22: what this would use of the operator's credits and what they have; null where credits aren't in play. */
+  credits: CreditEstimate | null;
   model: AIModelId;
   suggestedModel: AIModelId;
   warnings: string[];
@@ -177,11 +215,14 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   const model = input.model ?? suggested;
   const modelInfo = AI_MODELS.find((m) => m.id === model) ?? AI_MODELS[0];
 
+  // Priced from what this book's own runs actually produced where there are any (decision: the money
+  // figure is only worth showing if it is close), and from the constants above on a first reading.
+  const perPage = await bookOutputPerPage(targets);
   const blockers: ExtractionBlocker[] = [];
   let pages = 0;
   let requests = 0;
   let tokens = 0;
-  let guessedOutputTokens = 0;
+  let estOutputTokens = 0;
   const ready: Target[] = [];
   for (const t of targets) {
     const reason = blockerFor(t);
@@ -190,16 +231,11 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
       continue;
     }
     ready.push(t);
-    const chunks = chunkPages(t.photos);
-    requests += chunks.length;
+    const est = estimateTokens(t, t.photos, perPage);
+    requests += est.requests;
     pages += t.photos.length;
-    tokens += chunks.length * (PROMPT_BASE_TOKENS + PROMPT_TOKENS_PER_FIELD * t.extractFieldCount);
-    guessedOutputTokens += t.photos.length * (OUTPUT_BASE_TOKENS + OUTPUT_TOKENS_PER_FIELD * t.extractFieldCount);
-    for (const p of t.photos) {
-      const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
-      const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
-      tokens += imageTokens(Math.round(out.width * scale), Math.round(out.height * scale));
-    }
+    tokens += est.inputTokens;
+    estOutputTokens += est.outputTokens;
   }
 
   const warnings: string[] = [];
@@ -249,12 +285,8 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   const bookId = targets[0]?.book.id ?? (await prisma.document.findFirst({ where: { id: { in: documentIds } }, select: { bookId: true } }))?.bookId ?? null;
   const previousRun = bookId === null ? null : await prisma.extractionRun.findFirst({ where: { state: "COMPLETE", document: { bookId } }, select: { id: true } });
 
-  // Priced from what this book's own runs actually produced where there are any (decision: the money
-  // figure is only worth showing if it is close), and from the constants above on a first reading.
-  const perPage = bookId === null ? null : await measuredOutputTokensPerPage(bookId);
-  const estOutputTokens = Math.round(perPage === null ? guessedOutputTokens : perPage * pages);
-
   const provider = await providerStatus(userId);
+  const keySource = provider.ready ? provider.keySource : null;
   return {
     providerProblem: provider.ready ? null : provider.message,
     keySource: provider.ready ? provider.keySource : null,
@@ -268,6 +300,7 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
     estOutputTokens,
     estCostUsd: estimateCostUsd({ model, inputTokens: tokens, outputTokens: estOutputTokens }),
     estSeconds: pages * modelInfo.secondsPerPage,
+    credits: await creditEstimate(userId, keySource, milliCreditsFor({ model, inputTokens: tokens, outputTokens: estOutputTokens })),
     model,
     suggestedModel: suggested,
     warnings,
@@ -359,15 +392,25 @@ function planRuns(documentId: string, model: string, pages: Target["photos"], no
 
 type Outcome = { kind: "queued" } | { kind: "duplicate" } | { kind: "skipped"; reason: string };
 
-function runRows(documentId: string, model: string, planned: PlannedRun[]) {
-  return planned.map((p) => ({ documentId, model, promptVersion: PROMPT_VERSION, idempotencyKey: p.idempotencyKey, photoIds: p.photoIds, state: "QUEUED" as const }));
+/** `reserved` is what the whole document holds of its owner's credits (Phase 22), shared over its runs by pages. */
+function runRows(documentId: string, model: string, planned: PlannedRun[], reserved: number) {
+  const shares = shareByPages(reserved, planned.map((p) => p.photoIds.length));
+  return planned.map((p, i) => ({
+    documentId,
+    model,
+    promptVersion: PROMPT_VERSION,
+    idempotencyKey: p.idempotencyKey,
+    photoIds: p.photoIds,
+    state: "QUEUED" as const,
+    reservedMilliCredits: shares[i] ?? 0,
+  }));
 }
 
 /** Inserts the planned runs unless this exact action was already submitted. Call under the document lock. */
-async function insertRuns(tx: Db, documentId: string, model: string, planned: PlannedRun[]): Promise<Outcome> {
+async function insertRuns(tx: Db, documentId: string, model: string, planned: PlannedRun[], reserved: number): Promise<Outcome> {
   const existing = await tx.extractionRun.count({ where: { idempotencyKey: { in: planned.map((p) => p.idempotencyKey) } } });
   if (existing > 0) return { kind: "duplicate" };
-  await tx.extractionRun.createMany({ data: runRows(documentId, model, planned), skipDuplicates: true });
+  await tx.extractionRun.createMany({ data: runRows(documentId, model, planned, reserved), skipDuplicates: true });
   await recomputeDocumentRun(tx, documentId);
   return { kind: "queued" };
 }
@@ -394,11 +437,23 @@ export async function startExtraction(userId: string, input: StartInput): Promis
   const provider = await providerStatus(userId);
   if (!provider.ready) throw new AppError("PROVIDER_ERROR", provider.message);
   const documentIds = await resolveDocumentIds(userId, input);
+  // Phase 22: a reading on the deployment's key holds its estimate against the owner's credits. The
+  // whole selection is refused here, before anything is queued, when it doesn't fit; the check inside
+  // each transaction is the same one under the user's lock, for two starts racing each other.
+  const charged = chargesCredits(provider.keySource);
+  const startable = charged ? (await loadTargets(prisma, documentIds)).filter((t) => blockerFor(t) === null) : [];
+  const perPage = await bookOutputPerPage(startable);
+  if (charged) {
+    const needed = startable.reduce((sum, t) => sum + estimateMilliCredits(input.model, t, t.photos, perPage), 0);
+    const { decision } = await checkStart(prisma, userId, needed);
+    if (!decision.ok) throw new AppError("VALIDATION", decision.message);
+  }
   const result: StartResult = { queued: 0, alreadyStarted: 0, skipped: [] };
   for (let i = 0; i < documentIds.length; i += START_BATCH) {
     const batch = documentIds.slice(i, i + START_BATCH);
     const outcomes = await prisma.$transaction(
       async (tx) => {
+        if (charged) await lockUser(tx, userId);
         // Locked in id order, so starts over overlapping selections can't deadlock.
         const locked = await tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM "Document" WHERE id IN (${Prisma.join(batch)}) AND "deletedAt" IS NULL ORDER BY id FOR UPDATE`;
@@ -416,9 +471,21 @@ export async function startExtraction(userId: string, input: StartInput): Promis
           return { id, label: t.label, outcome: reason ? { kind: "skipped", reason } : { kind: "queued" } };
         });
         const queued = decided.filter((d) => d.outcome.kind === "queued").map((d) => d.id);
+        const holds = new Map(
+          queued.map((id) => {
+            const t = targets.get(id);
+            return [id, charged && t ? estimateMilliCredits(input.model, t, t.photos, perPage) : 0] as const;
+          }),
+        );
+        if (charged && queued.length > 0) {
+          const { decision } = await checkStart(tx, userId, [...holds.values()].reduce((sum, n) => sum + n, 0), { gate: true });
+          if (!decision.ok) {
+            return decided.map((d) => (d.outcome.kind === "queued" ? { ...d, outcome: { kind: "skipped", reason: decision.message } as Outcome } : d));
+          }
+        }
         if (queued.length > 0) {
           await tx.extractionRun.createMany({
-            data: queued.flatMap((id) => runRows(id, input.model, planned.get(id) ?? [])),
+            data: queued.flatMap((id) => runRows(id, input.model, planned.get(id) ?? [], holds.get(id) ?? 0)),
             skipDuplicates: true,
           });
           // The new runs cover every page, so they are each page's current run and the document is simply QUEUED.
@@ -462,9 +529,14 @@ export async function retryExtraction(userId: string, input: RetryInput): Promis
     }
   }
 
+  const charged = chargesCredits(provider.keySource);
   const result: StartResult = { queued: 0, alreadyStarted: 0, skipped: [] };
   for (const [documentId, pages] of requested) {
+    // Read before the transaction, so no second connection is used while the locks are held.
+    const book = charged ? await prisma.document.findUnique({ where: { id: documentId }, select: { bookId: true } }) : null;
+    const perPage = book ? await measuredOutputTokensPerPage(book.bookId) : null;
     const { outcome, label } = await prisma.$transaction(async (tx) => {
+      if (charged) await lockUser(tx, uid);
       if (!(await lockDocument(tx, documentId))) return { outcome: { kind: "skipped", reason: "It was deleted." } as Outcome, label: null };
       const [target] = await loadTargets(tx, [documentId]);
       if (!target) return { outcome: { kind: "skipped", reason: "It was deleted." } as Outcome, label: null };
@@ -488,7 +560,13 @@ export async function retryExtraction(userId: string, input: RetryInput): Promis
       const reason = blockerFor(target);
       if (reason) return { outcome: { kind: "skipped", reason } as Outcome, label: target.label };
       if (retryPages.length === 0) return { outcome: { kind: "skipped", reason: "None of its pages failed." } as Outcome, label: target.label };
-      return { outcome: await insertRuns(tx, documentId, model, planned), label: target.label };
+      // A failed reading held nothing once it failed, so a retry holds its own estimate like any start.
+      const hold = charged ? estimateMilliCredits(model, target, retryPages, perPage) : 0;
+      if (charged) {
+        const { decision } = await checkStart(tx, uid, hold, { gate: true });
+        if (!decision.ok) return { outcome: { kind: "skipped", reason: decision.message } as Outcome, label: target.label };
+      }
+      return { outcome: await insertRuns(tx, documentId, model, planned, hold), label: target.label };
     });
     collect(result, { id: documentId, label }, outcome);
     if (outcome.kind === "queued") await enqueue(documentId);
@@ -582,6 +660,8 @@ export type RunDetail = {
   outputTokens: number | null;
   rawResponse: Prisma.JsonValue | null;
   records: number;
+  /** Phase 22: what this reading was charged, in thousandths of a credit; null when it wasn't charged. */
+  milliCredits: number | null;
 };
 
 export async function getRun(userId: string, runId: string): Promise<RunDetail> {
@@ -607,5 +687,6 @@ export async function getRun(userId: string, runId: string): Promise<RunDetail> 
     outputTokens: run.outputTokens,
     rawResponse: run.rawResponse,
     records: run._count.records,
+    milliCredits: run.state === "COMPLETE" ? await runCharge(run.id) : null,
   };
 }

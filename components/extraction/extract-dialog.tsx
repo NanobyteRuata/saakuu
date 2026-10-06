@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CreditProblem } from "@/components/account/credit-problem";
 import { FormMessage } from "@/components/auth/form-message";
 import {
   AlertDialog,
@@ -16,8 +17,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { costLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
-import { AI_MODELS, type AIModelId } from "@/lib/ai/models";
+import { costLine, creditLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
+import { AI_MODELS, modelHint, type AIModelId } from "@/lib/ai/models";
 import { postJson } from "@/lib/api-client";
 import type { ExtractionEstimate, StartResult } from "@/lib/extraction/service";
 import { plural } from "@/lib/format";
@@ -126,7 +127,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
               ))}
             </SelectContent>
           </Select>
-          {model ? <p className="text-muted-foreground text-xs">{AI_MODELS.find((m) => m.id === model)?.description}</p> : null}
+          {model ? <p className="text-muted-foreground text-xs">{modelHint(model, Boolean(estimate?.credits))}</p> : null}
         </div>
 
         {loading ? <p className="text-muted-foreground text-sm">Counting pages…</p> : null}
@@ -137,6 +138,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
                 {plural(estimate.extractable, "document")} · {plural(estimate.pages, "page")} · {plural(estimate.requests, "request")} to the
                 model. {costLine(estimate)}
               </p>
+              {creditLine(estimate) ? <p>{creditLine(estimate)}</p> : null}
               {showsMoney(estimate.keySource) ? (
                 <p className="text-muted-foreground text-xs">
                   Estimated at the model&apos;s list prices; what it actually costs depends on the pages.{" "}
@@ -177,6 +179,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
           </div>
         ) : null}
         {estimate?.providerProblem ? <FormMessage tone="error">{estimate.providerProblem}</FormMessage> : null}
+        {estimate && estimate.extractable > 0 ? <CreditProblem credits={estimate.credits} /> : null}
         {error ? (
           <div className="flex flex-col items-start gap-2">
             <FormMessage tone="error">{error}</FormMessage>
@@ -192,7 +195,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
           <AlertDialogCancel type="button" disabled={pending}>
             Cancel
           </AlertDialogCancel>
-          <Button type="button" onClick={confirm} disabled={!estimate || !model || estimate.extractable === 0 || estimate.providerProblem !== null || pending}>
+          <Button type="button" onClick={confirm} disabled={!estimate || !model || estimate.extractable === 0 || estimate.providerProblem !== null || Boolean(estimate.credits?.problem) || pending}>
             {pending ? "Starting…" : `${verb} ${plural(estimate?.extractable ?? 0, "document")}`}
           </Button>
         </AlertDialogFooter>

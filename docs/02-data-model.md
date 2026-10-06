@@ -766,7 +766,7 @@ re-extract → the Phase 6 rule keeps every edited cell. No new merge logic.
   four characters, which is all the UI shows. A user without one falls back to the server key where the
   deployment has configured one (decision 54).
 - **Cost** is derived from `ExtractionRun.inputTokens` / `outputTokens`, recorded since Phase 5. No new
-  column: what was missing was a readout, not data. Quota is deliberately not modelled yet (decision 55).
+  column: what was missing was a readout, not data. *Since Phase 22 the bound on it is credits, below.*
 - **`Cell.reviewedAt` and `Cell.reviewedVia`** are written together whenever `isReviewed` becomes true.
   `reviewedVia` matters as much as the timestamp: `ROW` marks every cell of a row at one instant, and an
   average that mixes those with per-cell confirms is meaningless (decision 57). Both are nullable with no
@@ -791,6 +791,51 @@ re-extract → the Phase 6 rule keeps every edited cell. No new merge logic.
   the `responses` key from successful runs older than 30 days and keeps `summary`, so the document's
   run state, the run history, token counts, `photoIds` and every raw value are unaffected. Failed runs
   keep theirs for ever.
+
+## Credits (Phase 22)
+
+```prisma
+enum CreditKind { SIGNUP  GRANT  PURCHASE  USAGE }
+
+model CreditEntry {
+  id           String     @id @default(cuid(2))
+  userId       String
+  kind         CreditKind
+  milliCredits Int        // signed: + SIGNUP / GRANT / PURCHASE, − USAGE
+  costMicroUsd Int?       // USAGE: the reading's cost at list price
+  inputTokens  Int?
+  outputTokens Int?
+  model        String?
+  pages        Int?
+  runId        String?    @unique   // not a foreign key
+  proposalId   String?    @unique   // not a foreign key
+  onceKey      String?              // "signup"
+  note         String?
+  createdAt    DateTime   @default(now())
+  @@unique([userId, onceKey])
+  @@index([userId, createdAt])
+  @@index([kind, createdAt])
+}
+```
+
+Plus `ExtractionRun.reservedMilliCredits` and `FieldProposal.reservedMilliCredits` (`Int`, default 0).
+
+- **Integers throughout.** Credits in thousandths, cost in millionths of a dollar; no balance is ever
+  a float. One credit is `CREDIT_MICRO_USD` = 20,000, which is $0.02 (`lib/credits/rate.ts`).
+- **Balance** = the sum of a user's entries. **Available** = balance less `reservedMilliCredits` of
+  their runs and proposals that are `QUEUED` or `RUNNING` and under three days old. A reading may start when
+  its estimate is no more than available.
+- **Only a completed reading writes `USAGE`**, in the transaction that completes it — and a proposal
+  only when it found at least one field. A failed, reaped
+  or orphaned run stops being active, which is the whole of its refund.
+- **`runId` and `proposalId` are unique and not foreign keys.** Unique, so a reading cannot be charged
+  twice. Not foreign keys, so the ledger outlives a deleted document — a run cascades with its
+  document, and a ledger that did too would refund whoever tidied up.
+- **`(userId, onceKey)` is unique** so the free credits cannot be given twice, however many requests
+  look at a new account at once.
+- **Never updated, never deleted.** A mistake is corrected by a `GRANT` line with the opposite sign.
+- Recorded for every reading on the deployment's key whether or not balances are enforced
+  (`SIGNUP_CREDITS`). A reading on a personal key is not the deployment's cost and has no entry.
 
 ## Indexing notes
 

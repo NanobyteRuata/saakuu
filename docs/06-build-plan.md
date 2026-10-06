@@ -1,9 +1,9 @@
 # 06 — Build Plan
 
-Phases 0–21 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
+Phases 0–22 are **shipped**; the launch gate after Phase 12 has passed. They are kept below in one
 line each, because 63 code comments, 167 lines across docs/01–09 and 91 `decision N` references
 point at them by number. **Phases are never renumbered** (decision 66); new work continues at
-Phase 22, and what comes next is the Post-v1 list, re-ranked from usage.
+Phase 23, and what comes next is the Post-v1 list, re-ranked from usage.
 
 Phases 13–20 came from walking the whole product as a first-time operator and then as a returning one
 (see the analysis behind decisions 66–77). v1's parts each work; what it lacks is a **spine** — nothing
@@ -15,7 +15,7 @@ previous one's criteria pass.
 
 ---
 
-## Shipped — Phases 0–21
+## Shipped — Phases 0–22
 
 | Phase | What shipped |
 |---|---|
@@ -43,10 +43,11 @@ previous one's criteria pass.
 | **19** | Review, where the time actually goes: the photo runs the full height of the workspace, review resumes in the document it stopped in (and a reopened book offers it), `G` or a selection adds a value to the glossary, and `Pace` reads out seconds per reviewed cell per review source. |
 | **20** | Column sweep: one column down every document inside the Review workspace, each value beside its own crop from its own page, keyboard only, recording reviews through the same path and sources as row review. |
 | **21** | One key, invited testers: every reading runs on the deployment's key, sign-up is gated by `SIGNUP_ALLOWED_EMAILS`, bring-your-own keys go dormant behind `ENCRYPTION_KEY`, and operators on the server's key see pages and time, never money. |
+| **22** | Credits: a per-user balance in a ledger, free credits at sign-up, every reading charged what it really cost and refused with both numbers when it doesn't fit, `Request more`, a grant command, and a daily ceiling for everyone together. |
 
 Detailed acceptance criteria for phases 0–12 are in git history (`docs/06-build-plan.md` before
-Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 21's are
-below; their reasoning is decisions 66–79.
+Phase 13) and their reasoning is in docs/07 Part B, decisions 1–65. Phase 13's to 22's are
+below; their reasoning is decisions 66–79 and 81 (80 is the deployment's, docs/09 §9).
 
 ---
 
@@ -430,8 +431,8 @@ eleven in paper order, then the same page as a table proposes its columns instea
   - The first draft of `template-v1` got this wrong twice. The Form skipped grid rows that were empty on
     this copy, and the Table kept the blanks above the grid. Both were fixed before the version was
     used for anything but tests. From here, any change is `template-v2`.
-- **Estimate constants:** 1,500 prompt tokens, image tokens per page, and a fixed 2,500-token output
-  allowance. Measured output, including thinking, ran 700 to 1,700 tokens, about $0.002 to $0.006 per
+- **Estimate constants** *(the allowance became 6,000 and the money figures were corrected in Phase 22)*: 1,500 prompt tokens, image tokens per page, and a fixed 2,500-token output
+  allowance. Measured output, including thinking, ran 700 to 1,700 tokens, about $0.01 to $0.02 per
   proposal on 3.5 Flash.
 - **`labelMeaning` is template metadata, not data.** The English gloss is for the operator reading
   the tree, so it doesn't break "the AI transcribes, it does not normalise". `labelSource` is
@@ -804,6 +805,128 @@ Google user who isn't invited is turned away, and an existing account off the li
 
 ---
 
+## Phase 22 — Credits ✅ shipped
+
+What opening sign-up waited on. Since Phase 21 every reading is on the deployment's key and the
+invite list was the only bound on it. The owner's model: **sign up → some free credits → buy more
+later**, with no price and no payment yet. This phase is everything in that sentence except the
+buying, built so that buying is one more kind of ledger line.
+
+**A credit is a fixed slice of real provider cost** (decision 81): $0.02 at list price, about one
+page of a simple form. Not pages and not tokens. Pages would charge a full table register the same as
+a short card, which costs several times less to read; tokens have no single price, because input and
+output are priced apart and each model has its own. Cost-derived credits cover extraction, `Propose
+fields` and whatever is added later with one balance, and a reading can never cost the owner more
+than it charges.
+
+**Schema (additive):** `CreditEntry` (the ledger), `reservedMilliCredits` on `ExtractionRun` and
+`FieldProposal`, and the `Cell (isReviewed, reviewedAt)` index Phase 19 asked for.
+
+**What the operator meets:**
+- Before a reading, an estimate beside what they have: `About 4.0 credits. You have 21.3.`
+- After it, the exact charge, in the run drawer and on the account page.
+- When it doesn't fit, a refusal with both numbers, before anything is queued: `This needs about
+  40.0 credits. You have 12.0.` Everything else — review, edits, export — keeps working.
+- A reading that fails costs nothing, including one the provider billed the owner for.
+- `/account` → **Credits**: what is left, about how many pages that is at what *their* pages have
+  cost, what has been used, the history, and `Request more`.
+- Credits, never money (decision 79 stands). A personal key is never charged and sees money as before.
+
+**What the owner gets:**
+- `pnpm credits:grant <email> <credits> [note]` — takes effect at once, no restart. Replaces the
+  env-edit-and-restart of Phase 21 for anyone already invited.
+- `Request more` as an email to `CREDIT_REQUEST_TO`: who asked, their balance, their note. Until
+  credits are sold, each request is the evidence of who would buy and how much.
+- `DAILY_CREDIT_CAP`: the most everyone together may read in one UTC day. Per-user balances cannot
+  bound open sign-up on their own — free credits times unlimited accounts is unlimited.
+- A ledger that outlives deleted documents, with the real cost and tokens of every reading on it.
+
+**Rollout, in this order:**
+1. Deploy with `SIGNUP_CREDITS` unset. Nothing is enforced or shown; usage starts being recorded.
+2. `credits:grant` the accounts that already exist — their recorded usage has taken them below zero.
+3. Set `SIGNUP_CREDITS`, `DAILY_CREDIT_CAP` and `CREDIT_REQUEST_TO`. The invite list stays.
+4. Set `SIGNUP_ALLOWED_EMAILS=*` when ready. Production refuses to start on `*` without the first two.
+
+**Tests:** `lib/credits/credits.test.ts` — the arithmetic of a charge and the decision to start, which
+is in policy because a silent bug gives readings away or takes credits nobody spent. One E2E,
+`e2e/credits.spec.ts`: 25.0 free credits, the estimate, the exact 0.1 charge on the run and the
+account, the refusal with both numbers and a disabled button, and `Request more` reaching the outbox.
+
+**Done when (all met):**
+- A new account has its free credits without anyone doing anything.
+- A reading shows its estimate before and its exact charge after, and the balance falls by that charge.
+- A reading that doesn't fit is refused with both numbers and queues nothing.
+- Two starts at once on a balance that covers one queue exactly one.
+- A failed reading writes no charge and its hold is gone.
+- With `SIGNUP_CREDITS` unset no screen mentions credits, and usage is still recorded.
+- Production with `SIGNUP_ALLOWED_EMAILS=*` and no cap does not start.
+
+**As built.** Notes for whatever comes after it:
+
+- **The hold is a column on the run, not a line in the ledger.** What a user can start with is their
+  ledger's sum less `reservedMilliCredits` of their queued and running runs and proposals. A run that
+  fails, is reaped or loses its document stops being active, and its hold goes with it — so none of
+  the seven places a run can fail needed a refund, and only the two places one completes write a
+  charge. Checked live: a start held 0.279, the reading failed, the hold was 0 and no line was written.
+- **A hold counts for three days.** The dev database had `QUEUED` runs three weeks old, from jobs that
+  were lost and never polled again. Left alone, one of those would hold someone's credits for good.
+  Three days and not one, because a template-wide batch on a low rate limit can honestly wait a day.
+- **The worker stops when the balance goes below zero** (`outOfCredits`, asked before every reading).
+  A start holds an estimate and a reading is charged what it cost, so without this a batch whose
+  pages ran over would finish on credit. The pages left fail with a sentence that says nothing was
+  charged for them, and retrying is refused at the start like any other.
+- **The first-reading estimate was a third of the truth.** Output is billed with thinking in it; the
+  constants guessed 200 tokens a page plus 40 a field, and real pages wrote 2,900 to 5,400. Since the
+  estimate is the hold, a new account could have read three times its free credits. They are now
+  2,000 plus 80 a field, and a proposal allows 6,000. A book's own history still replaces them.
+- **The daily ceiling takes a lock of its own** (`pg_advisory_xact_lock`), always after the user's.
+  Per-user locks alone let two different users both fit under the same last few credits.
+  Only the check that gates a write takes it or logs a ceiling reached; an estimate just looks.
+- **An empty proposal is free.** The first real `Propose fields` on 3.7 Flash came back with no
+  fields, twice, and was billed both times. The operator got nothing, so it is treated as a failure.
+- **Prices change by date, not by commit.** `modelPrice` applies an announced change from its day:
+  3.7 Flash doubles on 2027-01-01, and a reading that day is charged the new price with no release.
+- **What is needed rounds up and what is there rounds down**, so a refusal can never read
+  `needs about 1.0. You have 1.0.`
+- **Charged in the transaction that completes the reading**, with `runId` / `proposalId` unique, so a
+  reading is never complete and unpaid, paid and incomplete, or paid twice.
+- **The estimate has to fit, not the charge.** A reading is charged what it really cost, so a balance
+  can end slightly below zero; the next start is then refused. Killing a reading halfway to keep a
+  balance at zero would spend the owner's money and give the operator nothing.
+- **Starts are serialised per user by `FOR NO KEY UPDATE` on the user row**, not `FOR UPDATE`. The
+  worker inserts a ledger line while it holds the run's document, and that insert takes a key-share
+  lock on the user; `FOR UPDATE` would have blocked it while waiting for the same document — a
+  deadlock between a start and a finishing read.
+- **The whole selection is refused up front, and each batch is checked again under the lock.** The
+  first is what the operator sees; the second is for two starts racing, and turns the loser's
+  documents into `skipped` with the same sentence.
+- **Free credits are given on first look, not at sign-up** (`ensureSignupGrant`, unique on
+  `(userId, onceKey)`). One line covers password sign-up, Google sign-up and every account older than
+  the feature, and no auth code changed.
+- **Usage is recorded whether or not balances are on**, so the history a price is set from exists
+  before the switch is thrown. That is also why accounts that predate step 3 need a grant first.
+- **`Add to documents` with its test reading costs nothing.** It copies the reading (decision 78);
+  the copied run has a new id and no charge, which is right — nothing was read.
+- **The estimate and the hold share one function** (`estimateTokens` in `lib/extraction/service.ts`,
+  `estimateInputTokens` for proposals), so the dialog and the check cannot disagree.
+- **The price constants were wrong until this phase, by about four times.** `lib/ai/models.ts` held
+  $0.30 in and $2.50 out for both models. The first real reading in production — one `Propose fields`
+  on a one-page PDF, 1,766 tokens in and 2,870 out — was billed 0.96 THB, $0.0285, which is $1.50 and
+  $9.00 to the cent. Both models are corrected (3.7 Flash is $0.75 and $3.75 until 2027-01-01, then
+  $1.50 and $7.50), and the credit was resized from $0.004 to $0.02 so it is still about one page.
+  Caught before anything was charged; a ledger built on the old numbers would have undercharged
+  every reading. **A real page on 3.5 Flash is roughly $0.02 to $0.03**, most of it output, which
+  is the argument for trying 3.7 Flash as the default and for a thinking budget — neither is done.
+  Every money figure written into these docs before this date was worked out from the old constants.
+- **The rate carries no markup.** `CREDIT_MICRO_USD` is cost. What a credit sells for is decided when
+  credits are sold, and it has to cover failed readings, payment fees and the server, not only Gemini.
+  Changing the constant changes what future readings charge and never the ledger, which stores both
+  the credits charged and the cost in millionths of a dollar.
+- **Not built:** buying, an admin screen, expiry, and a balance shared by a team. `PURCHASE` is in the
+  enum so the first of these is a line, not a migration.
+
+---
+
 ## Post-v1
 
 **Provisional, as before** (decision 64). Re-rank from real usage rather than building down it. Three
@@ -828,18 +951,20 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
 9. **Template rule overrides** — a nullable `ValidationRule.templateId` and a Validation section in the
    template workspace (docs/01 §16, decision 40). Build when a real form needs a rule the book-level one
    gets wrong.
-10. **Quota** — recorded in docs/09 §8 with the condition that triggers building it (decision 55).
-    **Since Phase 21 this is what opening sign-up waits on**: every reading is on the deployment's key,
-    and the invite list is the only bound on it. A per-user page allowance is the likely shape.
+10. **Buying credits** — a price per credit and a way to pay. Phase 22 built the balance; a purchase
+    is one `PURCHASE` line in the same ledger. Set the price from the ledger's real costs and from who
+    used `Request more`, and choose the payment method from where those people are — clinics and NGOs
+    often pay by invoice or bank transfer, and card processors do not serve every country. Until then
+    `credits:grant` after being paid by hand is the whole flow.
 
 ---
 
 ## Decisions to append to docs/07 Part B
 
-Phases 13–21 rest on decisions **66–79**. 66–70 were written up when Phase 13 shipped, 76–77 when
+Phases 13–22 rest on decisions **66–79** and **81**. 66–70 were written up when Phase 13 shipped, 76–77 when
 Phase 14 did, 71–72 when Phase 15 did, 73 when Phase 16 did, 74 when Phase 17 did and 75 when Phase 18 did; the rest need writing up in the decision log with their reasoning, in the same form as
 1–65, as their phases ship. **78** came after Phase 20, when specimens moved into the template and began
-crossing to the documents by copy; it was written up with that change. **79** is Phase 21's:
+crossing to the documents by copy; it was written up with that change. **79** is Phase 21's and **81** is Phase 22's (80 is the deployment's):
 
 | # | Decision |
 |---|---|
@@ -855,6 +980,7 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 75 | Jobs is a drawer on Documents, not a workspace. ✅ written up |
 | 78 | Specimens belong to the template: in and out by copy, never a flag flip. Replaces the promotion half of 71. ✅ written up |
 | 79 | One AI key, the deployment's; sign-up by invitation; no money shown on it. Bring-your-own (54) goes dormant. ✅ written up |
+| 81 | Credits are a fixed slice of provider cost, kept as a ledger; a reading holds its estimate and is charged what it cost. Replaces 55. ✅ written up |
 
 ---
 
@@ -876,8 +1002,8 @@ crossing to the documents by copy; it was written up with that change. **79** is
 - **The transform layer is the product's spine.** Keep it pure and heavily tested; if it is correct,
   mapping mistakes cost zero AI spend to fix.
 - **Extraction and template proposal are the only things that cost money per use**, and since Phase 21
-  all of it is the owner's. Watch the per-user spend query in docs/09 §8; build the quota when the number
-  is real rather than guessed (decision 55). Until it exists, `SIGNUP_ALLOWED_EMAILS` is the whole limit:
-  production will not start without it, and `*` there is a decision to let anyone spend.
+  all of it is the owner's. Since Phase 22 it is bounded twice: per user by their credits, and for
+  everyone together by `DAILY_CREDIT_CAP`. Free credits are still the owner's money — watch the ledger
+  (docs/09 §8), and size `SIGNUP_CREDITS` and the cap from it rather than from a guess.
 - **Gemini rate limits** will throttle real batches. Keep concurrency and RPM as single env vars and
   surface `RATE_LIMITED` clearly rather than as a generic failure.

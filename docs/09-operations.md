@@ -148,7 +148,7 @@ To follow one extraction from click to finish, take `X-Request-Id` from the brow
 logs for it: the request line has it as `requestId`, the worker's lines as `correlationId`. Error pages show a
 **Reference** (Next.js digest) that matches the server's error line.
 
-## 8. AI cost and keys (Phase 12, Phase 21)
+## 8. AI cost, keys and credits (Phase 12, Phase 21, Phase 22)
 
 Extraction is the only thing this product does that costs money per use, and until Phase 12 none of it
 was visible: `ExtractionRun.inputTokens` and `outputTokens` had been recorded since Phase 5 and were
@@ -158,8 +158,8 @@ extraction landed on the owner's bill.
 **One key in use** (decision 79). Every reading runs on the deployment's `GEMINI_API_KEY`, so every
 reading is on the owner's bill. Two things follow, and both are configuration:
 
-- **`SIGNUP_ALLOWED_EMAILS` is the spend limit.** The invite list: comma-separated addresses, or `*`
-  for anyone. There is no quota (below), so it is the only bound on what the key spends. It is asked
+- **`SIGNUP_ALLOWED_EMAILS` is the first spend limit.** The invite list: comma-separated addresses, or `*`
+  for anyone. Until credits are switched on (below) it is the only bound on what the key spends. It is asked
   in two places:
   - **creating an account**, by password or by a first Google sign-in;
   - **reading on the server's key** — extraction and `Propose fields`, resolved in the worker.
@@ -187,7 +187,7 @@ reading is on the owner's bill. Two things follow, and both are configuration:
 3. `ENCRYPTION_KEY` is blank, and `/account` shows only `Reading so far`.
 4. `EXTRACTION_RPM` and `EXTRACTION_CONCURRENCY` match the key's real limits. They are **queue-wide**:
    one operator's five-hundred-page batch is ahead of everyone else's single page.
-5. The two spend queries below are run weekly. Their history is what sets a price and a quota.
+5. The spend queries below are run weekly. Their history is what sets a price, `SIGNUP_CREDITS` and the cap.
 6. Something watches the worker's log for `server AI key is missing or refused` at `error` level. When
    the key expires or loses access to a model, every operator is told only to try again later; that
    line is the one place it is said to you.
@@ -219,16 +219,85 @@ The Extract dialog's money figure comes from per-million-token list prices held 
 code, not configuration**: changing a price is a commit. Re-check them against the provider's price
 sheet when the bill stops matching the readout, and update the date.
 
+- **They were wrong until 2026-10-06**, by about four times, and were corrected against a real bill
+  (docs/06 Phase 22, as built). Credits are charged from these constants, so a wrong price is a wrong
+  charge: check one real reading's tokens against Google's bill after any model or price change.
+- **Gemini 3.7 Flash's price rises on 2027-01-01**, from $0.75 / $3.75 to $1.50 / $7.50. That is
+  already in `priceChanges` and applies itself on the day. Check the first January bill against it:
+  an announced price can change before it arrives.
+
 Output tokens are estimated from the book's **own** completed runs (average output tokens per page),
 falling back to constants until a book has read something. That matters most on TABLE registers, where a
 page holds however many rows the paper holds — a single constant is wrong by multiples in both
 directions, and a money figure that is wrong by multiples is worse than showing tokens.
 
+### Credits (Phase 22, decision 81)
+
+A credit is **$0.02 of reading at list price**, about one page of a simple form (`CREDIT_MICRO_USD`,
+`lib/credits/rate.ts`). Every reading on the deployment's key is charged what its tokens really cost,
+and holds its estimate while it is queued or running. Three settings, all optional, all in `.env`:
+
+| Variable | What it does | Unset |
+|---|---|---|
+| `SIGNUP_CREDITS` | Free credits a new account starts with. **Setting it is what switches balances on**: dialogs show credits, starts are refused when they don't fit, `/account` gains a Credits section. | Usage is recorded; nothing is enforced or shown. |
+| `DAILY_CREDIT_CAP` | The most every user together may read in one UTC day, in credits. | No ceiling. |
+| `CREDIT_REQUEST_TO` | Where `Request more` is emailed. | The button isn't offered. |
+
+- **Switching on, in order.** Deploy with all three blank and let usage record. Before setting
+  `SIGNUP_CREDITS`, grant every existing account: their recorded readings have already taken their
+  balance below zero, and the free credits alone may not bring it back. Then set the three and release
+  (§9, *Changing a secret or setting*).
+- **Opening sign-up.** `SIGNUP_ALLOWED_EMAILS=*` in production needs `SIGNUP_CREDITS` and
+  `DAILY_CREDIT_CAP` both set, or the app does not start. Per-user credits bound one account; only the
+  cap bounds many. Exposure per day is at most the cap times $0.02, and each sign-up's free credits cost at most
+  `SIGNUP_CREDITS` times $0.02.
+- **Giving someone credits.** No restart, effective at once:
+
+  ```sh
+  cd /opt/saakuu
+  docker compose -f docker-compose.prod.yml exec worker pnpm credits:grant someone@clinic.org 250 "paid by transfer 2026-10-06"
+  ```
+
+  The amount may be decimal, and negative to correct a mistake. The note is shown to the user beside
+  the line. Locally it is `pnpm credits:grant …`. Until credits are sold, this after being paid by
+  hand is the whole purchase flow.
+- **When the cap is hit** every start is refused with "SaaKuu has read as much as it can today" and the
+  app logs `daily credit cap reached` at `error` level. Nobody's credits are touched. Watch for that
+  line alongside the key-refused one; it means either real demand or someone farming free accounts,
+  and the ledger query below tells which.
+- **Free credits are given the first time an account's balance is looked at**, not at sign-up, once
+  per account for ever. Raising `SIGNUP_CREDITS` later does not top up accounts that already have theirs.
+- **A reading stops being held after three days**, and **the worker stops a batch when its owner's
+  balance goes below zero**: the pages left fail with "You've run out of credits" and nothing is
+  charged for them. A grant followed by `Retry` in the run drawer picks them up.
+- **A failed reading is free to the user** even where the provider billed it, and so is a
+  `Propose fields` that found no fields. That cost is the
+  deployment's, and belongs in the price of a credit when there is one.
+- **Changing a model's price** (`lib/ai/models.ts`) changes what future readings charge. The ledger
+  keeps what each past reading cost and was charged, and is never rewritten.
+
+```sql
+-- who is using what, last 30 days: credits charged, real cost, and what is left
+SELECT u.email,
+       count(*) FILTER (WHERE e.kind = 'USAGE')                                   AS readings,
+       coalesce(sum(e.pages) FILTER (WHERE e.kind = 'USAGE'), 0)                  AS pages,
+       round(-coalesce(sum(e."milliCredits") FILTER (WHERE e.kind = 'USAGE'), 0) / 1000.0, 1) AS credits_used,
+       round(coalesce(sum(e."costMicroUsd"), 0) / 1000000.0, 4)                   AS cost_usd,
+       round((SELECT sum(x."milliCredits") FROM "CreditEntry" x WHERE x."userId" = u.id) / 1000.0, 1) AS balance
+FROM "User" u
+JOIN "CreditEntry" e ON e."userId" = u.id AND e."createdAt" > now() - interval '30 days'
+GROUP BY u.id, u.email
+ORDER BY cost_usd DESC;
+```
+
+`credits_used / pages` per user is what a page of *their* paper costs — the number to price from, and
+the reason the unit is not pages: a table register runs several times a form.
+
 ### Watch the bill
 
-There is deliberately **no quota** (decision 55). Sizing a limit before hosted extraction is a real cost
-line, and before per-document pricing is understood, prices the product blind. What to watch instead,
-from the token columns already recorded:
+The ledger above is the readout since Phase 22. The two queries below predate it and still work; they
+read the token columns on the runs themselves, so they miss readings whose documents were deleted,
+which the ledger does not:
 
 ```sql
 -- spend shape for the last 30 days, per user
@@ -262,15 +331,14 @@ GROUP BY u.email
 ORDER BY in_tokens DESC;
 ```
 
-A proposal is one request per specimen, about $0.004 on 3.5 Flash for a card. Failed proposals count too,
+A proposal is one request per specimen, about $0.03 on 3.5 Flash for a one-page form (measured:
+1,766 tokens in, 2,870 out, billed $0.0285). Failed proposals count too,
 because a response that didn't validate was still paid for. `FieldProposal.rawResponse` is kept: it is a short
 field list, not a page of values, and it is outside the 30-day strip below.
 
-**Build the quota when both are true:** extraction on the server key is a cost line worth naming in a
-month, and the query above has enough history to set a number that is not a guess. The unit — documents,
-pages or tokens — is still open (docs/07 Part C, question 12). Until then, the exposure is bounded by
-`SIGNUP_ALLOWED_EMAILS` and by nothing else. **The quota is what has to exist before that list is
-removed and sign-up opens.**
+**What is still open is the price.** Set what a credit sells for when the ledger has enough history
+that the number is not a guess, and when `Request more` has shown who would pay and how
+(docs/06 → Post-v1, *Buying credits*).
 
 ### `rawResponse` retention
 

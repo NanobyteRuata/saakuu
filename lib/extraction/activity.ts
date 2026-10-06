@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { requireBookAccess } from "@/lib/auth/guards";
+import { creditsEnforced } from "@/lib/credits/service";
 import { prisma } from "@/lib/db/client";
 import type { Page } from "@/lib/db/pagination";
 import { requireDocumentAccess } from "@/lib/documents/access";
@@ -43,6 +44,8 @@ export type RunActivityItem = {
   runState: RunState;
   /** When the newest run of this document was started. */
   lastRunAt: string;
+  /** Phase 22: what the readings its pages currently show were charged, in thousandths of a credit; null where nothing was. */
+  milliCredits: number | null;
   pages: PageActivity[];
 };
 
@@ -127,9 +130,10 @@ async function loadActivity(ids: string[]): Promise<RunActivityItem[]> {
         },
       },
     }),
-    prisma.$queryRaw<{ id: string; documentId: string; state: RunState; photoIds: string[]; createdAt: Date; error: string | null }[]>`
-      SELECT id, "documentId", state, "photoIds", "createdAt", error FROM (
+    prisma.$queryRaw<{ id: string; documentId: string; state: RunState; photoIds: string[]; createdAt: Date; error: string | null; charged: number | null }[]>`
+      SELECT id, "documentId", state, "photoIds", "createdAt", error, charged FROM (
         SELECT r.id, r."documentId", r.state::text AS state, r."photoIds", r."createdAt", r.error,
+               (SELECT -e."milliCredits" FROM "CreditEntry" e WHERE e."runId" = r.id) AS charged,
                row_number() OVER (PARTITION BY r."documentId" ORDER BY r."createdAt" DESC, r.id DESC) AS n
         FROM "ExtractionRun" r WHERE r."documentId" IN (${Prisma.join(ids)})
       ) x WHERE n <= ${RUN_SCAN_LIMIT}`,
@@ -137,6 +141,9 @@ async function loadActivity(ids: string[]): Promise<RunActivityItem[]> {
   const runsOf = new Map<string, typeof runs>();
   for (const r of runs) runsOf.set(r.documentId, [...(runsOf.get(r.documentId) ?? []), r]);
   const byId = new Map(docs.map((d) => [d.id, d]));
+  // What each run was charged (Phase 22), shown only where balances are.
+  const showCharges = creditsEnforced();
+  const chargeOf = new Map(runs.flatMap((r) => (showCharges && r.charged !== null ? [[r.id, r.charged] as const] : [])));
   return ids.flatMap((id) => {
     const d = byId.get(id);
     const docRuns = runsOf.get(id) ?? [];
@@ -146,6 +153,7 @@ async function loadActivity(ids: string[]): Promise<RunActivityItem[]> {
     const byPage = currentRunByPage(photoIds, docRuns);
     const current = new Set(currentRuns(photoIds, docRuns).map((r) => r.id));
     const active = ACTIVE_RUN_STATES.includes(d.runState);
+    const charged = [...current].flatMap((runId) => chargeOf.get(runId) ?? []);
     return [
       {
         documentId: d.id,
@@ -153,6 +161,7 @@ async function loadActivity(ids: string[]): Promise<RunActivityItem[]> {
         templateName: d.template.name,
         runState: d.runState,
         lastRunAt: newest.toISOString(),
+        milliCredits: charged.length > 0 ? charged.reduce((sum, n) => sum + n, 0) : null,
         pages: photoIds.map((photoId, i) => {
           const run = byPage.get(photoId);
           const state: PageRunState = !run ? "NOT_READ" : run.state === "PARTIAL" || run.state === "NEVER_RUN" ? "FAILED" : run.state;

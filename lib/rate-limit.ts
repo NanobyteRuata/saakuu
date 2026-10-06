@@ -29,6 +29,8 @@ export const RATE_LIMITS = {
   extractionEstimate: { max: 120, windowMs: MINUTE },
   // Phase 16: each one reads a page with the operator's money; a handful a minute is already a lot.
   fieldProposalStart: { max: 10, windowMs: MINUTE },
+  // Phase 22: each one emails whoever runs SaaKuu; asking three times in a day is already insistent.
+  creditRequest: { max: 3, windowMs: 24 * 60 * MINUTE },
 } as const;
 
 export type RateLimitRule = keyof typeof RATE_LIMITS;
@@ -115,7 +117,7 @@ export async function peekRateLimit(rule: RateLimitRule, id: string): Promise<Ra
 
 function rateLimitedError(retryAfterSeconds: number): AppError {
   const minutes = Math.ceil(retryAfterSeconds / 60);
-  const wait = retryAfterSeconds < 90 ? "a minute" : `${minutes} minutes`;
+  const wait = retryAfterSeconds < 90 ? "a minute" : minutes < 120 ? `${minutes} minutes` : `${Math.ceil(minutes / 60)} hours`;
   return new AppError("RATE_LIMITED", `Too many attempts. Wait ${wait} and try again.`, { retryAfterSeconds });
 }
 

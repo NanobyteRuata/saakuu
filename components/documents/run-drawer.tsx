@@ -13,6 +13,7 @@ import { RUN_STATE_LABELS } from "@/lib/documents/labels";
 import { ACTIVE_RUN_STATES } from "@/lib/documents/schemas";
 import type { PageActivity, PageRunState, RunActivityItem, RunActivityPage } from "@/lib/extraction/activity";
 import type { StartResult } from "@/lib/extraction/service";
+import { creditCount } from "@/lib/credits/rate";
 import { isoDate, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -223,6 +224,7 @@ function RunItem({ item, highlight, retrying, onOpenDocument, onRetryPage, onRet
           </button>
           <span className="text-muted-foreground truncate text-xs">
             {item.templateName} · started {isoDate(item.lastRunAt)}
+            {item.milliCredits !== null ? ` · used ${creditCount(item.milliCredits)}` : ""}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">

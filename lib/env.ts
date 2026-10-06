@@ -82,6 +82,14 @@ const envSchema = z.object({
   // Phase 21: who may create an account and read on GEMINI_API_KEY — comma-separated addresses, or `*`
   // for anyone. It is what bounds that key's spend, so production refuses to start without a choice.
   SIGNUP_ALLOWED_EMAILS: optional(z.string()).transform(inviteList),
+  // Phase 22 (lib/credits). SIGNUP_CREDITS is the free credits a new account starts with, and setting
+  // it is what switches balances on; unset, usage is recorded and nothing is enforced or shown.
+  // DAILY_CREDIT_CAP is the most every user together may read on GEMINI_API_KEY in one UTC day — the
+  // bound per-user balances can't give once anyone may sign up. CREDIT_REQUEST_TO is where
+  // `Request more` is emailed; without it the button isn't offered.
+  SIGNUP_CREDITS: optional(z.coerce.number().int().min(0).max(1_000_000)),
+  DAILY_CREDIT_CAP: optional(z.coerce.number().int().min(1).max(100_000_000)),
+  CREDIT_REQUEST_TO: optional(z.email()),
 
   // Request limits on auth and extraction endpoints (lib/rate-limit.ts). Only turn off for local debugging.
   RATE_LIMIT_ENABLED: z
@@ -119,6 +127,14 @@ const envSchema = z.object({
       path: ["SIGNUP_ALLOWED_EMAILS"],
       message: "required in production while GEMINI_API_KEY is set: list who is invited, or set * to let anyone sign up and read on that key",
     });
+  }
+  // Open sign-up on a paid key is only bounded by credits, so it has to come with both halves of them.
+  if (env.NODE_ENV === "production" && env.AI_PROVIDER === "gemini" && env.GEMINI_API_KEY && env.SIGNUP_ALLOWED_EMAILS === "open") {
+    for (const name of ["SIGNUP_CREDITS", "DAILY_CREDIT_CAP"] as const) {
+      if (env[name] === undefined) {
+        ctx.addIssue({ code: "custom", path: [name], message: "required in production while SIGNUP_ALLOWED_EMAILS is * and GEMINI_API_KEY is set: anyone may sign up, and this is what bounds the key's spend" });
+      }
+    }
   }
   if (Boolean(env.AUTH_GOOGLE_ID) !== Boolean(env.AUTH_GOOGLE_SECRET)) {
     ctx.addIssue({ code: "custom", path: ["AUTH_GOOGLE_ID"], message: "set both AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET, or neither" });

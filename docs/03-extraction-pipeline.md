@@ -437,9 +437,11 @@ export type FieldProposalResult = { fields: ProposedFieldDTO[]; usage; rawRespon
 - **Job:** `template.propose` on the `extraction` queue, so it shares the key, concurrency and the rate-limit
   pause. The worker (`lib/templates/field-proposal-process.ts`) claims it with a `startedAt` fencing token,
   as runs do. The book owner's key pays. Transient errors go back to `QUEUED` and retry.
-- **Estimate:** 1,500 prompt tokens plus image tokens per page (§10's formula), and a fixed 2,500-token output
-  allowance. Real proposals on a twelve-field card measured about 1,450 output tokens including thinking,
-  about $0.004 on 3.5 Flash.
+- **Estimate:** 1,500 prompt tokens plus image tokens per page (§10's formula), and a fixed 6,000-token output
+  allowance (2,500 until Phase 22). Output is billed with the model's thinking in it: a twelve-field card
+  measured about 1,450 tokens, a one-page form 2,870 and a register with nested headers 5,443 — about
+  $0.03 to $0.05 on 3.5 Flash and a quarter of that on 3.7. The allowance sits at the top of what was seen
+  because it is also what a start holds of the operator's credits (docs/06 Phase 22).
 - **Nothing is written until accepted** (docs/04 → Field proposals). The fake provider proposes twelve form
   fields or six table columns, so the E2E can tell the kinds apart.
 

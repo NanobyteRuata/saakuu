@@ -273,7 +273,8 @@ alone would have put every stranger's extraction on the owner's bill. (Phase 12;
 decision 79: the server's key is the only one in use, and bring-your-own is dormant behind
 `ENCRYPTION_KEY`.*)
 
-**55. Quota is not built until pricing is known.** Token counts have been recorded per run since Phase 5,
+**55. Quota is not built until pricing is known.** *(Superseded by decision 81: the balance was built
+before the price, with enforcement off until a number is chosen.)* Token counts have been recorded per run since Phase 5,
 so the data to size a limit is already accumulating. Setting a number before hosted extraction is a real
 cost line, and before per-document pricing is understood, prices the product blind. The trigger condition
 is recorded in docs/09 §8 so it is not forgotten. (Phase 12)
@@ -549,6 +550,40 @@ machine is one failure: the answer for now is the nightly dump and a host that c
 
 ---
 
+**81. Credits are a fixed slice of provider cost, kept as a ledger.** Decision 55 waited for pricing
+before building a quota, and decision 79 made that quota the thing sign-up waits on. The owner's model
+settled it: free credits at sign-up, more to buy later. What had to be chosen was the unit.
+
+*Pages* are what an operator counts and what an earlier draft proposed. But a page is not a cost: a
+full table register writes back several times what a short card does, so a flat page price either
+loses money on registers or overcharges cards, and every later AI feature would need its own rule for
+how many pages it is worth. *Tokens* are what the bill counts, but there is no single token price —
+input and output are priced apart, and each model has its own — so one token balance cannot exist. A
+**credit** is neither: $0.02 of provider cost at list price (`CREDIT_MICRO_USD`), about one simple
+form page. Every reading is charged its real cost in credits, so one balance covers everything on any
+model and nothing can cost the owner more than it charges. The price of a credit is deliberately not
+in the code: it is set when credits are sold, and has to cover failed readings, payment fees and the
+server as well as the provider.
+
+The cost of this choice is that the amount is exact only afterwards. Before a reading the operator
+sees an estimate; the charge is what the tokens came to. So the rule is that the *estimate* must fit:
+a balance may end a little below zero and the next start is refused, rather than a reading being
+stopped halfway with the owner's money already spent. And because a credit means less to a clerk than
+a page, the account page translates the balance back into pages at what their own pages have cost.
+
+It is a **ledger**, not a counter: a line for the free credits, for each grant, for each completed
+reading and, later, for each purchase. Deriving usage from `ExtractionRun` would have let a user
+delete a document to get its credits back, since runs cascade with their document; the ledger has no
+foreign key to the run for the same reason `aiSpend` counts deleted books. What a queued or running
+reading is holding is a column on the run rather than a ledger line, so a reading that fails needs no
+refund on any of its paths: it stops being active and the hold is gone.
+
+Two bounds, not one. Per-user credits cannot bound open sign-up alone — free credits times unlimited
+accounts is unlimited — so `DAILY_CREDIT_CAP` limits everyone together, and production will not start
+with sign-up open unless both are set. Failed readings are free to the operator even where the
+provider billed the owner; the operator did nothing wrong, and that cost belongs in the price.
+(Phase 22)
+
 ## Part C — Open questions for later
 
 Not blocking v1, but worth revisiting once real data exists.
@@ -586,9 +621,9 @@ Not blocking v1, but worth revisiting once real data exists.
 11. ~~Does BYO API key actually clear for a non-technical operator, or does it cost more signups than it
     saves in bill?~~ Not put to the test: decision 79 chose one key before launch. It reopens only if an
     organisation asks to read on its own Google account.
-12. When quota is finally built (decision 55), what is the right unit — documents, pages or tokens?
-    Documents is what an operator counts, tokens is what the bill counts, pages is what the cost
-    actually scales with. Answer it from the first months of recorded token data, not now.
+12. ~~When quota is finally built (decision 55), what is the right unit — documents, pages or tokens?~~
+    None of the three: a credit, a fixed slice of provider cost (decision 81). What is still open is
+    what a credit sells for and how people pay, to be answered from the ledger and from `Request more`.
 13. Does the per-column correction rate (how often the AI's reading survived review) change what people
     do — switch a bad field to `MANUAL`, reword a note, change model? The data starts accumulating in
     Phase 12; the readout is only worth building if the answer is yes.

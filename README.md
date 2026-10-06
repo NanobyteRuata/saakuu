@@ -74,6 +74,9 @@ EMAIL_TRANSPORT=test AUTH_URL=http://localhost:3001 pnpm dev --port 3001
 E2E_BASE_URL=http://localhost:3001 pnpm test:e2e
 ```
 
+`e2e/credits.spec.ts` also needs `SIGNUP_CREDITS=25` and `CREDIT_REQUEST_TO=owner@example.com` on
+both the app and the worker; it is the one spec that fails without them.
+
 Stop any other `pnpm dev` and `pnpm worker` for this checkout first: two dev servers share `.next`,
 and a worker using Gemini on the same Redis would take the test's extraction jobs.
 

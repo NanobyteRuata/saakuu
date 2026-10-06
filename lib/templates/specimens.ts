@@ -200,7 +200,7 @@ export type PromoteImpact = {
    */
   reason: string | null;
   /** `read-again` only: what reading it costs and whose key pays, as the Extract dialog shows it. */
-  estimate: Pick<ExtractionEstimate, "estCostUsd" | "estSeconds" | "keySource" | "keyHint" | "model"> | null;
+  estimate: Pick<ExtractionEstimate, "estCostUsd" | "estSeconds" | "keySource" | "keyHint" | "model" | "credits"> | null;
   /** Earlier copies of this specimen still in the documents: repeating one puts its rows in twice. */
   earlierCopies: { count: number; lastAt: string } | null;
 };
@@ -220,9 +220,18 @@ async function checkProvider(userId: string, specimenId: string): Promise<Provid
   const e = await estimateExtraction(userId, { documentIds: [specimenId] });
   const blocker = e.blockers[0]?.reason ?? null;
   if (e.providerProblem !== null || blocker !== null) return { ready: false, reason: e.providerProblem ?? blocker };
+  // Phase 22: not enough credits is one more reason the copy can't be read now.
+  if (e.credits?.problem) return { ready: false, reason: e.credits.problem };
   return {
     ready: true,
-    estimate: { estCostUsd: e.estCostUsd, estSeconds: e.estSeconds, keySource: e.keySource, keyHint: e.keySource === "user" ? e.keyHint : null, model: e.model },
+    estimate: {
+      estCostUsd: e.estCostUsd,
+      estSeconds: e.estSeconds,
+      keySource: e.keySource,
+      keyHint: e.keySource === "user" ? e.keyHint : null,
+      model: e.model,
+      credits: e.credits,
+    },
   };
 }
 

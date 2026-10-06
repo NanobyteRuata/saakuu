@@ -1,3 +1,4 @@
+import { creditCount, formatCredits, type CreditEstimate } from "@/lib/credits/rate";
 import { plural } from "@/lib/format";
 
 import type { AiKeySource } from "./keys";
@@ -27,6 +28,17 @@ export function costLine(estimate: { keySource: AiKeySource | null; estCostUsd: 
   const time = aboutTime(estimate.estSeconds);
   if (showsMoney(estimate.keySource)) return `About ${formatMoney(estimate.estCostUsd)}, ${time}.`;
   return `${time.charAt(0).toUpperCase()}${time.slice(1)}.`;
+}
+
+/**
+ * `About 4.0 credits. You have 21.3.` (Phase 22). Credits, never money: on the deployment's key the
+ * figure behind them is its cost, not a price (decision 79). Null where credits aren't in play, and
+ * where the reading can't start — the dialog shows `credits.problem` instead, which has both numbers.
+ */
+export function creditLine(estimate: { credits: CreditEstimate | null }): string | null {
+  const c = estimate.credits;
+  if (c === null || c.problem !== null) return null;
+  return `About ${creditCount(c.estimate, "up")}. You have ${formatCredits(c.available, "down")}.`;
 }
 
 export function aboutTime(seconds: number): string {

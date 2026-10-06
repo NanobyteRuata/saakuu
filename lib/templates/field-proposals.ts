@@ -8,6 +8,8 @@ import { AI_MODELS, DEFAULT_MODEL_ID, estimateCostUsd, modelIdSchema, type AIMod
 import { TEMPLATE_PROMPT_VERSION } from "@/lib/ai/prompts";
 import type { ProposedFieldDTO } from "@/lib/ai/provider";
 import { providerStatus } from "@/lib/ai/status";
+import { milliCreditsFor } from "@/lib/credits/rate";
+import { chargesCredits, checkStart, creditEstimate, lockUser } from "@/lib/credits/service";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { imageTokens, MAX_IMAGES_PER_REQUEST } from "@/lib/extraction/plan";
@@ -38,8 +40,12 @@ import { childrenOf, compareSiblings, toSibling } from "./tree";
 
 /** The prompt without any fields in it: fixed text, far shorter than an extraction prompt. */
 const PROMPT_BASE_TOKENS = 1500;
-/** A field list is short: about sixty tokens a field, and forty fields is a large page. */
-const OUTPUT_TOKENS_ALLOWANCE = 2500;
+/**
+ * A field list is short, but output is billed with the model's thinking in it: real proposals
+ * (2026-10-06) wrote 1,200 to 5,400 tokens, the most on a register with nested headers. This is also
+ * what a start holds of the operator's credits (Phase 22), so it sits at the top of what was seen.
+ */
+const OUTPUT_TOKENS_ALLOWANCE = 6000;
 /** A proposal still QUEUED after this long with nothing running is enqueued again, as extraction does. */
 const STUCK_QUEUED_MS = 60_000;
 /** A RUNNING proposal older than this belongs to a worker that died; the worker may claim it again. */
@@ -82,6 +88,21 @@ function blockerFor(doc: Specimen): string | null {
 
 // ---------- estimate ----------
 
+/** What reading this page for fields is expected to send. One function for the estimate and for the credits a start holds. */
+function estimateInputTokens(doc: Specimen): number {
+  let inputTokens = PROMPT_BASE_TOKENS;
+  for (const p of doc.photos) {
+    const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
+    const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
+    inputTokens += imageTokens(Math.round(out.width * scale), Math.round(out.height * scale));
+  }
+  return inputTokens;
+}
+
+function estimateMilliCredits(model: string, doc: Specimen): number {
+  return milliCreditsFor({ model, inputTokens: estimateInputTokens(doc), outputTokens: OUTPUT_TOKENS_ALLOWANCE });
+}
+
 export async function estimateFieldProposal(userId: string, templateId: string, input: FieldProposalEstimateInput): Promise<FieldProposalEstimate> {
   await requireTemplateAccess(userId, templateId);
   const template = await prisma.template.findUniqueOrThrow({ where: { id: templateId }, select: { modelOverride: true } });
@@ -89,15 +110,11 @@ export async function estimateFieldProposal(userId: string, templateId: string, 
   const modelInfo = AI_MODELS.find((m) => m.id === model) ?? AI_MODELS[0];
   const doc = await loadSpecimen(templateId, input.documentId);
 
-  let inputTokens = PROMPT_BASE_TOKENS;
-  for (const p of doc.photos) {
-    const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
-    const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
-    inputTokens += imageTokens(Math.round(out.width * scale), Math.round(out.height * scale));
-  }
+  const inputTokens = estimateInputTokens(doc);
   const provider = await providerStatus(userId);
   return {
     providerProblem: provider.ready ? null : provider.message,
+    credits: await creditEstimate(userId, provider.ready ? provider.keySource : null, estimateMilliCredits(model, doc)),
     keySource: provider.ready ? provider.keySource : null,
     keyHint: provider.ready ? provider.hint : null,
     blocker: blockerFor(doc),
@@ -137,18 +154,30 @@ export async function startFieldProposal(userId: string, templateId: string, inp
   const idempotencyKey = proposalKey({ templateId, documentId: doc.id, model: input.model, pages: doc.photos, nonce: input.nonce });
   const existing = await prisma.fieldProposal.findUnique({ where: { idempotencyKey }, select: { id: true } });
   if (existing) return existing;
+  // Phase 22: on the deployment's key the proposal holds its estimate against the owner's credits,
+  // checked and written under the user's lock so two starts can't both spend the same ones.
+  const charged = chargesCredits(provider.keySource);
+  const hold = charged ? estimateMilliCredits(input.model, doc) : 0;
   let id: string;
   try {
-    ({ id } = await prisma.fieldProposal.create({
-      data: {
-        templateId,
-        documentId: doc.id,
-        photoIds: doc.photos.map((p) => p.id),
-        model: input.model,
-        promptVersion: TEMPLATE_PROMPT_VERSION,
-        idempotencyKey,
-      },
-      select: { id: true },
+    ({ id } = await prisma.$transaction(async (tx) => {
+      if (charged) {
+        await lockUser(tx, userId);
+        const { decision } = await checkStart(tx, userId, hold, { gate: true });
+        if (!decision.ok) throw new AppError("VALIDATION", decision.message);
+      }
+      return tx.fieldProposal.create({
+        data: {
+          templateId,
+          documentId: doc.id,
+          photoIds: doc.photos.map((p) => p.id),
+          model: input.model,
+          promptVersion: TEMPLATE_PROMPT_VERSION,
+          idempotencyKey,
+          reservedMilliCredits: hold,
+        },
+        select: { id: true },
+      });
     }));
   } catch (err) {
     // The same submission raced itself; the other request created it.

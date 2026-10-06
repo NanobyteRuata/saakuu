@@ -2,7 +2,8 @@ import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 
 import { getProvider } from "@/lib/ai";
-import { keyMaterial, resolveAiKey } from "@/lib/ai/keys";
+import { keyMaterial, resolveAiKey, type AiKeySource } from "@/lib/ai/keys";
+import { chargeRun, chargesCredits, OUT_OF_CREDITS_MESSAGE, outOfCredits } from "@/lib/credits/service";
 import { modelIdSchema } from "@/lib/ai/models";
 import { isServerKeyFailure, ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog } from "@/lib/ai/provider";
 import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
@@ -145,6 +146,7 @@ async function writeRun(
   images: ExtractionImage[],
   result: ExtractionResult,
   sequenceFieldId: string | null,
+  payer: { userId: string; keySource: AiKeySource },
 ): Promise<boolean> {
   const photoByPage = new Map(images.map((img, i) => [img.pageIndex, run.photoIds[i] ?? null]));
   const firstPage = Math.min(...images.map((i) => i.pageIndex));
@@ -220,6 +222,17 @@ async function writeRun(
           rawResponse: { summary, responses: responsesJson(result.rawResponse.responses) },
         },
       });
+      // Phase 22: charged what it really cost, in the transaction that completes it, so a run is
+      // never complete and unpaid or paid and incomplete. A failed run never reaches this line.
+      if (chargesCredits(payer.keySource)) {
+        await chargeRun(tx, run.id, {
+          userId: payer.userId,
+          model: run.model,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          pages: run.photoIds.length,
+        });
+      }
       await recomputeDocumentRun(tx, documentId);
       return true;
     },
@@ -332,6 +345,9 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
       if (!snapshot.fields.some((f) => f.mode === "EXTRACT")) throw new RunFailure("The template has no fields set to Extract.");
       const model = modelIdSchema.safeParse(run.model);
       if (!model.success) throw new RunFailure("The model chosen for this run is no longer available. Extract again.");
+      // Phase 22: asked before every reading, not once per document — the page before this one may
+      // have cost more than its estimate and taken the balance below zero.
+      if (await outOfCredits(bookOwnerId, aiKey.source)) throw new RunFailure(OUT_OF_CREDITS_MESSAGE);
       const images = await loadImages(doc.bookId, documentId, run.photoIds);
       const result = await provider.extract({
         images,
@@ -340,7 +356,7 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
         book: bookSettings,
         model: model.data,
       });
-      if (await writeRun(documentId, run, images, result, sequenceFieldId)) completed++;
+      if (await writeRun(documentId, run, images, result, sequenceFieldId, { userId: bookOwnerId, keySource: aiKey.source })) completed++;
     } catch (err) {
       if (err instanceof RunFailure) {
         await failRun(run, err.message);

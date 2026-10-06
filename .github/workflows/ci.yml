@@ -29,6 +29,9 @@ env:
   AUTH_SECRET: ci-only-secret-not-for-production-0123456789
   AUTH_URL: http://localhost:3000
   EMAIL_TRANSPORT: test
+  # Phase 22: balances on, so e2e/credits.spec.ts can see them. 25 is far more than any other spec reads.
+  SIGNUP_CREDITS: "25"
+  CREDIT_REQUEST_TO: owner@example.com
   NEXT_TELEMETRY_DISABLED: "1"
   PRISMA_HIDE_UPDATE_MESSAGE: "1"
 

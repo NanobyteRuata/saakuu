@@ -13,9 +13,9 @@ datasource db {
 // ---------- Auth (Auth.js compatible) ----------
 
 model User {
-  id             String     @id @default(cuid(2))
-  email          String     @unique
-  emailVerified  DateTime?  @db.Timestamptz(3)
+  id             String        @id @default(cuid(2))
+  email          String        @unique
+  emailVerified  DateTime?     @db.Timestamptz(3)
   name           String?
   image          String?
   passwordHash   String? // null for OAuth-only users
@@ -23,11 +23,52 @@ model User {
   // returned to the client; `aiApiKeyHint` is the last four characters, which is all the UI shows.
   aiApiKeyCipher String?
   aiApiKeyHint   String?
-  createdAt      DateTime   @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
   accounts       Account[]
   sessions       Session[]
   books          Book[]
   cellEdits      CellEdit[]
+  creditEntries  CreditEntry[]
+}
+
+// ---------- Credits (Phase 22) ----------
+
+enum CreditKind {
+  SIGNUP
+  GRANT
+  PURCHASE
+  USAGE
+}
+
+/// One line of a user's credit ledger (decision 81). A credit is a fixed slice of provider cost
+/// (`lib/credits/rate.ts`), so one balance covers every kind of AI reading on any model. The balance is
+/// the sum of a user's entries; what a queued or running reading is holding lives on the run
+/// (`reservedMilliCredits`), not here, so a reading that fails leaves nothing to undo.
+///
+/// `runId` and `proposalId` are deliberately not foreign keys: this is a record of what was spent, and
+/// it must outlive a deleted document (the same rule as `aiSpend`). Their uniqueness is what makes
+/// charging a reading twice impossible.
+model CreditEntry {
+  id           String     @id @default(cuid(2))
+  userId       String
+  kind         CreditKind
+  milliCredits Int // signed: positive for SIGNUP, GRANT and PURCHASE, negative for USAGE
+  costMicroUsd Int? // USAGE: what the reading cost the deployment at list price
+  inputTokens  Int?
+  outputTokens Int?
+  model        String?
+  pages        Int?
+  runId        String?    @unique
+  proposalId   String?    @unique
+  onceKey      String? // "signup": the free grant can only be given once per user
+  note         String?
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, onceKey])
+  @@index([userId, createdAt])
+  @@index([kind, createdAt])
 }
 
 model Account {
@@ -83,18 +124,18 @@ enum DateEra {
 }
 
 model Book {
-  id                  String        @id @default(cuid(2))
-  userId              String
-  name                String
-  defaultModel        String        @default("gemini-3.5-flash")
-  numeralSystem       NumeralSystem @default(AUTO)
-  dateEra             DateEra       @default(GREGORIAN)
+  id             String        @id @default(cuid(2))
+  userId         String
+  name           String
+  defaultModel   String        @default("gemini-3.5-flash")
+  numeralSystem  NumeralSystem @default(AUTO)
+  dateEra        DateEra       @default(GREGORIAN)
   // export prefs
-  blankToken          String        @default("")
-  illegibleToken      String        @default("?")
-  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt           DateTime      @updatedAt @db.Timestamptz(3)
-  deletedAt           DateTime?     @db.Timestamptz(3)
+  blankToken     String        @default("")
+  illegibleToken String        @default("?")
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+  deletedAt      DateTime?     @db.Timestamptz(3)
 
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   columns   OutputColumn[]
@@ -185,7 +226,7 @@ model Template {
   updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
   deletedAt        DateTime?    @db.Timestamptz(3)
 
-  book      Book         @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  book      Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
   groups    FieldGroup[]
   fields    Field[]
   mappings  Mapping[]
@@ -373,33 +414,33 @@ model Batch {
 }
 
 model Document {
-  id                 String       @id @default(cuid(2))
-  bookId             String
-  templateId         String
-  batchId            String?
-  label              String? // defaults to first photo filename
-  position           String
-  runState           RunState     @default(NEVER_RUN)
-  contentState       ContentState @default(UNKNOWN)
-  templateMatchScore Float? // anchor detection, 0..1
-  needsReview        Boolean      @default(false)
-  isSpecimen         Boolean      @default(false) // Phase 15: a page uploaded to build a template against (decision 71)
-  lastRunAt          DateTime?    @db.Timestamptz(3)
-  lastModel          String?
-  manualValues       Json? // MANUAL-mode field values: { fieldId: value }
-  transformFlags     Json? // Phase 6: document review flags from the last transform: [{ kind, message }]
-  contentChangedAt   DateTime?    @db.Timestamptz(3) // Phase 11: a page was transformed, replaced or added
-  lastExtractedAt    DateTime?    @db.Timestamptz(3) // Phase 11: finishedAt of the latest COMPLETE run; only ever moves forward
+  id                   String       @id @default(cuid(2))
+  bookId               String
+  templateId           String
+  batchId              String?
+  label                String? // defaults to first photo filename
+  position             String
+  runState             RunState     @default(NEVER_RUN)
+  contentState         ContentState @default(UNKNOWN)
+  templateMatchScore   Float? // anchor detection, 0..1
+  needsReview          Boolean      @default(false)
+  isSpecimen           Boolean      @default(false) // Phase 15: a page uploaded to build a template against (decision 71)
+  lastRunAt            DateTime?    @db.Timestamptz(3)
+  lastModel            String?
+  manualValues         Json? // MANUAL-mode field values: { fieldId: value }
+  transformFlags       Json? // Phase 6: document review flags from the last transform: [{ kind, message }]
+  contentChangedAt     DateTime?    @db.Timestamptz(3) // Phase 11: a page was transformed, replaced or added
+  lastExtractedAt      DateTime?    @db.Timestamptz(3) // Phase 11: finishedAt of the latest COMPLETE run; only ever moves forward
   copyKey              String?      @unique // decision 78: idempotency key of the copy that created this document
   copiedFromDocumentId String? // decision 78: soft reference (no FK), counts earlier copies of a specimen
-  createdAt          DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime     @updatedAt @db.Timestamptz(3)
-  deletedAt          DateTime?    @db.Timestamptz(3)
+  createdAt            DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime     @updatedAt @db.Timestamptz(3)
+  deletedAt            DateTime?    @db.Timestamptz(3)
 
-  book     Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  template Template        @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  batch    Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
-  photos   Photo[]
+  book      Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  template  Template        @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  batch     Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  photos    Photo[]
   runs      ExtractionRun[]
   records   RawRecord[]
   rows      Row[]
@@ -471,21 +512,23 @@ model StorageDeletion {
 // ---------- Extraction runs ----------
 
 model ExtractionRun {
-  id             String    @id @default(cuid(2))
-  documentId     String
-  model          String
-  promptVersion  String
-  passIndex      Int       @default(0) // 1 for the second pass of double extraction
-  idempotencyKey String    @unique
-  state          RunState  @default(QUEUED)
-  startedAt      DateTime? @db.Timestamptz(3)
-  finishedAt     DateTime? @db.Timestamptz(3)
-  error          String?
-  inputTokens    Int?
-  outputTokens   Int?
-  rawResponse    Json? // full model response, for debugging
-  photoIds       String[]  @default([]) // Phase 5: pages sent in this model call, in page order
-  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  id                   String    @id @default(cuid(2))
+  documentId           String
+  model                String
+  promptVersion        String
+  passIndex            Int       @default(0) // 1 for the second pass of double extraction
+  idempotencyKey       String    @unique
+  state                RunState  @default(QUEUED)
+  startedAt            DateTime? @db.Timestamptz(3)
+  finishedAt           DateTime? @db.Timestamptz(3)
+  error                String?
+  inputTokens          Int?
+  outputTokens         Int?
+  rawResponse          Json? // full model response, for debugging
+  photoIds             String[]  @default([]) // Phase 5: pages sent in this model call, in page order
+  // Phase 22: the estimate held against the owner's credits while this run is QUEUED or RUNNING.
+  reservedMilliCredits Int       @default(0)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
 
   document Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
   records  RawRecord[]
@@ -501,24 +544,25 @@ model ExtractionRun {
 /// the operator confirms, when `acceptedAt` is set. Kept apart from ExtractionRun because every run of a
 /// document is read as an extraction (its run state, its raw layer), and a proposal is neither.
 model FieldProposal {
-  id               String    @id @default(cuid(2))
-  templateId       String
-  documentId       String // the specimen that was read
-  photoIds         String[]  @default([]) // pages sent, in page order
-  model            String
-  promptVersion    String
-  idempotencyKey   String    @unique
-  state            RunState  @default(QUEUED) // QUEUED, RUNNING, FAILED or COMPLETE
-  startedAt        DateTime? @db.Timestamptz(3)
-  finishedAt       DateTime? @db.Timestamptz(3)
-  error            String?
-  inputTokens      Int?
-  outputTokens     Int?
-  rawResponse      Json? // every model response, for debugging
-  items            Json? // validated ProposedFieldDTO[] in paper order, once COMPLETE
-  acceptedAt       DateTime? @db.Timestamptz(3)
-  acceptedFieldIds String[]  @default([])
-  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  id                   String    @id @default(cuid(2))
+  templateId           String
+  documentId           String // the specimen that was read
+  photoIds             String[]  @default([]) // pages sent, in page order
+  model                String
+  promptVersion        String
+  idempotencyKey       String    @unique
+  state                RunState  @default(QUEUED) // QUEUED, RUNNING, FAILED or COMPLETE
+  startedAt            DateTime? @db.Timestamptz(3)
+  finishedAt           DateTime? @db.Timestamptz(3)
+  error                String?
+  inputTokens          Int?
+  outputTokens         Int?
+  rawResponse          Json? // every model response, for debugging
+  items                Json? // validated ProposedFieldDTO[] in paper order, once COMPLETE
+  acceptedAt           DateTime? @db.Timestamptz(3)
+  acceptedFieldIds     String[]  @default([])
+  reservedMilliCredits Int       @default(0) // Phase 22: held while QUEUED or RUNNING, as on ExtractionRun
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
 
   template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -645,6 +689,7 @@ model Cell {
   @@unique([rowId, outputColumnId])
   @@index([outputColumnId, validationState])
   @@index([rowId])
+  @@index([isReviewed, reviewedAt])
 }
 
 // Phase 12: how a cell came to be reviewed. Without this, one row-level mark stamps every cell in

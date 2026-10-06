@@ -3,9 +3,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { AiKeyForm } from "@/components/account/ai-key-form";
+import { CreditsSection } from "@/components/account/credits-section";
 import { aiAccount } from "@/lib/account/service";
 import { formatMoney } from "@/lib/ai/models";
 import { requireSessionUserId } from "@/lib/auth/session";
+import { creditAccount } from "@/lib/credits/service";
 import { PageScroll } from "@/components/shell/page-scroll";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +32,7 @@ function Section({ title, description, children }: { title: string; description:
 /** The account area (Phase 12): what this user's books have read, and their own AI key where a deployment allows one. */
 export default async function AccountPage() {
   const userId = await requireSessionUserId();
-  const account = await aiAccount(userId);
+  const [account, credits] = await Promise.all([aiAccount(userId), creditAccount(userId)]);
   const { spend } = account;
   // Money is this user's own bill only on their own key (Phase 21); on the server's, counts alone.
   const ownKey = account.hint !== null;
@@ -57,6 +59,16 @@ export default async function AccountPage() {
             description="Which key pays for reading your pages. Your own key puts extraction on your own account; without one, the server's key is used where it has been set up."
           >
             <AiKeyForm account={account} />
+          </Section>
+        ) : null}
+
+        {/* Phase 22: only where balances are switched on, and never on a personal key, which is the user's own bill. */}
+        {credits && !ownKey ? (
+          <Section
+            title="Credits"
+            description="Reading pages with AI uses credits. A credit is about one page of a simple form; a page full of handwriting uses more."
+          >
+            <CreditsSection initial={credits} />
           </Section>
         ) : null}
 

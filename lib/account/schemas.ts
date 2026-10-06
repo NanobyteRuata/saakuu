@@ -15,3 +15,9 @@ export const saveAiKeySchema = z.object({
     .max(200, "That's longer than an API key. Paste just the key."),
 });
 export type SaveAiKeyInput = z.infer<typeof saveAiKeySchema>;
+
+/** `Request more` (Phase 22): an optional line saying what the credits are for. */
+export const creditRequestSchema = z.object({
+  note: z.string().trim().max(500, "Keep the note under 500 characters.").optional(),
+});
+export type CreditRequestInput = z.infer<typeof creditRequestSchema>;

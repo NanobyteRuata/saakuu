@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { getProvider } from "@/lib/ai";
 import { keyMaterial, resolveAiKey } from "@/lib/ai/keys";
+import { chargeProposal, chargesCredits, OUT_OF_CREDITS_PROPOSAL_MESSAGE, outOfCredits } from "@/lib/credits/service";
 import { modelIdSchema } from "@/lib/ai/models";
 import { isServerKeyFailure, ProviderError, providerErrorMessage, type ResponseLog } from "@/lib/ai/provider";
 import { sortByPosition } from "@/lib/books/column-ops";
@@ -94,6 +95,7 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
   try {
     const model = modelIdSchema.safeParse(proposal.model);
     if (!model.success) throw new RunFailure("The model chosen for this proposal is no longer available. Try again.");
+    if (await outOfCredits(template.book.userId, keySource)) throw new RunFailure(OUT_OF_CREDITS_PROPOSAL_MESSAGE);
     // Its failures are worded for extraction ("Extract it again"); say the same things about a proposal.
     const images = await loadImages(template.book.id, proposal.documentId, proposal.photoIds).catch((err: unknown) => {
       if (err instanceof RunFailure && err.reason === "pages-changed") {
@@ -117,17 +119,31 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
       glossary: sortByPosition(glossary).map((g) => ({ term: g.term, meaning: g.meaning })),
       model: model.data,
     });
-    const { count: written } = await prisma.fieldProposal.updateMany({
-      where: fence,
-      data: {
-        state: "COMPLETE",
-        finishedAt: new Date(),
-        error: null,
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        rawResponse: responsesJson(result.rawResponse.responses),
-        items: result.fields,
-      },
+    // Phase 22: completed and charged in one transaction, as an extraction run is.
+    const written = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.fieldProposal.updateMany({
+        where: fence,
+        data: {
+          state: "COMPLETE",
+          finishedAt: new Date(),
+          error: null,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          rawResponse: responsesJson(result.rawResponse.responses),
+          items: result.fields,
+        },
+      });
+      // A proposal that found no fields gave the operator nothing, so it is free, as a failed reading is.
+      if (count > 0 && result.fields.length > 0 && chargesCredits(keySource)) {
+        await chargeProposal(tx, proposalId, {
+          userId: template.book.userId,
+          model: model.data,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          pages: proposal.photoIds.length,
+        });
+      }
+      return count;
     });
     return written > 0 ? "complete" : "idle";
   } catch (err) {

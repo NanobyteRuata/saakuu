@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { AiKeySource } from "@/lib/ai/keys";
 import { modelIdSchema } from "@/lib/ai/models";
+import type { CreditEstimate } from "@/lib/credits/rate";
 import { nonceSchema } from "@/lib/extraction/schemas";
 import { idSchema } from "@/lib/validation";
 
@@ -61,5 +62,7 @@ export type FieldProposalEstimate = {
   pages: number;
   estCostUsd: number;
   estSeconds: number;
+  /** Phase 22: what this would use of the operator's credits and what they have; null where credits aren't in play. */
+  credits: CreditEstimate | null;
   model: string;
 };

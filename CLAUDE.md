@@ -76,6 +76,7 @@ lib/
   db/                    prisma client, query helpers
   auth/                  Auth.js config, guards, session helpers, account service, tokens
   email/                 EmailSender interface, Resend/log/test transports, templates
+  credits/               what a credit is (rate), the ledger, holds, the start check
 worker/                  BullMQ worker entrypoint + processors
 deploy/                  production: Caddyfile, release + backup scripts, env template, bucket CORS rule
 .github/workflows/       ci.yml (test, image, deploy), deploy.yml (release; by hand = rollback)

@@ -60,7 +60,30 @@ DELETE /api/account/ai-key                 -> { hint: null }       falls back to
 - `PUT` is refused with `VALIDATION` when the deployment has no `ENCRYPTION_KEY`; the page says so
   rather than offering a field that cannot work.
 - The page also reads total spend, derived from `ExtractionRun.inputTokens`/`outputTokens` priced per
-  model. There is no quota (decision 55, docs/09 §8).
+  model.
+
+**Credits (Phase 22, decision 81).** Only on a deployment with `SIGNUP_CREDITS` set.
+```
+GET    /api/account/credits?cursor=        -> CreditAccount        balance and a page of the ledger
+POST   /api/account/credit-requests        { note? } -> { sent }   emails whoever runs SaaKuu
+```
+- `CreditAccount` is `{ balance, reserved, used, pagesLeft, canRequest, entries[], nextCursor }`, all
+  amounts in thousandths of a credit. `entries` are newest first, 20 a page, cursor on the entry id.
+  `GET` is `NOT_FOUND` where credits aren't switched on.
+- `credit-requests` grants nothing: it sends the user's address, balance, usage and note to
+  `CREDIT_REQUEST_TO`. `VALIDATION` when that isn't configured. Rate limit `creditRequest`, 3 a day per user.
+- **Every estimate that can spend carries `credits`**: `POST /api/extractions/estimate`, the field
+  proposal estimate and the specimen promote impact return
+  `credits: { estimate, available, problem } | null` — null where credits aren't enforced or the run
+  would use a personal key. `problem` is the refusal sentence, with both numbers, or null.
+- **Every start checks it.** `POST /api/extractions/start` refuses the whole selection with
+  `VALIDATION` and that sentence before anything is queued; a start that loses a race to another
+  returns its documents in `skipped` with the same reason. `retry` and the field-proposal start do
+  the same. The daily ceiling refuses in the same way with its own sentence.
+- `POST /api/test/credits { email, credits }` writes a `GRANT` line for Playwright. 404 unless
+  `EMAIL_TRANSPORT=test` outside production, the same switch as the test outbox.
+- `RunActivityItem.milliCredits` (the run drawer) and `RunDetail.milliCredits` are what a completed
+  reading was charged, or null.
 
 ## Books
 ```

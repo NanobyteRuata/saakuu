@@ -158,7 +158,19 @@ Extract dialog names a personal key when one is in use (decision 54). When the d
 
 **Reading so far.** One figure: what every completed reading in this user's books has cost, at the
 models' list prices, with the document and reading counts beside it. It is stated as an estimate, not
-a bill. There is no quota and no cap (decision 55) — what exists is a number the operator can see.
+a bill.
+
+**Credits** (Phase 22, decision 81), above `Reading so far`, only where the deployment has switched
+balances on and the user isn't on a personal key.
+- One figure: credits left, and beside it `about N pages at what your pages have cost so far` once
+  they have read something — a credit means less to a clerk than a page does.
+- Under it: credits used, credits held by readings in progress, and that a reading that fails costs
+  nothing. If the last reading took the balance below zero, it says so rather than showing a minus.
+- `Request more` opens an optional note and sends it to whoever runs SaaKuu. Nothing is granted by
+  the button; the toast says the credits will appear here once they are added.
+- The history, newest first: date, what (`Free credits for a new account`, `Added for you`,
+  `Read 3 pages`, `Correction`), and the signed amount to one decimal. `Show older` pages it.
+- Never money.
 
 ## 6. Templates workspace
 List of template cards. Each card:
@@ -588,6 +600,19 @@ Shows: document count, page count, model selector (pre-filled from template over
 else book default), estimated tokens/time. Warning blocks for: documents containing
 edited cells, templates in Conflicted state, documents flagged as possible mismatch.
 Confirm enqueues and closes; a progress indicator appears on the affected rows.
+
+*Credits (Phase 22):* under the page and time line, `About 4.0 credits. You have 21.3.` When it
+doesn't fit, that line is replaced by the refusal — `This needs about 40.0 credits. You have 12.0.`
+with a link to the account page — and the confirm button is disabled. `Propose fields` and
+`Add to documents` say the same in the same words. In the run drawer a read document's line ends
+`· used 0.4 credits`.
+
+*Model hint (Phase 22):* one line under the model picker in Extract and in `Propose fields`
+(`modelHint`, `lib/ai/models.ts`) — `Most reliable so far.` for 3.5 Flash, `Newer. If it finds nothing
+on a page, try 3.5 Flash.` for 3.7 — with `Uses more credits.` / `Uses fewer credits.` added only where
+the operator has credits. It says what to do, not what the model is: on the first real pages 3.7 cost
+about a fifth as much and twice returned no fields from a page 3.5 read. An empty proposal says to read
+again with another model before it says to type the fields by hand.
 
 *As built (Phase 5):*
 - Opened from the Documents selection bar (`Extract`, `Re-extract`), the document drawer footer, and

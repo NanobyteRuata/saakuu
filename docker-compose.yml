@@ -33,8 +33,14 @@ x-app-env: &app-env
   AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
   AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
   # The invite list (Phase 21): emails, or * for anyone. This image runs in production mode, which refuses
-  # to start with it unset while GEMINI_API_KEY is set — put SIGNUP_ALLOWED_EMAILS=* in .env for local use.
+  # to start with it unset while GEMINI_API_KEY is set. For local use put your own address in .env; `*` also
+  # needs SIGNUP_CREDITS and DAILY_CREDIT_CAP (Phase 22).
   SIGNUP_ALLOWED_EMAILS: ${SIGNUP_ALLOWED_EMAILS:-}
+  # Credits (Phase 22): free credits per new account (setting it switches balances on), the most
+  # everyone together may read in a day, and where `Request more` is emailed.
+  SIGNUP_CREDITS: ${SIGNUP_CREDITS:-}
+  DAILY_CREDIT_CAP: ${DAILY_CREDIT_CAP:-}
+  CREDIT_REQUEST_TO: ${CREDIT_REQUEST_TO:-}
   EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-log}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   EMAIL_FROM: ${EMAIL_FROM:-SaaKuu <onboarding@resend.dev>}

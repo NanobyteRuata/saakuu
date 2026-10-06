@@ -238,6 +238,33 @@ this plan signs up freely.
 | ACC-11 | Save a key (ACC-02), then blank `ENCRYPTION_KEY`, restart app and worker, extract one document | It reads on the server's key. The saved key is ignored, not reported as broken |
 | ACC-12 | **[Gemini]** With `ENCRYPTION_KEY` blank, set `GEMINI_API_KEY` to a bad value, restart the worker, extract | The run fails saying it is a problem on SaaKuu's side, not with the pages. Nothing tells the operator to fix a key. The worker log has `server AI key is missing or refused` at `error` level, with `KEY_REFUSED` |
 
+### Credits (Phase 22)
+
+Set `SIGNUP_CREDITS=25`, `DAILY_CREDIT_CAP=1000` and `CREDIT_REQUEST_TO=<an address you can read>`, restart
+the app **and the worker**. `AI_PROVIDER=fake` is enough except where marked. Unset all three afterwards.
+
+| ID | Steps | Expected |
+|---|---|---|
+| CRED-01 | Sign up a new user, open `/account` | A `Credits` section: `25.0` credits left, one history line `Free credits for a new account` `+25.0`. No money anywhere |
+| CRED-02 | Reload `/account` several times; open it in two tabs at once | Still one free-credits line. psql: one `CreditEntry` with `onceKey = 'signup'` for the user |
+| CRED-03 | Open an Extract dialog for one document | Under pages and time: `About N credits. You have 25.0.` The model hint ends `Uses more credits.` (3.5) or `Uses fewer credits.` (3.7) |
+| CRED-04 | Extract it; open `Runs` | The document's line ends `· used N credits`. `/account` shows the balance down by exactly that and a `Read 1 page` line |
+| CRED-05 | `Propose fields` on a specimen | Same estimate line; after it completes, a line on `/account` for it |
+| CRED-06 | `pnpm credits:grant <email> -25 "test"` then open an Extract dialog | `This needs about N credits. You have 0.0.` with `See your credits`; the confirm button is disabled. Review, editing and export all still work |
+| CRED-07 | With the dialog from CRED-06 bypassed (`POST /api/extractions/start` by hand) | `400 VALIDATION` with the same sentence; no `ExtractionRun` row was created |
+| CRED-08 | `pnpm credits:grant <email> 10 "paid by transfer"` | Prints the new balance. `/account` shows `Added for you · paid by transfer` `+10.0` at once, with no restart |
+| CRED-09 | `Request more`, write a note, `Send request` | Toast says it was sent. The address in `CREDIT_REQUEST_TO` gets the user's email, balance, usage, the note and the grant command. A fourth request the same day is refused |
+| CRED-10 | Restart the worker with `AI_FAKE_BEHAVIOUR=error`, extract one document | The run fails. `/account`: balance unchanged, no new line, nothing `held by readings in progress` |
+| CRED-11 | Select several documents whose estimate is just over the balance and extract | Refused as a whole, before anything is queued. Select fewer, and it starts |
+| CRED-12 | In two tabs, start two different documents at the same moment on a balance that covers one | One starts; the other is refused or skipped with the both-numbers sentence |
+| CRED-13 | Queue a batch, then `credits:grant` the user below zero while it is running | The pages not yet read fail with `You've run out of credits… Nothing was charged for them.` Granting credits and `Retry` reads them |
+| CRED-14 | Set `DAILY_CREDIT_CAP=1`, restart, read until it is passed | Starts are refused with `SaaKuu has read as much as it can today…`. The app log has `daily credit cap reached` at `error`, once per refused start and not on opening a dialog |
+| CRED-15 | Unset `SIGNUP_CREDITS` (leave the others), restart, extract a document | No credit line in any dialog, no `Credits` section, model hint without the credits sentence. psql: a `USAGE` row was still written |
+| CRED-16 | `NODE_ENV=production`, `AI_PROVIDER=gemini`, a `GEMINI_API_KEY`, `SIGNUP_ALLOWED_EMAILS=*`, no credit variables; start the app | Refuses to start, naming `SIGNUP_CREDITS` and `DAILY_CREDIT_CAP`. With both set it starts |
+| CRED-17 | With `ENCRYPTION_KEY` set and a personal key saved (ACC-02), extract | Money and the key line as in ACC-07, no credit line, no `Credits` section, and no `CreditEntry` written |
+| CRED-18 | **[Gemini]** Read one page on each model; compare `CreditEntry.costMicroUsd` with Google's billing for the same reading | They agree to within rounding. If they don't, the price in `lib/ai/models.ts` is stale (docs/09 §8) |
+| CRED-19 | **[Gemini]** `Propose fields` on a page a model returns nothing for | `The AI found no fields… read it again with another model…`, and no `USAGE` row: an empty proposal is free |
+
 ---
 
 ## 6. Books

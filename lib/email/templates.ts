@@ -52,3 +52,14 @@ export function accountExistsMessage(to: string, signInUrl: string, forgotUrl: s
     html: layout(lines),
   };
 }
+
+/** To whoever runs SaaKuu (Phase 22): an operator asked for more credits. Plain facts, and the command that grants them. */
+export function creditRequestMessage(to: string, request: { email: string; balance: string; used: string; note: string | null }): EmailMessage {
+  const lines = [
+    `${request.email} asked for more credits.`,
+    `Balance: ${request.balance}. Used so far: ${request.used}.`,
+    ...(request.note ? [`Their note: ${request.note}`] : []),
+    `To add some: pnpm credits:grant ${request.email} <credits>`,
+  ];
+  return { to, subject: `SaaKuu: ${request.email} asked for more credits`, text: lines.join("\n\n"), html: layout(lines) };
+}

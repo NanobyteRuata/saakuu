@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { CreditProblem } from "@/components/account/credit-problem";
 import { FormMessage } from "@/components/auth/form-message";
 import {
   AlertDialog,
@@ -19,8 +20,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { costLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
-import { AI_MODELS, type AIModelId } from "@/lib/ai/models";
+import { costLine, creditLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
+import { AI_MODELS, modelHint, type AIModelId } from "@/lib/ai/models";
 import { getJson, postJson } from "@/lib/api-client";
 import { plural } from "@/lib/format";
 import type { FieldProposalEstimate, FieldProposalView } from "@/lib/templates/field-proposal-schemas";
@@ -216,7 +217,7 @@ export function ProposeFieldsDialog({
   const chosen = items.filter((i) => included.has(i.index));
   const left = items.length - chosen.length;
   const reading = stage === "reading";
-  const blocked = estimate === null || estimate.providerProblem !== null || estimate.blocker !== null;
+  const blocked = estimate === null || estimate.providerProblem !== null || estimate.blocker !== null || Boolean(estimate.credits?.problem);
 
   function toggle(index: number, on: boolean) {
     setIncluded((prev) => {
@@ -261,12 +262,14 @@ export function ProposeFieldsDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {model ? <p className="text-muted-foreground text-xs">{modelHint(model, Boolean(estimate?.credits))}</p> : null}
               </div>
               {estimate ? (
                 <div className="flex flex-col gap-1">
                   <p>
                     {plural(estimate.pages, "photo")}, one request to the model. {costLine(estimate)}
                   </p>
+                  {creditLine(estimate) ? <p>{creditLine(estimate)}</p> : null}
                   {showsMoney(estimate.keySource) ? (
                     <p className="text-muted-foreground text-xs">
                       Estimated at the model&apos;s list prices. {keyLine(estimate)}
@@ -278,6 +281,7 @@ export function ProposeFieldsDialog({
               )}
               {estimate?.blocker ? <FormMessage tone="error">{estimate.blocker}</FormMessage> : null}
               {estimate?.providerProblem ? <FormMessage tone="error">{estimate.providerProblem}</FormMessage> : null}
+              {estimate && !estimate.blocker ? <CreditProblem credits={estimate.credits} /> : null}
             </div>
           ) : null}
 
@@ -290,7 +294,8 @@ export function ProposeFieldsDialog({
           {stage === "proposal" ? (
             items.length === 0 ? (
               <p className="text-muted-foreground text-sm">
-                The AI found no fields on this page. Check the page is the right way up and not blank, or add the fields by hand.
+                The AI found no fields on this page. Check the page is the right way up and not blank, read it again with
+                another model, or add the fields by hand.
               </p>
             ) : (
               <div className="flex min-h-0 flex-col gap-2">

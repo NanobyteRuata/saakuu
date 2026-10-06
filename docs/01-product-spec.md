@@ -80,9 +80,13 @@ an **Extraction** or **Run**. Use these terms consistently in code and UI.
 - Sessions: 30-day rolling, database-backed.
 - **One AI key, the deployment's** (Phase 21, decision 79). Every reading runs on it, so an
   operator never makes, pastes or hears about a key, which matters because the audience is
-  explicitly non-technical. The invitation list above is what bounds its spend; no quota is
-  set until pricing is understood (decision 55, docs/09 §8), and the quota is what opening
-  sign-up waits on. On this key the app shows pages and time, never money.
+  explicitly non-technical. On this key the app shows pages, time and credits, never money.
+- **Credits** (Phase 22, decision 81). An account starts with some free ones; every reading says
+  about how many it will use before it starts and exactly how many it used afterwards, and one
+  that doesn't fit is refused with both numbers. A credit is a fixed slice of what reading costs,
+  about one page of a simple form. More come from whoever runs SaaKuu, by `Request more`; buying
+  them is not built yet. They are what bounds the key's spend once the invitation list opens
+  (docs/09 §8).
 - **A personal key, dormant** (Phase 12, decision 54). Where a deployment sets
   `ENCRYPTION_KEY`, a user may save their own Gemini key; it wins over the server's, is stored
   encrypted and is never shown again beyond its last four characters. Only then do the

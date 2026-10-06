@@ -30,6 +30,9 @@ if [ "$health" != "healthy" ]; then
   exit 1
 fi
 
+# The Caddyfile is a bind-mounted file: `up` does not notice a new one, and the mount still points at the old copy.
+$COMPOSE restart caddy
+
 echo "$TAG" > .release
 docker image prune -f > /dev/null
 $COMPOSE ps

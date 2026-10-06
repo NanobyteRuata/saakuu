@@ -1,6 +1,6 @@
 [
   {
-    "AllowedOrigins": ["https://178-128-91-83.sslip.io"],
+    "AllowedOrigins": ["https://saakuu.online"],
     "AllowedMethods": ["GET", "HEAD", "PUT"],
     "AllowedHeaders": ["content-type"],
     "ExposeHeaders": ["ETag"],

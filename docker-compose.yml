@@ -70,8 +70,11 @@ services:
       retries: 30
 
   minio:
-    # Docker Hub `minio/minio` is no longer published; quay.io is the official registry.
-    image: quay.io/minio/minio:latest
+    # MinIO stopped publishing images (Docker Hub and quay.io both refuse pulls); Chainguard builds it from source.
+    # The image ships `mc`, so minio-init uses it too. It defaults to a non-root user, which cannot write a
+    # data volume the old image created as root, so it runs as root here as that one did.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: saakuu
@@ -88,7 +91,7 @@ services:
       retries: 30
 
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: cgr.dev/chainguard/minio:latest
     depends_on:
       minio:
         condition: service_healthy

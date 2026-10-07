@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { costLine, creditLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
+import { costLine, creditLine, keyLine, photoQualityLine, showsMoney } from "@/lib/ai/cost-lines";
 import { AI_MODELS, modelHint, type AIModelId } from "@/lib/ai/models";
 import { getJson, postJson } from "@/lib/api-client";
 import { plural } from "@/lib/format";
@@ -85,6 +85,8 @@ export function ProposeFieldsDialog({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  /** The proposal being read, so `Stop` knows which one. */
+  const [readingId, setReadingId] = useState<string | null>(null);
   const base = `/api/templates/${templateId}/field-proposals`;
   const pollToken = useRef(0);
 
@@ -95,6 +97,7 @@ export function ProposeFieldsDialog({
   }
 
   async function poll(proposalId: string) {
+    setReadingId(proposalId);
     const token = ++pollToken.current;
     let failures = 0;
     for (let i = 0; i < MAX_POLLS; i++) {
@@ -187,6 +190,26 @@ export function ProposeFieldsDialog({
     void poll(result.data.id);
   }
 
+  /**
+   * Stops the reading and goes back to the estimate. If it had already finished, the poll that is still
+   * running shows what it finished with, so a result the operator was charged for is never thrown away.
+   */
+  async function stop() {
+    if (!readingId || pending) return;
+    setPending(true);
+    const result = await postJson<{ stopped: boolean }>(`${base}/${readingId}/stop`, {});
+    setPending(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    if (!result.data.stopped) return;
+    pollToken.current++;
+    setError(null);
+    setStage("estimate");
+    toast.success("Stopped. Nothing was charged.");
+  }
+
   /** Back to the estimate for a fresh, separately paid proposal; the last one's messages don't carry over. */
   function readAgain() {
     setError(null);
@@ -270,6 +293,7 @@ export function ProposeFieldsDialog({
                     {plural(estimate.pages, "photo")}, one request to the model. {costLine(estimate)}
                   </p>
                   {creditLine(estimate) ? <p>{creditLine(estimate)}</p> : null}
+                  <p className="text-muted-foreground text-xs">{photoQualityLine(Boolean(estimate.credits))}</p>
                   {showsMoney(estimate.keySource) ? (
                     <p className="text-muted-foreground text-xs">
                       Estimated at the model&apos;s list prices. {keyLine(estimate)}
@@ -287,7 +311,8 @@ export function ProposeFieldsDialog({
 
           {reading ? (
             <p className="text-muted-foreground text-sm" aria-live="polite" aria-busy="true">
-              Reading the page for its fields… You can close this; it keeps going and is here when you come back.
+              Reading the page for its fields… You can close this; it keeps going and is here when you come back. Stop
+              ends it and charges nothing.
             </p>
           ) : null}
 
@@ -357,6 +382,11 @@ export function ProposeFieldsDialog({
             <Button variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
               {reading ? "Close" : "Cancel"}
             </Button>
+            {reading ? (
+              <Button variant="outline" disabled={pending || !readingId} onClick={() => void stop()}>
+                {pending ? "Stopping…" : "Stop"}
+              </Button>
+            ) : null}
             {stage === "estimate" ? (
               <Button disabled={blocked || !model || pending} onClick={() => void start()}>
                 {pending ? "Starting…" : "Propose fields"}

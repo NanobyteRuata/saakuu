@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { fieldAliases } from "./aliases";
 import {
   CONTENT_STATES,
   ROW_TYPES,
@@ -15,6 +16,11 @@ import {
  * verbatim; the only changes are clamping bounding boxes and confidence into 0..1 and dropping values
  * for Skip fields (the model was told to ignore those). Anything that would bind a value to the wrong
  * place is an issue, which triggers one repair request.
+ *
+ * Since prompt v2 (Phase 23, decision 83) the model names fields by alias and leaves a table's blank
+ * cells out. Aliases are turned back into field ids here, and every Extract field a TABLE record does
+ * not list is stored as EMPTY, so the raw layer has the shape it always had. A FORM record is not
+ * filled: there a field left out was not found on the page, which is not the same as blank.
  */
 
 const looseBbox = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
@@ -69,7 +75,9 @@ export function validateExtraction(json: unknown, template: TemplateSnapshot, pa
   if (!parsed.success) {
     return { ok: false, issues: parsed.error.issues.slice(0, 20).map((i) => `${i.path.join(".") || "response"}: ${i.message}`) };
   }
-  const extractIds = new Set(template.fields.filter((f) => f.mode === "EXTRACT").map((f) => f.id));
+  const { idOf } = fieldAliases(template);
+  const extractFields = template.fields.filter((f) => f.mode === "EXTRACT");
+  const extractIds = new Set(extractFields.map((f) => f.id));
   const skipIds = new Set(template.fields.filter((f) => f.mode === "SKIP").map((f) => f.id));
   const pages = new Set(pageIndexes);
   const issues: string[] = [];
@@ -91,18 +99,20 @@ export function validateExtraction(json: unknown, template: TemplateSnapshot, pa
     const seen = new Set<string>();
     const values: RawRecordDTO["values"] = [];
     r.values.forEach((v, j) => {
-      if (skipIds.has(v.fieldId)) return;
-      if (!extractIds.has(v.fieldId)) {
+      // Issues quote the alias: it is what the model wrote and what the repair request shows it.
+      const fieldId = idOf.get(v.fieldId);
+      if (fieldId !== undefined && skipIds.has(fieldId)) return;
+      if (fieldId === undefined || !extractIds.has(fieldId)) {
         issues.push(`records[${i}].values[${j}].fieldId "${v.fieldId}" is not a field to extract. Use only the listed fieldId values.`);
         return;
       }
-      if (seen.has(v.fieldId)) {
+      if (seen.has(fieldId)) {
         issues.push(`records[${i}] reports fieldId "${v.fieldId}" more than once.`);
         return;
       }
-      seen.add(v.fieldId);
+      seen.add(fieldId);
       values.push({
-        fieldId: v.fieldId,
+        fieldId,
         valueText: v.valueText ?? null,
         altValueText: v.altValueText ?? null,
         state: v.state,
@@ -111,6 +121,11 @@ export function validateExtraction(json: unknown, template: TemplateSnapshot, pa
         bbox: clampBbox(v.bbox),
       });
     });
+    if (template.kind === "TABLE") {
+      for (const f of extractFields) {
+        if (!seen.has(f.id)) values.push({ fieldId: f.id, valueText: null, altValueText: null, state: "EMPTY", isDitto: false, confidence: null, bbox: null });
+      }
+    }
     out.push({
       recordIndex: r.recordIndex,
       rowType: r.rowType ?? "DATA",

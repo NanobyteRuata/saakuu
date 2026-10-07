@@ -16,10 +16,10 @@ const cache = new Map<string, AIProvider>();
 
 export function getProvider(apiKey: string | undefined): AIProvider {
   const env = getEnv();
-  const cacheKey = env.AI_PROVIDER === "fake" ? `fake:${env.AI_FAKE_BEHAVIOUR}` : `gemini:${apiKey ?? ""}`;
+  const cacheKey = env.AI_PROVIDER === "fake" ? `fake:${env.AI_FAKE_BEHAVIOUR}` : `gemini:${env.AI_THINKING}:${apiKey ?? ""}`;
   const existing = cache.get(cacheKey);
   if (existing) return existing;
-  const provider = env.AI_PROVIDER === "fake" ? createFakeProvider(env.AI_FAKE_BEHAVIOUR) : createGeminiProvider(apiKey);
+  const provider = env.AI_PROVIDER === "fake" ? createFakeProvider(env.AI_FAKE_BEHAVIOUR) : createGeminiProvider(apiKey, env.AI_THINKING);
   // Drop the oldest rather than clearing: a Map iterates in insertion order, and clearing would evict
   // the server key every run of nearly every book uses to make room for one stranger's.
   if (cache.size >= MAX_CACHED) {

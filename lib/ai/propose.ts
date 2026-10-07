@@ -1,9 +1,9 @@
 import { MAX_PROPOSED_FIELDS } from "@/lib/templates/field-proposal-schemas";
 import { FIELD_TYPES, MAX_CHOICES, type FieldType } from "@/lib/templates/schemas";
 
-import type { ModelCall, ModelPrompt } from "./extract";
+import { outputLimitError, type ModelCall, type ModelPrompt } from "./extract";
 import { buildFieldProposalPrompt, buildFieldProposalRepair } from "./prompts";
-import { ProviderError, type FieldProposalRequest, type FieldProposalResult, type ProposedFieldDTO, type ResponseLog } from "./provider";
+import { addUsage, emptyUsage, ProviderError, type FieldProposalRequest, type FieldProposalResult, type ProposedFieldDTO, type ResponseLog } from "./provider";
 import type { JsonSchema } from "./response-schema";
 import { withProviderRetry } from "./retry";
 
@@ -13,6 +13,15 @@ import { withProviderRetry } from "./retry";
  * response — over a fixed schema. The extraction loop is left untouched on purpose: it is the path
  * that writes data.
  */
+
+/**
+ * The most one ask for a field list may write, thinking included (Phase 23). Nothing else bounds
+ * thinking on these models: on 2026-10-06 one ask thought for 62,910 tokens and cost $0.58 where a
+ * good one costs $0.05, with a worse list. An ask that reaches this fails, costs the operator nothing
+ * and costs the deployment at most this much (about $0.22 on 3.5 Flash). Sharp pages wrote 5,000 to
+ * 5,700; 12,000 was tried first and cut off two readings of a blurry page, so this is twice that.
+ */
+export const PROPOSAL_MAX_OUTPUT_TOKENS = 24_000;
 
 const LABEL_MAX = 500;
 const NOTE_MAX = 2000;
@@ -95,7 +104,7 @@ export function validateFieldProposal(json: unknown): { ok: true; fields: Propos
 
 export async function proposeWithRepair(call: ModelCall, req: FieldProposalRequest): Promise<FieldProposalResult> {
   const prompt = buildFieldProposalPrompt(req);
-  const usage = { inputTokens: 0, outputTokens: 0 };
+  const usage = emptyUsage();
   const responses: ResponseLog[] = [];
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -105,15 +114,15 @@ export async function proposeWithRepair(call: ModelCall, req: FieldProposalReque
       : prompt;
     let res;
     try {
-      res = await withProviderRetry(() => call(current, FIELD_PROPOSAL_SCHEMA, req.model));
+      res = await withProviderRetry(() => call(current, FIELD_PROPOSAL_SCHEMA, req.model, { maxOutputTokens: PROPOSAL_MAX_OUTPUT_TOKENS }));
     } catch (err) {
       if (err instanceof ProviderError) {
         throw new ProviderError(err.kind, err.message, { usage, rawResponse: { responses } });
       }
       throw err;
     }
-    usage.inputTokens += res.usage.inputTokens;
-    usage.outputTokens += res.usage.outputTokens;
+    addUsage(usage, res.usage);
+    if (res.truncated) throw outputLimitError(usage, responses, attempt, res.text);
 
     let json: unknown;
     try {

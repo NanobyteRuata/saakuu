@@ -13,7 +13,7 @@ import { isStale } from "@/lib/documents/staleness";
 import { ACTIVE_RUN_STATES, MAX_DOCUMENT_PAGES, type ContentState, type RunState } from "@/lib/documents/schemas";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
-import { normalizeTransform, outputSize, transformHash, WORKING_MAX_EDGE } from "@/lib/photos/transform";
+import { normalizeTransform, transformHash } from "@/lib/photos/transform";
 import { enqueueExtraction } from "@/lib/queue";
 import { requireTemplateAccess } from "@/lib/templates/access";
 import { parseDocumentFlags } from "@/lib/transform/flags";
@@ -24,7 +24,7 @@ import {
   currentRuns,
   extractionKey,
   extractionNeedsReview,
-  imageTokens,
+  IMAGE_TOKENS_PER_PAGE,
   MAX_IMAGES_PER_REQUEST,
   parseRunSummary,
   rollupContent,
@@ -49,6 +49,12 @@ const PROMPT_TOKENS_PER_FIELD = 120;
 // estimate that low lets a new account read three times what it has.
 const OUTPUT_BASE_TOKENS = 2000;
 const OUTPUT_TOKENS_PER_FIELD = 80;
+// Phase 23: a table writes a row per line of the paper, so a column costs far more than a form's
+// field does. Under prompt v3 a written cell is about 112 tokens, and the first real register page
+// (10 rows, 28 columns, 78 cells written) came to 8,790: 314 a column. A page is usually fuller than
+// that one, so this sits about twice as high. Still only the first reading's guess — a book's own
+// history replaces it, and that is what is right for a register of any given density.
+const OUTPUT_TOKENS_PER_TABLE_COLUMN = 600;
 const ACTIVE = ACTIVE_RUN_STATES;
 
 // ---------- targets ----------
@@ -157,13 +163,10 @@ type TokenEstimate = { requests: number; inputTokens: number; outputTokens: numb
  */
 function estimateTokens(t: Target, pages: Target["photos"], perPage: number | null): TokenEstimate {
   const requests = chunkPages(pages).length;
-  let inputTokens = requests * (PROMPT_BASE_TOKENS + PROMPT_TOKENS_PER_FIELD * t.extractFieldCount);
-  for (const p of pages) {
-    const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
-    const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
-    inputTokens += imageTokens(Math.round(out.width * scale), Math.round(out.height * scale));
-  }
-  const outputTokens = pages.length * (perPage ?? OUTPUT_BASE_TOKENS + OUTPUT_TOKENS_PER_FIELD * t.extractFieldCount);
+  const inputTokens =
+    requests * (PROMPT_BASE_TOKENS + PROMPT_TOKENS_PER_FIELD * t.extractFieldCount) + pages.length * IMAGE_TOKENS_PER_PAGE;
+  const perField = t.template.kind === "TABLE" ? OUTPUT_TOKENS_PER_TABLE_COLUMN : OUTPUT_TOKENS_PER_FIELD;
+  const outputTokens = pages.length * (perPage ?? OUTPUT_BASE_TOKENS + perField * t.extractFieldCount);
   return { requests, inputTokens, outputTokens: Math.round(outputTokens) };
 }
 

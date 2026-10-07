@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { costLine, creditLine, keyLine, showsMoney } from "@/lib/ai/cost-lines";
+import { costLine, creditLine, keyLine, photoQualityLine, showsMoney } from "@/lib/ai/cost-lines";
 import { AI_MODELS, modelHint, type AIModelId } from "@/lib/ai/models";
 import { postJson } from "@/lib/api-client";
 import type { ExtractionEstimate, StartResult } from "@/lib/extraction/service";
@@ -139,6 +139,7 @@ export function ExtractDialog({ target, verb = "Extract", onOpenChange, onStarte
                 model. {costLine(estimate)}
               </p>
               {creditLine(estimate) ? <p>{creditLine(estimate)}</p> : null}
+              <p className="text-muted-foreground text-xs">{photoQualityLine(Boolean(estimate.credits))}</p>
               {showsMoney(estimate.keySource) ? (
                 <p className="text-muted-foreground text-xs">
                   Estimated at the model&apos;s list prices; what it actually costs depends on the pages.{" "}

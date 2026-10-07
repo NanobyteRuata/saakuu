@@ -293,6 +293,25 @@ ORDER BY cost_usd DESC;
 `credits_used / pages` per user is what a page of *their* paper costs — the number to price from, and
 the reason the unit is not pages: a table register runs several times a form.
 
+### Thinking (Phase 23, decision 82)
+
+`AI_THINKING` is how long the model thinks before it answers, for every reading: `default`,
+`minimal`, `low`, `medium` or `high`. **Unset means `low`.** `default` sends no setting and these
+models then think at medium. Thinking is billed as output, and on a field proposal it was two thirds of the cost: the
+same page cost $0.054 at `default` and $0.018 at `low`, with the same 28 columns.
+
+- **Changing it:** edit the host's `.env` and restart the worker and the app.
+- **Checking it:** `pnpm ai:stats [count]` lists recent readings with the prompt version, the setting
+  each was made at, image and text tokens in, thinking and answer tokens out, and cost at list
+  price. Only compare readings with the same model, prompt version and setting.
+- **Not compared:** extraction at `default` against `low` (docs/06 Phase 23, Still open). If
+  extraction gets worse after this ships, that is the first thing to try.
+- **Watch `out: thinking`.** Nothing else bounds it. One proposal of a blurry photo thought for
+  62,910 tokens and cost $0.58. `Propose fields` is capped at 24,000 output tokens an ask;
+  extraction is not.
+- **Watch `in: image`.** A page should be about 1,080 tokens. If it rises above 1,120 the credit
+  hold is too low: correct `IMAGE_TOKENS_PER_PAGE` in `lib/extraction/plan.ts`.
+
 ### Watch the bill
 
 The ledger above is the readout since Phase 22. The two queries below predate it and still work; they

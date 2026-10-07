@@ -524,6 +524,11 @@ model ExtractionRun {
   error                String?
   inputTokens          Int?
   outputTokens         Int?
+  // Phase 23: the share of inputTokens spent on page images, the share of outputTokens spent
+  // thinking. Null on runs older than the phase.
+  imageTokens          Int?
+  thinkingTokens       Int?
+  thinkingLevel        String? // the AI_THINKING the reading was made at
   rawResponse          Json? // full model response, for debugging
   photoIds             String[]  @default([]) // Phase 5: pages sent in this model call, in page order
   // Phase 22: the estimate held against the owner's credits while this run is QUEUED or RUNNING.
@@ -557,6 +562,9 @@ model FieldProposal {
   error                String?
   inputTokens          Int?
   outputTokens         Int?
+  imageTokens          Int? // Phase 23, as on ExtractionRun
+  thinkingTokens       Int?
+  thinkingLevel        String?
   rawResponse          Json? // every model response, for debugging
   items                Json? // validated ProposedFieldDTO[] in paper order, once COMPLETE
   acceptedAt           DateTime? @db.Timestamptz(3)

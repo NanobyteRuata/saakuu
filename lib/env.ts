@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { THINKING_EFFORTS } from "@/lib/ai/provider";
+
 /**
  * Server-side environment, validated once on first access.
  *
@@ -67,6 +69,11 @@ const envSchema = z.object({
   AI_PROVIDER: z.enum(["gemini", "fake"]).default("gemini"),
   // Optional so the app boots without it; a run without a key fails with a plain message.
   GEMINI_API_KEY: optional(z.string().min(1)),
+  // Phase 23: how long the model may think before answering, for every reading. Thinking is billed as
+  // output and was two thirds of what a field proposal cost; at `low` the same page read the same for
+  // a third of the price, so `low` is what an unset value means. `default` sends no setting (these
+  // models then think at medium). Recorded on each run.
+  AI_THINKING: z.preprocess((v) => (v === "" ? undefined : v), z.enum(THINKING_EFFORTS).default("low")),
   // `slow` waits 90 s before answering, to test a worker killed mid-job.
   AI_FAKE_BEHAVIOUR: z.enum(["ok", "error", "rate-limited", "slow"]).default("ok"),
   // Documents extracted at once, and model calls per minute across the worker (free tiers are low).

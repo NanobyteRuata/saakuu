@@ -1,8 +1,13 @@
+import { fieldAliases } from "./aliases";
 import { CONTENT_STATES, ROW_TYPES, VALUE_STATES, type TemplateSnapshot } from "./provider";
 
 /**
  * The structured-output schema for one template (docs/03 §2), as plain JSON Schema. Providers that
  * take a different dialect convert it inside their own implementation.
+ *
+ * Since prompt v2 a value names its field by alias (`f1`, `f2`, …; `aliases.ts`). Everything about a
+ * listed value is required except `altValueText`: whatever was optional, the model stopped writing
+ * (`isDitto` and `bbox` under v2, `confidence` under v3; see `prompts/v3.ts` and `v4.ts`).
  */
 
 export type JsonSchema = Record<string, unknown>;
@@ -10,7 +15,8 @@ export type JsonSchema = Record<string, unknown>;
 const nullableString = { type: ["string", "null"] };
 
 export function extractionResponseSchema(template: TemplateSnapshot, pageIndexes: number[]): JsonSchema {
-  const fieldIds = template.fields.filter((f) => f.mode === "EXTRACT").map((f) => f.id);
+  const { aliasOf } = fieldAliases(template);
+  const fieldIds = template.fields.filter((f) => f.mode === "EXTRACT").flatMap((f) => aliasOf.get(f.id) ?? []);
   const bbox = {
     type: ["object", "null"],
     properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } },
@@ -27,7 +33,7 @@ export function extractionResponseSchema(template: TemplateSnapshot, pageIndexes
       confidence: { type: ["number", "null"] },
       bbox,
     },
-    required: ["fieldId", "valueText", "state", "isDitto"],
+    required: ["fieldId", "valueText", "state", "isDitto", "confidence", "bbox"],
   };
   const record = {
     type: "object",

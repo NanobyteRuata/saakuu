@@ -4,7 +4,8 @@ import { getProvider } from "@/lib/ai";
 import { keyMaterial, resolveAiKey } from "@/lib/ai/keys";
 import { chargeProposal, chargesCredits, OUT_OF_CREDITS_PROPOSAL_MESSAGE, outOfCredits } from "@/lib/credits/service";
 import { modelIdSchema } from "@/lib/ai/models";
-import { isServerKeyFailure, ProviderError, providerErrorMessage, type ResponseLog } from "@/lib/ai/provider";
+import { getEnv } from "@/lib/env";
+import { isServerKeyFailure, ProviderError, providerErrorMessage, type ResponseLog, type TokenUsage } from "@/lib/ai/provider";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
 import { loadImages, RetryLater, RunFailure } from "@/lib/extraction/process";
@@ -21,6 +22,7 @@ import { STALE_RUNNING_MS } from "./field-proposals";
 /** Plain-language messages for a proposal. The extraction wording talks about "these pages" and "this template". */
 function failureMessage(err: ProviderError, keySource: "user" | "server" | "fake"): string {
   if (err.kind === "INVALID_RESPONSE") return "The AI's answer wasn't a usable field list, even after asking it again. Try again or try the other model.";
+  if (err.kind === "OUTPUT_LIMIT") return "The AI ran out of room before it finished the field list. This often happens with blurry or hard-to-read photos. Try again with a sharper photo, or try the other model.";
   if (err.kind === "RATE_LIMITED") return "The AI service is limiting how fast pages can be sent. Try again in a few minutes.";
   if (err.kind === "UNAVAILABLE") return "The AI service didn't respond. Try again.";
   return providerErrorMessage(err, keySource);
@@ -46,7 +48,7 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
   if (count === 0) return "idle";
 
   const fence = { id: proposalId, state: "RUNNING" as const, startedAt: claimedAt };
-  const fail = async (error: string, extra: { usage?: { inputTokens: number; outputTokens: number }; responses?: ResponseLog[] } = {}) => {
+  const fail = async (error: string, extra: { usage?: TokenUsage; responses?: ResponseLog[] } = {}) => {
     await prisma.fieldProposal.updateMany({
       where: fence,
       data: {
@@ -55,6 +57,9 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
         error,
         inputTokens: extra.usage?.inputTokens ?? null,
         outputTokens: extra.usage?.outputTokens ?? null,
+        imageTokens: extra.usage?.imageTokens ?? null,
+        thinkingTokens: extra.usage?.thinkingTokens ?? null,
+        thinkingLevel: getEnv().AI_THINKING,
         rawResponse: responsesJson(extra.responses),
       },
     });
@@ -129,6 +134,9 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
           error: null,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
+          imageTokens: result.usage.imageTokens,
+          thinkingTokens: result.usage.thinkingTokens,
+          thinkingLevel: getEnv().AI_THINKING,
           rawResponse: responsesJson(result.rawResponse.responses),
           items: result.fields,
         },
@@ -153,12 +161,15 @@ export async function processFieldProposal(proposalId: string, opts: { isLastAtt
     }
     if (err instanceof ProviderError) {
       if (err.transient && !opts.isLastAttempt) {
+        // The provider's own words: `RetryLater` says only that it will retry, not what it was told.
+        log.warn("field proposal will be retried", { proposalId, kind: err.kind, error: err.message });
         await prisma.fieldProposal.updateMany({ where: fence, data: { state: "QUEUED", startedAt: null } });
         throw new RetryLater(err.kind === "RATE_LIMITED", err);
       }
       if (isServerKeyFailure(err, keySource)) {
         log.error("server AI key is missing or refused: nothing can be read until it is fixed", err, { proposalId, kind: err.kind });
       } else if (err.kind !== "INVALID_RESPONSE") {
+        // OUTPUT_LIMIT lands here on purpose: the deployment paid for an answer nobody got.
         log.warn("field proposal provider error", { proposalId, kind: err.kind, error: err.message });
       }
       await fail(failureMessage(err, keySource), { usage: err.usage, responses: err.rawResponse?.responses });

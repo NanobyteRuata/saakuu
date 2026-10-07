@@ -190,6 +190,7 @@ POST   /api/templates/:id/field-proposals            { documentId, model, nonce 
 GET    /api/templates/:id/field-proposals?documentId= -> { proposal: FieldProposalView | null }
 GET    /api/templates/:id/field-proposals/:proposalId -> FieldProposalView
 POST   /api/templates/:id/field-proposals/:proposalId/accept   { include: number[] }
+POST   /api/templates/:id/field-proposals/:proposalId/stop   -> { stopped }   (Phase 23: ends an unfinished reading; charges nothing)
                                               -> { created, left, alreadyAccepted }   201
 ```
 - The AI reads one **specimen** of the template and proposes flat fields (decision 73). Starting never calls

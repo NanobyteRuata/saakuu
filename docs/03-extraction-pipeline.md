@@ -17,7 +17,7 @@ export interface ExtractionResult {
   contentState: "HAS_CONTENT" | "EMPTY" | "NO_ROWS_FOUND";
   anchorsFound: string[];
   records: RawRecordDTO[];
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;   // inputTokens, outputTokens, and since Phase 23 imageTokens and thinkingTokens (null if not reported)
   rawResponse: unknown;
 }
 
@@ -68,6 +68,24 @@ Response schema (generated per template):
 
 `fieldId` is echoed back so results bind to fields by ID, not by label. Include the
 ID list in the prompt and instruct the model to use exactly those IDs.
+
+**Since prompt `v2` (Phase 23, decision 83)** the answer is smaller, and the raw layer is not:
+
+- **`fieldId` is an alias**, `f1`, `f2`, … in paper order (`lib/ai/aliases.ts`), Skip fields numbered
+  too so that in a table the number is the column's position. The prompt lists fields by alias, the
+  schema's enum allows only aliases, and `validateExtraction` turns them back into ids before
+  anything is stored. A real id in an answer is rejected like any unknown field.
+- **A TABLE record lists only cells with something in them.** Every Extract field it does not list
+  is stored as `EMPTY` by `validateExtraction`, so a row still has one raw value per field. A cell
+  with anything in it — a dash, a ditto, N/A, or writing that can't be read (`ILLEGIBLE`) — must be
+  listed; the prompt says so twice, because a cell left out is read as blank.
+- **A FORM record is not filled.** There a field left out was not found on the page, which is
+  different from blank, exactly as under `v1`.
+- `altValueText` is written only when there was a correction. Everything else about a listed value
+  is required, `isDitto` and `bbox` included: `v2` made those two optional and, on its one real
+  reading, the model flagged none of 18 ditto marks and boxed 18 of 78 values. `v3` put them back,
+  and `v4` requires `confidence` as well (one `v3` reading left it off every value). `v4` is what
+  new runs use; `v2` and `v3` were never shipped.
 
 ## 3. Prompt structure
 
@@ -145,6 +163,8 @@ structured field lists more reliably than paragraphs.
   model to dedupe.
 - **Insertions.** Rows written in margins or squeezed between lines are reported in
   the position they appear to belong, with `recordIndex` reflecting reading order.
+- **Blank cells are left out** (prompt `v2`, §2). A row with nothing in any listed column is still
+  a record, with no values.
 
 ## 6. Chunking
 
@@ -394,6 +414,18 @@ Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pur
 Before extraction the modal shows: document count, page count, model, and an estimated
 input-token count based on image dimensions plus prompt size. Store actual usage per
 run so the estimate can be calibrated against history later.
+
+**Since Phase 23** the image part of the estimate is not based on dimensions. Gemini 3 models charge
+a flat amount per image, 1,120 tokens at most (`IMAGE_TOKENS_PER_PAGE`, `lib/extraction/plan.ts`).
+A table's first reading allows 600 output tokens a column; a form's, 80 a field. Each run records
+the image tokens it was billed, its thinking tokens and the `AI_THINKING` setting it was made at
+(decision 82, docs/09 §8).
+
+A model call may carry a ceiling on what it writes, thinking included (`ModelCall`'s `limits`).
+`Propose fields` sets one; extraction does not yet. An answer cut off at a ceiling — that one or the
+model's own — fails as `OUTPUT_LIMIT` and is never asked for again, since the second ask would be cut
+off in the same place and billed again. A used-up daily quota fails as `QUOTA_EXHAUSTED` and is not
+retried either.
 
 ## 11. Testing the pipeline
 

@@ -1,5 +1,5 @@
 import { buildExtractionPrompt, buildRepairInstruction } from "./prompts";
-import { ProviderError, type ExtractionRequest, type ExtractionResult, type ResponseLog } from "./provider";
+import { addUsage, emptyUsage, ProviderError, type ExtractionRequest, type ExtractionResult, type ResponseLog, type TokenUsage } from "./provider";
 import { extractionResponseSchema, type JsonSchema } from "./response-schema";
 import { withProviderRetry } from "./retry";
 import { validateExtraction } from "./validate";
@@ -10,11 +10,27 @@ export type ModelPrompt = {
   parts: ({ kind: "text"; text: string } | { kind: "image"; data: Buffer; mimeType: string })[];
 };
 
+/**
+ * `maxOutputTokens` is a ceiling on everything the model writes for one call, its thinking included
+ * (Phase 23). `truncated` says the answer was cut off at a ceiling, the caller's or the model's own.
+ */
 export type ModelCall = (
   prompt: ModelPrompt,
   schema: JsonSchema,
   model: ExtractionRequest["model"],
-) => Promise<{ text: string | null; usage: { inputTokens: number; outputTokens: number } }>;
+  limits?: { maxOutputTokens?: number },
+) => Promise<{ text: string | null; usage: TokenUsage; truncated?: boolean }>;
+
+/**
+ * A cut-off answer is never asked for again: the second ask would be cut off at the same place and
+ * billed a second time. Every response so far is kept, as for any other failure.
+ */
+export function outputLimitError(usage: TokenUsage, responses: ResponseLog[], attempt: number, text: string | null): ProviderError {
+  return new ProviderError("OUTPUT_LIMIT", "The response was cut off at the output limit.", {
+    usage,
+    rawResponse: { responses: [...responses, { attempt, text, issues: ["The response was cut off at the output limit."] }] },
+  });
+}
 
 /**
  * Shared extraction loop for every provider: build the prompt and schema, call the model (with
@@ -25,7 +41,7 @@ export async function extractWithRepair(call: ModelCall, req: ExtractionRequest)
   const pageIndexes = req.images.map((i) => i.pageIndex);
   const schema = extractionResponseSchema(req.template, pageIndexes);
   const prompt = buildExtractionPrompt(req);
-  const usage = { inputTokens: 0, outputTokens: 0 };
+  const usage = emptyUsage();
   const responses: ResponseLog[] = [];
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -42,8 +58,8 @@ export async function extractWithRepair(call: ModelCall, req: ExtractionRequest)
       }
       throw err;
     }
-    usage.inputTokens += res.usage.inputTokens;
-    usage.outputTokens += res.usage.outputTokens;
+    addUsage(usage, res.usage);
+    if (res.truncated) throw outputLimitError(usage, responses, attempt, res.text);
 
     let json: unknown;
     try {

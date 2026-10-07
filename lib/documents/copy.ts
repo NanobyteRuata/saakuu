@@ -341,7 +341,7 @@ const json = (v: Prisma.JsonValue) => (v === null ? Prisma.DbNull : v);
  */
 export async function insertReading(tx: Db, documentId: string, plan: ReadingCopy): Promise<void> {
   await tx.extractionRun.createMany({
-    data: plan.runs.map((r) => ({ ...r, documentId, rawResponse: json(r.rawResponse), inputTokens: null, outputTokens: null })),
+    data: plan.runs.map((r) => ({ ...r, documentId, rawResponse: json(r.rawResponse), inputTokens: null, outputTokens: null, imageTokens: null, thinkingTokens: null })),
   });
   for (let i = 0; i < plan.records.length; i += INSERT_CHUNK) {
     await tx.rawRecord.createMany({

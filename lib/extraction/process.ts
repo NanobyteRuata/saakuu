@@ -5,7 +5,8 @@ import { getProvider } from "@/lib/ai";
 import { keyMaterial, resolveAiKey, type AiKeySource } from "@/lib/ai/keys";
 import { chargeRun, chargesCredits, OUT_OF_CREDITS_MESSAGE, outOfCredits } from "@/lib/credits/service";
 import { modelIdSchema } from "@/lib/ai/models";
-import { isServerKeyFailure, ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog } from "@/lib/ai/provider";
+import { getEnv } from "@/lib/env";
+import { isServerKeyFailure, ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog, type TokenUsage } from "@/lib/ai/provider";
 import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
@@ -67,7 +68,7 @@ function responsesJson(responses: ResponseLog[]): Prisma.InputJsonValue {
 async function failRun(
   run: ClaimedRun,
   message: string,
-  extra: { usage?: { inputTokens: number; outputTokens: number }; responses?: ResponseLog[] } = {},
+  extra: { usage?: TokenUsage; responses?: ResponseLog[] } = {},
 ): Promise<void> {
   await prisma.extractionRun.updateMany({
     where: { id: run.id, state: "RUNNING", startedAt: run.startedAt },
@@ -77,6 +78,9 @@ async function failRun(
       error: message,
       inputTokens: extra.usage?.inputTokens ?? null,
       outputTokens: extra.usage?.outputTokens ?? null,
+      imageTokens: extra.usage?.imageTokens ?? null,
+      thinkingTokens: extra.usage?.thinkingTokens ?? null,
+      thinkingLevel: getEnv().AI_THINKING,
       rawResponse: extra.responses && extra.responses.length > 0 ? { responses: responsesJson(extra.responses) } : Prisma.DbNull,
     },
   });
@@ -219,6 +223,9 @@ async function writeRun(
           error: null,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
+          imageTokens: result.usage.imageTokens,
+          thinkingTokens: result.usage.thinkingTokens,
+          thinkingLevel: getEnv().AI_THINKING,
           rawResponse: { summary, responses: responsesJson(result.rawResponse.responses) },
         },
       });
@@ -363,6 +370,7 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
         failed++;
       } else if (err instanceof ProviderError) {
         if (err.transient && !opts.isLastAttempt) {
+          log.warn("extraction will be retried", { documentId, runId: run.id, kind: err.kind, error: err.message });
           retryLater = new RetryLater(err.kind === "RATE_LIMITED", err);
           requeue.push(run);
         } else {

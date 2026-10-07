@@ -19,6 +19,33 @@ export type ValueState = (typeof VALUE_STATES)[number];
 export type NumeralSystem = "AUTO" | "LATIN" | "MYANMAR";
 export type DateEra = "GREGORIAN" | "BUDDHIST" | "MYANMAR";
 
+/**
+ * Phase 23: how long the model may think before it answers. Thinking is billed as output and is most
+ * of a reading's cost. `default` sends no setting. One value for the whole deployment (`AI_THINKING`),
+ * recorded on every run: readings made at different settings are not comparable (decision 82).
+ */
+export const THINKING_EFFORTS = ["default", "minimal", "low", "medium", "high"] as const;
+export type ThinkingEffort = (typeof THINKING_EFFORTS)[number];
+
+/**
+ * What one reading used. `imageTokens` is the share of `inputTokens` spent on the page images and
+ * `thinkingTokens` the share of `outputTokens` spent thinking; both are null where the provider
+ * didn't say.
+ */
+export type TokenUsage = { inputTokens: number; outputTokens: number; imageTokens: number | null; thinkingTokens: number | null };
+
+export function emptyUsage(): TokenUsage {
+  return { inputTokens: 0, outputTokens: 0, imageTokens: null, thinkingTokens: null };
+}
+
+/** Adds one model call to a reading's total. A split the call didn't report leaves the total's as it was. */
+export function addUsage(total: TokenUsage, call: TokenUsage): void {
+  total.inputTokens += call.inputTokens;
+  total.outputTokens += call.outputTokens;
+  if (call.imageTokens !== null) total.imageTokens = (total.imageTokens ?? 0) + call.imageTokens;
+  if (call.thinkingTokens !== null) total.thinkingTokens = (total.thinkingTokens ?? 0) + call.thinkingTokens;
+}
+
 /** One header on the paper, from the top down: the label as written and its English meaning. */
 export type PathLabel = { label: string; meaning: string | null };
 
@@ -93,7 +120,7 @@ export type ExtractionResult = {
   contentState: ExtractedContentState;
   anchorsFound: string[];
   records: RawRecordDTO[];
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;
   rawResponse: { responses: ResponseLog[] };
 };
 
@@ -127,7 +154,7 @@ export type ProposedFieldDTO = {
 export type FieldProposalResult = {
   /** In paper order. */
   fields: ProposedFieldDTO[];
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;
   rawResponse: { responses: ResponseLog[] };
 };
 
@@ -137,23 +164,23 @@ export interface AIProvider {
   proposeFields(req: FieldProposalRequest): Promise<FieldProposalResult>;
 }
 
-export type ProviderErrorKind = "RATE_LIMITED" | "UNAVAILABLE" | "BAD_REQUEST" | "NOT_CONFIGURED" | "KEY_REFUSED" | "INVALID_RESPONSE";
+export type ProviderErrorKind = "RATE_LIMITED" | "QUOTA_EXHAUSTED" | "UNAVAILABLE" | "BAD_REQUEST" | "NOT_CONFIGURED" | "KEY_REFUSED" | "INVALID_RESPONSE" | "OUTPUT_LIMIT";
 
 /** A provider failure in plain language. `transient` kinds are worth retrying later. */
 export class ProviderError extends Error {
   readonly kind: ProviderErrorKind;
-  readonly usage: { inputTokens: number; outputTokens: number };
+  readonly usage: TokenUsage;
   readonly rawResponse: { responses: ResponseLog[] } | null;
 
   constructor(
     kind: ProviderErrorKind,
     message: string,
-    extra: { usage?: { inputTokens: number; outputTokens: number }; rawResponse?: { responses: ResponseLog[] } } = {},
+    extra: { usage?: TokenUsage; rawResponse?: { responses: ResponseLog[] } } = {},
   ) {
     super(message);
     this.name = "ProviderError";
     this.kind = kind;
-    this.usage = extra.usage ?? { inputTokens: 0, outputTokens: 0 };
+    this.usage = extra.usage ?? emptyUsage();
     this.rawResponse = extra.rawResponse ?? null;
   }
 
@@ -188,6 +215,9 @@ export function providerErrorMessage(err: ProviderError, keySource: "user" | "se
   switch (err.kind) {
     case "RATE_LIMITED":
       return "The AI service is limiting how fast pages can be sent. Retry these pages in a few minutes.";
+    case "QUOTA_EXHAUSTED":
+      // Not transient: waiting a few minutes changes nothing, so it is never retried and says when to come back.
+      return "The AI service's allowance for this model is used up for today. Try the other model, or try again tomorrow.";
     case "UNAVAILABLE":
       return "The AI service didn't respond. Retry these pages.";
     case "NOT_CONFIGURED":
@@ -202,5 +232,7 @@ export function providerErrorMessage(err: ProviderError, keySource: "user" | "se
       return `The AI service refused these pages. ${err.message}`;
     case "INVALID_RESPONSE":
       return "The AI's answer didn't fit this template, even after asking it again. Retry these pages or try the other model.";
+    case "OUTPUT_LIMIT":
+      return "The AI ran out of room before it finished answering. This often happens with blurry or hard-to-read photos. Retry these pages or try the other model.";
   }
 }

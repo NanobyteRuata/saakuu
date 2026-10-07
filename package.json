@@ -23,6 +23,7 @@
     "db:seed-demo": "tsx scripts/seed-demo.ts",
     "storage:cleanup": "tsx scripts/storage-cleanup.ts",
     "credits:grant": "tsx scripts/grant-credits.ts",
+    "ai:stats": "tsx scripts/reading-stats.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

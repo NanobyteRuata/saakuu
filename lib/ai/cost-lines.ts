@@ -46,3 +46,13 @@ export function aboutTime(seconds: number): string {
   const minutes = Math.round(seconds / 60);
   return minutes < 90 ? `about ${plural(minutes, "minute")}` : `about ${plural(Math.round(minutes / 60), "hour")}`;
 }
+
+/**
+ * Said before every reading (Phase 23). A blurry page is read worse and, because the model thinks
+ * longer over what it can't make out, costs more: the same register cost $0.05 from a sharp scan and
+ * up to $0.58 from a blurry photo. Always shown rather than detected — edge sharpness scored that
+ * blurry photo as sharp as the scan, and a size limit accused good small forms.
+ */
+export function photoQualityLine(withCredits: boolean): string {
+  return `Sharp, close photos read best. Blurry photos are read less accurately${withCredits ? " and can use more credits" : ""}.`;
+}

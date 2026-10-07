@@ -144,9 +144,11 @@ export function anchorScore(anchors: string[], found: string[]): number | null {
   return anchors.filter((a) => seen.has(a)).length / anchors.length;
 }
 
-/** Page tokens as Gemini counts images: 258 for small images, else 258 per 768px tile. */
-export function imageTokens(width: number, height: number): number {
-  if (width <= 0 || height <= 0) return 258;
-  if (width <= 384 && height <= 384) return 258;
-  return Math.ceil(width / 768) * Math.ceil(height / 768) * 258;
-}
+/**
+ * Input tokens one page image costs (Phase 23). Gemini 3 models charge a flat amount per image
+ * whatever its size in pixels: this is the provider's documented ceiling, and a page counted as 1,078
+ * to 1,100 on 3.5 and 3.7 Flash (2026-10-06). It feeds the credit hold, so the ceiling is the right
+ * side to be on. A sharper setting exists (twice the tokens) and was tried and dropped: it read no
+ * better (docs/06 Phase 23).
+ */
+export const IMAGE_TOKENS_PER_PAGE = 1120;

@@ -409,6 +409,9 @@ model ExtractionRun {
   error          String?
   inputTokens    Int?
   outputTokens   Int?
+  imageTokens    Int?     // Phase 23: the share of inputTokens spent on page images
+  thinkingTokens Int?     // Phase 23: the share of outputTokens spent thinking
+  thinkingLevel  String?  // Phase 23: the AI_THINKING it was made at (decision 82); FieldProposal has the same three
   rawResponse    Json?    // full model response, for debugging
 
   document Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)

@@ -12,10 +12,10 @@ import { milliCreditsFor } from "@/lib/credits/rate";
 import { chargesCredits, checkStart, creditEstimate, lockUser } from "@/lib/credits/service";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
-import { imageTokens, MAX_IMAGES_PER_REQUEST } from "@/lib/extraction/plan";
+import { IMAGE_TOKENS_PER_PAGE, MAX_IMAGES_PER_REQUEST } from "@/lib/extraction/plan";
 import { log } from "@/lib/log";
 import { recomputeMappingStates } from "@/lib/mappings/state";
-import { normalizeTransform, outputSize, transformHash, WORKING_MAX_EDGE } from "@/lib/photos/transform";
+import { normalizeTransform, transformHash } from "@/lib/photos/transform";
 import { enqueueFieldProposal } from "@/lib/queue";
 import { requestTemplateTransform } from "@/lib/transform/triggers";
 
@@ -38,8 +38,11 @@ import { childrenOf, compareSiblings, toSibling } from "./tree";
  * Accepting is the only write to the template, and it writes only the items the operator ticked.
  */
 
-/** The prompt without any fields in it: fixed text, far shorter than an extraction prompt. */
-const PROMPT_BASE_TOKENS = 1500;
+/**
+ * The prompt without any fields in it: fixed text, far shorter than an extraction prompt. It counted
+ * as about 680 tokens (2026-10-06); the rest is room for a glossary, instructions and a second ask.
+ */
+const PROMPT_BASE_TOKENS = 1000;
 /**
  * A field list is short, but output is billed with the model's thinking in it: real proposals
  * (2026-10-06) wrote 1,200 to 5,400 tokens, the most on a register with nested headers. This is also
@@ -90,13 +93,7 @@ function blockerFor(doc: Specimen): string | null {
 
 /** What reading this page for fields is expected to send. One function for the estimate and for the credits a start holds. */
 function estimateInputTokens(doc: Specimen): number {
-  let inputTokens = PROMPT_BASE_TOKENS;
-  for (const p of doc.photos) {
-    const out = outputSize({ width: p.width, height: p.height }, normalizeTransform(p.transform));
-    const scale = Math.min(1, WORKING_MAX_EDGE / Math.max(out.width, out.height, 1));
-    inputTokens += imageTokens(Math.round(out.width * scale), Math.round(out.height * scale));
-  }
-  return inputTokens;
+  return PROMPT_BASE_TOKENS + doc.photos.length * IMAGE_TOKENS_PER_PAGE;
 }
 
 function estimateMilliCredits(model: string, doc: Specimen): number {
@@ -274,6 +271,26 @@ export async function getFieldProposal(userId: string, templateId: string, propo
   if (!row) throw new AppError("NOT_FOUND", NOT_FOUND);
   await nudge(row);
   return toView(row);
+}
+
+/** Shown if the dialog is reopened on a stopped reading's own record; the dialog itself says it in a toast. */
+const STOPPED = "You stopped this reading. Nothing was charged.";
+
+/**
+ * `Stop` in the dialog (Phase 23). Marks a queued or running proposal failed, which is all stopping
+ * takes: the worker writes its result only while the proposal is still RUNNING under its own claim, so
+ * an answer that arrives afterwards is dropped, charges nothing and holds nothing. The request already
+ * sent to the provider can't be recalled and is still billed to the deployment. `stopped: false` means
+ * it had already finished, and the dialog shows whatever it finished with.
+ */
+export async function stopFieldProposal(userId: string, templateId: string, proposalId: string): Promise<{ stopped: boolean }> {
+  await requireTemplateAccess(userId, templateId);
+  const { count } = await prisma.fieldProposal.updateMany({
+    where: { id: proposalId, templateId, state: { in: ["QUEUED", "RUNNING"] } },
+    data: { state: "FAILED", finishedAt: new Date(), error: STOPPED },
+  });
+  if (count > 0) log.info("field proposal stopped by its owner", { proposalId, templateId });
+  return { stopped: count > 0 };
 }
 
 /**

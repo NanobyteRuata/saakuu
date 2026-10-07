@@ -1,5 +1,6 @@
 import sharp from "sharp";
 
+import { fieldAliases } from "./aliases";
 import { extractWithRepair } from "./extract";
 import { AI_MODELS } from "./models";
 import { proposeWithRepair } from "./propose";
@@ -41,22 +42,25 @@ async function fakeResponse(req: ExtractionRequest): Promise<string> {
   const blank = await Promise.all(req.images.map(isBlank));
   const firstWithContent = req.images.find((_, i) => !blank[i]);
   if (!firstWithContent) return JSON.stringify({ contentState: "EMPTY", anchorsFound: [], records: [] });
+  const { aliasOf } = fieldAliases(req.template);
+  const table = req.template.kind === "TABLE";
   const fields = req.template.fields.filter((f) => f.mode === "EXTRACT");
-  const rows = req.template.kind === "FORM" ? 1 : 2;
+  const rows = table ? 2 : 1;
   const records = Array.from({ length: rows }, (_, r) => ({
     recordIndex: r,
     rowType: "DATA",
     struckThrough: false,
     pageIndex: firstWithContent.pageIndex,
-    values: fields.map((f, i) => ({
-      fieldId: f.id,
+    // As a real answer under prompt v2: fields by alias, and a table's blank cells left out.
+    values: fields.flatMap((f, i) => (table && f.dataType === "MARK" && i % 2 !== 0 ? [] : [{
+      fieldId: aliasOf.get(f.id) ?? f.id,
       valueText: f.dataType === "MARK" ? (i % 2 === 0 ? "✓" : null) : f.isSequence ? String(r + 1) : `${f.path.at(-1)?.label ?? "value"} ${r + 1}`,
       altValueText: null,
       state: f.dataType === "MARK" && i % 2 !== 0 ? "EMPTY" : "OK",
       isDitto: false,
       confidence: 0.5,
       bbox: { x: 0.1, y: Math.min(0.9, 0.1 + (r + i) * 0.04), w: 0.3, h: 0.03 },
-    })),
+    }])),
   }));
   return JSON.stringify({ contentState: "HAS_CONTENT", anchorsFound: req.template.anchors, records });
 }
@@ -115,13 +119,13 @@ export function createFakeProvider(behaviour: FakeBehaviour): AIProvider {
     async extract(req: ExtractionRequest): Promise<ExtractionResult> {
       return extractWithRepair(async () => {
         await misbehave(behaviour);
-        return { text: await fakeResponse(req), usage: { inputTokens: 258 * req.images.length, outputTokens: 100 } };
+        return { text: await fakeResponse(req), usage: { inputTokens: 258 * req.images.length, outputTokens: 100, imageTokens: 258 * req.images.length, thinkingTokens: 0 } };
       }, req);
     },
     async proposeFields(req: FieldProposalRequest): Promise<FieldProposalResult> {
       return proposeWithRepair(async () => {
         await misbehave(behaviour);
-        return { text: await fakeProposal(req), usage: { inputTokens: 258 * req.images.length, outputTokens: 400 } };
+        return { text: await fakeProposal(req), usage: { inputTokens: 258 * req.images.length, outputTokens: 400, imageTokens: 258 * req.images.length, thinkingTokens: 0 } };
       }, req);
     },
   };

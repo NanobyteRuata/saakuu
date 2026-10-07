@@ -584,6 +584,57 @@ with sign-up open unless both are set. Failed readings are free to the operator 
 provider billed the owner; the operator did nothing wrong, and that cost belongs in the price.
 (Phase 22)
 
+---
+
+**82. How long the model thinks is one deployment setting, recorded on every reading.** `AI_THINKING`
+changes what a reading costs and may change what it says, so readings made at different settings are
+not comparable — the same reason a prompt is never edited in place. But it is not a prompt version:
+the words sent are identical, and bumping `promptVersion` for it would say otherwise. So each
+`ExtractionRun` and `FieldProposal` records the setting beside the prompt version, with the tokens
+spent thinking.
+
+It is a setting of the deployment, not of a book, a template or an operator. An operator cannot judge
+"low or medium" any better than they could judge a confidence threshold (decision 77), and the
+product's answer to a question like that is to pick for them. It is an environment variable rather
+than a constant because the right value is found by reading real pages at two settings, and that
+should not take a commit.
+
+The provider boundary holds: the setting is `default | minimal | low | medium | high` in
+`lib/ai/provider.ts`, and only `gemini.ts` knows what those are called there.
+
+This decision was first written for a second setting of the same kind, how sharply the page image
+is read. It was built, compared on real pages and removed: twice the image tokens read no better on
+a sharp page and worse on a blurry one (docs/06, Phase 23). A setting that has lost its comparison
+is not kept for later. (Phase 23)
+
+---
+
+**83. In a table answer, a cell left out is blank.** The first real register page read under prompt
+`v1` — ten rows of twenty-eight columns — cost $0.22 with no thinking in it at all. The answer was
+23,722 tokens, about 85 a cell, and some two hundred of the 280 cells were blank, each written out
+in full with a 24-letter field id. At that rate a full page of twenty-five rows does not fit in what
+the model can write, so it would be cut off, billed and worth nothing.
+
+Prompt `v2` has the model list only the cells with something in them, by a short alias, and
+validation stores every other Extract field of the row as `EMPTY`. The raw layer keeps its shape —
+one value per field per row — so the transform, review and export are untouched.
+
+What this gives up is a difference the answer used to carry. Under `v1` a cell the model skipped was
+visibly missing; under `v2` it reads as blank. The honest `ILLEGIBLE` the product depends on now
+rests on the model listing every cell it cannot read, so the prompt states it as a rule of its own and a unit test pins that validation
+never turns a listed `ILLEGIBLE` into a blank. A form is left as it was: it is one record, so there
+is nothing worth saving, and there a field left out means "not found on this page".
+
+One thing was taken too far and put back. `v2` also let the model leave out `isDitto` when false
+and did not require a bounding box. On its first real reading the model stopped writing both: no
+ditto mark was flagged and most values had no box. Leaving out a *cell* is safe because validation
+knows what an absent cell means; leaving out a *property* is not, because the model reads "optional"
+as "skip". `v3` requires both again and `v4` the confidence figure too, which went the same way;
+only `altValueText` may be absent.
+
+Short property names, or a row as a bare array, would save more and were not taken: each makes the
+answer harder for the model to get right and for a person to read in `rawResponse`. (Phase 23)
+
 ## Part C — Open questions for later
 
 Not blocking v1, but worth revisiting once real data exists.

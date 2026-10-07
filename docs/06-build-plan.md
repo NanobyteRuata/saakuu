@@ -927,6 +927,139 @@ account, the refusal with both numbers and a disabled button, and `Request more`
 
 ---
 
+## Phase 23 — Sharper reading (built on a branch, not shipped)
+
+`Propose fields` on a real clinic register — about 28 narrow columns under rotated Burmese headers —
+missed some columns and invented others. The plan was to have the model read every page more
+sharply. Measuring and reading real pages changed the plan: **the sharper setting was built, tested
+and removed**, and what the phase ships instead is what the testing found on the way.
+
+**Schema (additive, two migrations):** `imageTokens`, `thinkingTokens` and `thinkingLevel` on
+`ExtractionRun` and `FieldProposal`, null on older readings.
+
+### What the readings showed
+
+All on 3.5 Flash, list prices, 2026-10-06 and 07. "Sharper" is the provider's highest per-image
+resolution, about twice the image tokens (2,170 a page against 1,078; a page with no setting is
+already read at the level called high).
+
+`Propose fields`, the register:
+
+| Photo | Setting | Thinking tokens | Cost | Result |
+|---|---|---|---|---|
+| Blurry, 1,067 × 465 sent | none | 3,797 | $0.05 | 26 columns, several invented |
+| Blurry | sharper | 62,910 | $0.58 | 23 columns, worse |
+| Blurry, second upload | either | 11,516, cut off | $0.11 each | nothing (the first, 12,000 cap) |
+| Sharp scan, 2,048 × 922 sent | none | 4,102 | $0.054 | 28 of 28, two label slips |
+| Sharp scan | sharper | 3,599 | $0.051 | 27 of 28, two labels better |
+| Sharp scan | thinking `low`, twice | 0 | $0.018 | 28 of 28 both times |
+
+Extraction of the sharp scan, ten rows of 28 columns, thinking `low`:
+
+| Prompt | Output tokens | Cost | Time | Boxes | Dittos flagged |
+|---|---|---|---|---|---|
+| `v1` | 23,722 | $0.222 | 67 s | 78 of 78 | 18 |
+| `v2` | 3,897 | $0.043 | 12 s | 18 | 0 |
+| `v3` | 8,790 | $0.087 | 27 s | 78 | 18 |
+| `v3`, sharper image | 7,935 | $0.081 | 24 s | 78 | 18 |
+
+What follows from them:
+
+- **The photo decides, not the setting.** The blurry photo failed at every setting and the sharp scan
+  succeeded at every setting. On the blurry one the model did not misread the headers; it could not
+  read them and filled in what a malaria register usually has.
+- **The sharper image bought nothing.** A tie on the sharp proposal, worse on the blurry one, and on
+  extraction it read two names in ten correctly — as the plain reading did — while getting the date
+  wrong (which nine ditto rows then inherit) and two ticks one column off. `AI_IMAGE_DETAIL` was
+  removed with its column; nothing of it ships.
+- **Thinking was most of the cost and bought nothing either.** At `low` a proposal cost a third as
+  much with the same 28 columns, twice.
+- **Extraction's cost is the answer itself**, about 85 tokens a cell under `v1`, most of them blank
+  cells. That is what prompts `v2` and `v3` are for (below).
+- **Printed-size things hold still; handwriting does not.** Across four extractions of one page the
+  digits, ticks and dittos were nearly constant. The handwritten names changed every time and were
+  right one or two times in ten. No setting moved that. It is the error rate review exists for.
+
+### What ships
+
+- **`AI_THINKING`** (`default`, `minimal`, `low`, `medium`, `high`): how long the model thinks, for
+  every reading, recorded on each one (decision 82). `default` sends nothing and these models then
+  think at medium. 3.7 Flash has no `minimal` and is sent `low`. **Unset means `low`** (the owner's
+  choice, 2026-10-07): a deployment gets it with no host edit.
+- **Each reading records** the image share of its input tokens, the thinking share of its output
+  tokens, and the thinking setting. `pnpm ai:stats [count]` lists recent readings with those, the
+  prompt version and the cost. For the owner; operators see no tokens and no money (decision 79).
+- **Extraction prompt `v4`** (decision 83). Fields are named `f1`, `f2`, … instead of by id; a
+  table's blank cells are left out and stored as `EMPTY` by validation; `altValueText` is written
+  only for a correction. `v2` was the same but also made `isDitto` and `bbox` optional, and the
+  model stopped writing them: no ditto flagged, most values without a box. `v3` requires both again,
+  and `v4` requires `confidence` too, after one `v3` reading left it off all 78 values. It is kept
+  so that it is always there, as a hint, not because it is accurate. `v2` and `v3` are in the
+  repository because readings used them; neither was shipped. `v1` is untouched. **`v4` has not
+  had a real reading yet**: it differs from `v3` by one required property.
+- **The estimate, which is also the credit hold:**
+  - a page image is 1,120 input tokens, flat (`IMAGE_TOKENS_PER_PAGE`); the old rule, 258 per 768px
+    tile, was wrong for these models;
+  - the proposal prompt allowance is 1,000 tokens (it counts as about 680), down from 1,500;
+  - a table's first reading allows 600 output tokens a column, up from 80. The old figure held a
+    fifth of what the first real page cost. A book's own history still replaces it.
+- **A cap on `Propose fields`:** 24,000 output tokens an ask, thinking included
+  (`PROPOSAL_MAX_OUTPUT_TOKENS`), about $0.22 at worst. Nothing else bounds thinking. An ask that
+  reaches it fails as `OUTPUT_LIMIT` with its own sentence, is never asked again, and costs the
+  operator nothing. 12,000 was tried first and cut off two readings of the blurry page.
+  **Extraction has no cap**: a full page honestly writes tens of thousands of tokens.
+- **`Stop` on `Propose fields`.** Marks the proposal failed (`stopFieldProposal`), which is all it
+  takes: the worker writes a result only while the proposal is running under its own claim, so a
+  late answer is dropped and charges nothing. The request already sent is still billed to the
+  deployment. Extraction still has no stop (decision 75).
+- **Photo quality is said, not detected.** Both dialogs that spend now say that sharp, close photos
+  read best and blurry ones are read less accurately and can use more credits (`photoQualityLine`),
+  and a cut-off reading names a blurry photo as a likely cause. Two detectors were tried and
+  dropped: a size limit caught both bad photos but accused a clean 842 × 595 form, and an
+  edge-sharpness score rated the blurry photos (0.74, 0.63) as sharp as the scan (0.60). What
+  matters is pixels per piece of writing: 38 and 48 a column on the bad photos, 73 on the scan.
+- **A used-up daily quota is not a rate limit.** Both arrive as the same refusal and the daily one
+  was retried for five minutes. It is `QUOTA_EXHAUSTED` now: fails at once and says to try the other
+  model or come back tomorrow. Detected from the provider's wording (`PerDay`); if that changes it
+  falls back to the retry.
+- **A retry logs what the provider said**, where the worker's line said only that it would retry.
+
+**Tests:** `lib/ai/validate.test.ts` — a table's unlisted cells become `EMPTY` and no others do, a
+listed `ILLEGIBLE` stays `ILLEGIBLE`, a form is not filled, and a real field id where an alias
+belongs is refused. In policy: this decides what is written to the raw layer. No new E2E; the
+existing four were run against `v3` and again against `v4`, and `Stop` was checked once in a browser against a fake reading
+that answers after 90 seconds.
+
+**Done when:**
+- A table page extracts with every written cell boxed, dittos flagged and blank cells
+  stored as `EMPTY` (met on the scan).
+- A reading records its image tokens, thinking tokens and thinking setting, and `ai:stats` shows them.
+- `Propose fields` can be stopped, and a stopped reading charges nothing.
+- An exhausted daily quota fails at once with its own sentence.
+
+### Still open
+
+- **Extraction at `default` thinking was never compared with `low`.** `low` is the standard on the
+  strength of two proposals and of every extraction here having run at it.
+- **The confidence figure is not accurate.** It said 0.9 on handwritten names that were wrong nine
+  times in ten. It stays in the answer and still drives the dotted underline; nothing should be
+  built that trusts it.
+- **`v4` needs its first real reading**: every listed value should carry a confidence.
+- **A value matched to a heading that says the same thing.** "18" was placed under `ACT-18` in every
+  reading; it is written under `ACT-24`. A wrong column looks right in review. A prompt rule, not a
+  setting.
+- **A heading the model cannot read is guessed, confidently**, a different way each time (one rotated
+  header came back as bed nets, malaria death, condoms and "entered in computer"). That is the case
+  for `template-v2`: say a column is unreadable rather than name it.
+- **A full, dense page is untested.** 25 rows at this page's density is about 22,000 output tokens
+  and fits; every cell of 25 × 28 written would not.
+- The box of a ditto mark points at the middle of the page, under `v1` and `v3` alike.
+
+**Not in this phase:** a cap or stop for extraction, sending a page as overlapping strips, 3.7 Flash
+as the default, hiding SKIP fields, `template-v2`, and a larger working copy than 2048px.
+
+---
+
 ## Post-v1
 
 **Provisional, as before** (decision 64). Re-rank from real usage rather than building down it. Three
@@ -981,6 +1114,8 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 78 | Specimens belong to the template: in and out by copy, never a flag flip. Replaces the promotion half of 71. ✅ written up |
 | 79 | One AI key, the deployment's; sign-up by invitation; no money shown on it. Bring-your-own (54) goes dormant. ✅ written up |
 | 81 | Credits are a fixed slice of provider cost, kept as a ledger; a reading holds its estimate and is charged what it cost. Replaces 55. ✅ written up |
+| 82 | How long the model thinks is one deployment setting, recorded on every reading; it is not a prompt version. ✅ written up |
+| 83 | In a table answer a cell left out is blank; fields are named by alias. Prompts `v2` to `v4`. ✅ written up |
 
 ---
 

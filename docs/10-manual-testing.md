@@ -283,13 +283,13 @@ the app **and the worker**. `AI_PROVIDER=fake` is enough except where marked. Un
 
 ### New book from this one (Phase 17)
 
-Prepare a source book with 2 templates (one with nested and selection groups), mapped columns, 2 glossary entries,
+Prepare a source book with 2 templates (one with headers in its field names and a `From ticks` mapping), mapped columns, 2 glossary entries,
 3 rules (one `CROSS_COLUMN`), a non-default era, custom export tokens, and some documents and rows.
 
 | ID | Steps | Expected |
 |---|---|---|
 | BOOK-10 | Copy icon on the source book | `New book from "…"`, name defaulting to `<name> (copy)`, counts of templates, columns, mappings, glossary entries and rules, and "Documents, photos and rows are not copied." `Create book` disabled until counts arrive |
-| BOOK-11 | Create it | New book has both templates (structure and every group setting intact), all columns, all mappings, glossary, rules, era and export tokens. **Zero** documents and rows |
+| BOOK-11 | Create it | New book has both templates (field names intact, the `From ticks` mapping with every value and rule), all columns, all mappings, glossary, rules, era and export tokens. **Zero** documents and rows |
 | BOOK-12 | Templates in the copy | Listed in the same order as the source |
 | BOOK-13 | Delete a column in the source, then copy again | Rules and mappings on the deleted column are not copied, and the counts said so before copying |
 | BOOK-14 | Edit a template in the copy | Source book is unchanged |
@@ -338,21 +338,18 @@ Prepare a source book with 2 templates (one with nested and selection groups), m
 | TPL-68 | Pane trash icon → confirm | Counted confirmation (`Removes this 2-page specimen …`). The specimen goes; the documents, including copies made from it, stay |
 | TPL-69 | Reading pane | Heading `Test reading · stays with this template, not in your table` |
 
-### Fields, groups and the tree
+### Fields and their names
 
 | ID | Steps | Expected |
 |---|---|---|
-| TPL-13 | Add bar: add fields `Name`, `Village`, `Age` | Appear in order; new rows scroll into view; default mode Extract; type Text |
-| TPL-14 | Add a group `Sex`, then `M` and `F` into it as Mark fields | Adding a group switches the bar to adding fields into it. Inside a selection group the type defaults to Mark |
-| TPL-15 | Group row `+` → type a label, Enter, another, Enter, Escape | Inline quick-add adds both and closes |
-| TPL-16 | Drag a field up/down; drag right into a group; drag left out | Moves as described; the order survives reload |
-| TPL-17 | Keyboard drag: focus a handle, Space, ↑/↓, →/←, Space | Same moves by keyboard. With a screen reader (VoiceOver), each step is announced by label, never by id |
-| TPL-18 | Nest groups four levels deep | The fourth level is refused with a plain message. Moving a group into itself is refused |
-| TPL-19 | Parent picker in the add bar | Parents that would refuse the item are greyed out |
-| TPL-20 | Set `Sex` group to `One of`, `When nothing is ticked: Flag for review`, `When several are ticked: Error` | Saved; the panel explains the effect in one line and lists the option fields |
-| TPL-21 | Try `One of` on a group containing a Text field | Unavailable, with the reason shown |
-| TPL-22 | Change a field inside a selection group from Mark to Text | Refused with a plain message |
-| TPL-23 | Delete a group with 2 fields and 1 subgroup | Confirmation: "2 fields and 1 group move up into … No fields are deleted." Fields are kept |
+| TPL-13 | Add bar: add fields `Name`, `Village`, `Age` | Appear in order at the end of the list; new rows scroll into view; default mode Extract; type Text |
+| TPL-14 | Add `Sex › M` and `Sex › F` as Mark / tick fields | Two separate rows. `Sex ›` is muted, `M` and `F` are not. No band, no tick boxes on the rows |
+| TPL-15 | Add a very long name with three header levels | The row wraps onto more lines; the last part of the name is fully visible |
+| TPL-16 | Drag a field up/down | Moves; the order survives reload |
+| TPL-17 | Keyboard drag: focus a handle, Space, ↑/↓, Space | Same moves by keyboard. With a screen reader (VoiceOver), each step is announced by name, never by id |
+| TPL-18 | Add `Temp` twice | Both rows get an amber triangle; a line above the list says `2 fields share a name…`; either field's properties say `Another field is also named “Temp”. Put the header in front…`. Nothing is refused |
+| TPL-19 | Rename them `Day 1 › Temp` and `Day 3 › Temp` | The warning goes. Mapping picker, review and `Create columns` show the whole name, so the two can be told apart |
+| TPL-20 | Look for a way to group fields, set a header or make a tick set | There is none. The line under the list points to `From ticks` on the Mapping tab |
 
 ### Field properties and autosave
 
@@ -378,7 +375,7 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 | TPL-34 | Delete a mapped field | Confirmation states which mappings break, which columns empty, rows and cells affected, and how many cells carry your edits |
 | TPL-35 | Confirm | Mapping marked `Broken` with the reason; template badge `Conflicted` with a tooltip listing broken mappings and `Fix mappings`. Other mappings keep working |
 | TPL-36 | psql: `SELECT count(*) FROM "RawValue" WHERE "fieldId"='<deleted field id>'` | Raw values still exist |
-| TPL-37 | Undo from the toast (or restore) | Field returns to the same group and position; mapping `OK`; template `Ready` again; values rebuild with no AI call |
+| TPL-37 | Undo from the toast (or restore) | Field returns to the same position; mapping `OK`; template `Ready` again; values rebuild with no AI call |
 | TPL-38 | Delete the sequence field, restore it | Sequence setting comes back |
 
 ### Propose fields (Phase 16)
@@ -390,9 +387,9 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 | TPL-41 | With no provider key (Gemini, no keys) | Problem shown in place; `Propose fields` disabled |
 | TPL-42 | Start it, then close the dialog while it's reading | Closing says the proposal is paid for and will resume |
 | TPL-43 | Reopen the dialog on the same page | Resumes the same proposal. psql: only one new `FieldProposal` row |
-| TPL-44 | Proposal list (fake: 12 fields on a form) | Paper order, label in its script, English meaning, type badge, choices/notes. All ticked except labels already in the tree (`Already in the tree`). `Choose all` / `Choose none`, a live `N of 12 fields chosen`, the amber "confidently wrong" line |
+| TPL-44 | Proposal list (fake: 12 fields on a form) | Paper order, label in its script, English meaning, type badge, choices/notes. All ticked except names already in the list. `Choose all` / `Choose none`, a live `N of 12 fields chosen`, the amber "confidently wrong" line |
 | TPL-45 | Untick one, `Add 11 fields` | Counted confirmation: **Adds 11 fields**, where they land, 1 left out, the list. Escape is blocked while saving |
-| TPL-46 | Confirm | Exactly 11 fields at the end of the tree, in paper order, mode Extract, no groups. The unticked one is not created |
+| TPL-46 | Confirm | Exactly 11 fields at the end of the list, in paper order, mode Extract, each named with the header it was proposed under in front (`Header › Label`). The unticked one is not created |
 | TPL-47 | Propose again on the same page | Fields already added start unticked |
 | TPL-48 | `Read again` | Back to the estimate; a fresh proposal costs again |
 | TPL-49 | Same page in a **Table** template | 6 column proposals (fake). Visibly different from the form's list |
@@ -403,8 +400,8 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 
 | ID | Steps | Expected |
 |---|---|---|
-| TPL-52 | Duplicate into `This book` with `Copy mappings to output columns too` | Copy has every field, group and setting, plus mappings |
-| TPL-53 | Duplicate a 20-field template with nested + selection groups into **another book** | Dialog counts what travels ("Copies 20 fields and 5 groups (2 selection groups)… as a draft in Q2") and what stays ("7 mappings stay here…"). Confirming opens the copy in the target book as `Draft` |
+| TPL-52 | Duplicate into `This book` with `Copy mappings to output columns too` | Copy has every field with its name and settings, plus mappings (a `From ticks` mapping keeps its fields, values and rules) |
+| TPL-53 | Duplicate a 20-field template into **another book** | Dialog counts what travels ("Copies 20 fields… as a draft in Q2") and what stays ("7 mappings stay here…"). Confirming opens the copy in the target book as `Draft` |
 | TPL-54 | In the target book, Mapping → `Create columns from this template` | One click completes it. Proposal is empty afterwards |
 | TPL-55 | psql: count `"Mapping"` rows for the copied template before TPL-54 | Zero |
 | TPL-56 | Delete a template with documents | Counted confirmation (templates, documents, photos, rows, edited cells). Template and its documents are soft-deleted |
@@ -420,7 +417,7 @@ Use a template with fields and one extracted specimen or document, so the previe
 | ID | Steps | Expected |
 |---|---|---|
 | MAP-01 | Mapping with nothing extracted | Preview empty state names the working order and offers `Try one document` |
-| MAP-02 | `Create columns from this template` | Counted confirmation `Creates N columns and N mappings` listing each column. A `One of` group proposes **one** list column; its tick fields aren't proposed separately |
+| MAP-02 | `Create columns from this template` | Counted confirmation `Creates N columns and N mappings` listing each column. **Every tick field gets its own yes/no column**; nothing is combined for you, and the dialog says to use From ticks for that |
 | MAP-03 | Confirm, then press it again | `Created N columns…`; the second press creates nothing |
 | MAP-04 | Page layout | Left: `Filled by this template (N)`, `Not filled by this template` (each with `Map`), unused fields. Right: the preview |
 
@@ -437,8 +434,11 @@ and check the Result Table after the rebuild.
 | MAP-08 | Split, pattern | Pattern `(\d+)` | First capture group. Pattern without a group, or `(\d+)+`, is refused at save |
 | MAP-09 | Fixed value | `2026-Q1` | Every row has it |
 | MAP-10 | Expression | `{Name} + " (" + {Village} + ")"`, using `Insert a field` | Evaluates. Two digit fields joined with `+` concatenate, not sum; `number({A}) + number({B})` sums |
+| MAP-10a | From ticks | Column `Sex`: add the tick fields `Sex › M` and `Sex › F`, write `1` and `2`, `Only one`, nothing ticked `Leave blank and flag it`, several ticked `Mark as an error` | Preview: one tick → `1` or `2`; none → blank with the warning `Nothing is ticked in “Sex”.`; both → blank with an error naming both. The list row reads `M → 1, F → 2` |
+| MAP-10b | From ticks, the rest | Set `Write this instead` to `Not tested`; switch to `Several`; give it a name in `Name used in warnings`; try to save with one tick field | None ticked → `Not tested`; several ticked → values joined with commas and the several-ticked choice hides; warnings use the name; one tick field is refused with a plain message |
+| MAP-10c | From ticks, broken | Change one of its fields from Mark / tick to Text, or delete it | The mapping turns `Broken` with the reason and the template `Conflicted`; changing it back or restoring repairs it |
 | MAP-11 | Expression, invalid | `{Name}.length`, `a ? b : c`, `unknownFn(1)` | Each refused at save with a plain message |
-| MAP-12 | Tick group | Map `Sex` (One of): M → `1`, F → `2`, nothing ticked → `Not tested` | Values follow the options; unticked → `Not tested` |
+| MAP-12 | From ticks, migrated | Open a mapping that read a tick set before Phase 24 | It is a `From ticks` mapping with the same fields in the same order, the same value for each, the same rules and the set's old name under `Name used in warnings`. The Result Table is unchanged after `Rebuild rows` **[CRITICAL]** |
 | MAP-13 | Duplicate target | Map a second input to a column already mapped in this template | Refused |
 | MAP-14 | Fill down (tables) | Toggle "Fill in ditto marks from the row above" off | Ditto cells go empty with a warning instead of inherited |
 

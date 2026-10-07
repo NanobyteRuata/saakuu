@@ -195,7 +195,7 @@ every 2 s while a run is going, as read-only status.
 
 **Duplicate** asks `Copy into` — `This book` or any other book the user owns (Phase 17). Into this book
 it offers `Copy mappings to output columns too`, as before. Into another book that checkbox is replaced by
-the count of what travels (*"Copies 20 fields and 5 groups (2 selection groups) with every setting, note,
+the count of what travels (*"Copies 20 fields with every setting, note,
 anchor and instruction, as a draft in Q2."*) and what stays (*"7 mappings stay here: they fill this book's
 columns. In Q2, Create columns from this template finishes the copy in one click."*). Confirming opens the
 copy in the target book.
@@ -206,8 +206,8 @@ Full-page, two sections: **Fields** · **Mapping**.
 *As built (Phase 15):* **Fields is a paned workspace with the paper in it.**
 
 ```
-1280   [ photo | reading ]  [ tree, properties under the selected row ]
-1600   [ photo | reading ]  [ tree ]  [ properties ]
+1280   [ photo | reading ]  [ fields, properties under the selected row ]
+1600   [ photo | reading ]  [ fields ]  [ properties ]
 ```
 
 - The header (breadcrumb, template settings, `Fields | Mapping`) is a fixed row; everything below is
@@ -275,16 +275,18 @@ done the product's way: the machine proposes and the human decides. It is a dial
    so reopening the dialog on the same page resumes it rather than charging again.
 3. **Proposal.** A list in paper order with a checkbox per field showing the label in its script,
    the English meaning, a type badge, and the choices and note where present. Every row starts
-   ticked, except one whose label is already in the tree (`Already in the tree`). There are
+   ticked, except one whose header and label are already in the list (`Already in the list`). There are
    `Choose all` and `Choose none` buttons, a live `9 of 12 fields chosen`, and an amber line: *the
    AI can be confidently wrong, and a wrong list looks finished*. `Add N fields` opens the counted
    confirmation, which has the same shape as `Create columns from this template`: **Adds 11
-   fields**, where they land (end of the tree, paper order, Extract), how many are left out, and
+   fields**, where they land (end of the list, paper order, Extract), how many are left out, and
    the list. Escape is blocked while it saves. `Read again` goes back to the estimate for a fresh
    proposal.
 
-Fields land flat at the top level. Groups, headers and tick groups stay manual, because a wrong
-group costs more to undo than a missing one.
+Fields land at the end of the list. Each proposed name starts with the header the AI read above
+it, joined with ` › ` (Phase 24), and long names wrap rather than lose their end. Which tick boxes
+belong together is not proposed: a wrong guess costs more to undo than a missing one, and the
+operator combines them on the Mapping tab.
 
 *As built (decision 78):* **the specimen pane owns the template's specimens**, which appear nowhere
 else.
@@ -310,59 +312,49 @@ else.
 - **The reading pane has a heading**: `Test reading · stays with this template, not in your table`.
 - **Stale, one rule on both sides.** `Read before your latest field changes` shows when the reading is
   older than the template's `fieldsChangedAt`, when a page was added, replaced or cropped since it, or
-  when the fields on screen changed since it appeared. `fieldsChangedAt` moves with fields, groups and
+  when the fields on screen changed since it appeared. `fieldsChangedAt` moves with fields and
   the prompt settings — not with mappings, which is why it is not `updatedAt`. The server's promote
   check uses the same columns.
 
 ### Fields tab
-Two-pane. Left: the field tree (groups → fields), drag-reorderable, with an add bar above it.
-Right: the selected field's or group's properties.
+Two-pane. Left: the field list, drag-reorderable, with an add bar above it.
+Right: the selected field's properties.
 
-**Tree (Phase 3.1).** Mirrors the paper. Groups and single fields interleave in one order at
-every level, and groups nest up to 3 levels; there is no fixed "Ungrouped" section.
-- Group rows are bordered, padded and lightly tinted, so a header reads differently from a field.
-  Thin vertical guide lines, one per nesting level, run beside the rows inside each group, so a
-  group's contents read as one block without breaking the flat drag list.
-- **Adding.** One add bar, pinned above the list while it scrolls: a `Field | Group` switch, the
-  label, the parent (top level or any group) and, for fields, the type (defaults to Mark / tick
-  inside a selection group, Text elsewhere). Choice isn't offered there: a choice field needs its
-  choices, so add the field, then set Type to Choice in its properties. Selecting a row points the parent at it: a group
-  itself, or a field's group. Adding a group switches the bar to adding fields into that group.
-- Each group row has a `+` that opens an inline row at the end of that group: type a label, Enter,
-  the next label, Enter; Escape closes it. New rows scroll into view.
-- Drag vertically to reorder; drag right to move into the group above, left to move out one
-  level. Keyboard: Space to lift, ↑/↓ to move, →/← to nest or un-nest, Space to drop.
-- Screen readers hear each drag step by label, never by id: what was picked up and where it is,
-  where it would land ("Neg. would go inside RDT Test, after Positive"), why a spot is refused,
-  and the result.
-- Parent pickers grey out parents that would refuse the item (depth, cycle, selection rules).
-- A `Group` select in the field and group properties panels is the non-drag alternative.
-- A move past the depth cap, or a group into itself, is refused with a plain message.
-- Group rows: source label (in its script), meaning (muted), a selection chip (`One of` /
-  `Any of`) and a field count. Field rows can show their header path (`RDT Test › Positive › A`)
-  where the bare label is ambiguous, e.g. in search results and the properties panel title.
-- Deleting a group states exact counts and never deletes fields: "2 fields and 1 group move up
-  into RDT Test. No fields are deleted."
+**List (Phase 24, decision 84; replaces the Phase 3.1 tree).** One flat list in paper order. A
+field is one box on the paper. Nothing nests, nothing groups, and nothing is dragged in or out of
+anything.
+- **A header is part of the name.** A field under a header is named with the header in front:
+  `၁ ရက်နေ့ › ကိုယ်ပူချိန်`, `RDT Test › Positive › A`. In the row the headers are muted and the
+  field's own words are not. There are no header bands, no header form and no row tick boxes.
+- **Names never lose their end.** A long name wraps onto more lines in the row; where a name has
+  to stay on one line, the headers in front are shortened (`RDT Test › Pos… › A`).
+- **Adding.** One add bar, pinned above the list while it scrolls: the name and the type, with a
+  line under it saying to put a printed header in front (`Day 1 › Temp`). The new field goes at
+  the end of the list. Choice isn't offered there: a choice field needs its choices, so add the
+  field, then set Type to Choice in its properties.
+- **Same name twice.** Two live fields with the same name are each marked with an amber triangle,
+  a line above the list counts them, and the properties of either say *"Another field is also
+  named “ကိုယ်ပူချိန်”. Put the header in front, like “Day 1 › ကိုယ်ပူချိန်”, so you can tell
+  them apart."* It is a warning only: saving, reading and mapping all still work.
+- **Drag** up or down to reorder. Keyboard: Space to lift, ↑/↓ to move, Space to drop.
+- Screen readers hear each drag step by name, never by id: what was picked up, where it would
+  land ("Weight would go after Temp"), and the result.
+- A line under the list says where tick boxes that give one answer are combined: on the Mapping
+  tab, with `From ticks`.
 - The empty state and the Mode help text carry the guidance from docs/01 §6.5: for Table
   templates, add every column in paper order and set unwanted ones to Skip; for forms, add
   look-alike fields as Skip.
 
-Field row shows: source label (in its own script, prominent), meaning label (muted,
+Field row shows: name (in its own script, prominent, headers muted), meaning (muted,
 smaller), type chip, mode chip. Mode chips are colour-coded and immediately legible —
 `Extract` neutral, `Skip` muted/struck, `Manual` accented.
 
-Field properties panel: source label, meaning label, data type, mode, note (multiline,
+Field properties panel: **Name on the paper** (grows with the text, with the header hint and the
+same-name warning under it), meaning in English, data type, mode, note (multiline,
 with a hint explaining it is an instruction to the AI and an example), choices editor
 for CHOICE, symbol map for MARK, `use as sequence` toggle for table templates.
 For DATE (Phase 6): **Dates written with a two-digit year** — flag them (default), read them in the
 book era's century, or split at a year — with a one-line example of what `30.8.20` becomes.
-
-Group properties panel (Phase 3.1): label on the paper, meaning, parent group, selection
-(`Header only` / `One of` / `Any of`), when nothing is ticked (`Normal blank` /
-`Flag for review` / `Error`), when several are ticked (`One of` only: `Flag for review` /
-`Error`), and a note for the AI. The selection settings explain their effect in one line
-("Blank means not tested: no flag") and list the group's option fields; a group whose
-descendants aren't all mark fields shows why `One of` is unavailable.
 
 Header of the tab: template name, kind (read-only after creation), language hint,
 anchors editor, template-level instructions, double-extraction toggle (disabled in v1
@@ -384,11 +376,24 @@ feedback.
 - Two panes. Left: a rebuild bar, then **Filled by this template** (one row per mapped column: kind chip, what it reads,
   and a `Broken` chip with the reason), **Not filled by this template** (each with `Map`), and a collapsible list of
   fields no mapping uses. Right (sticky): the preview.
-- One editor opens in place at a time: how the column is filled (Copy / Join / Split / Fixed value / Expression, each
-  with a one-line hint), field pickers in paper order with header paths (tick groups listed as `Tick group · One of`),
-  up/down reordering for Join, and "Fill in ditto marks from the row above" on table templates. A tick group source
-  shows its options with a value box each (blank = the option's label) and "When nothing is ticked, export". Expressions
-  are written with `{Label}` references and an "Insert a field" picker. Escape cancels.
+- One editor opens in place at a time: how the column is filled (Copy / Join / Split / Fixed value / Expression /
+  From ticks, each with a one-line hint), field pickers in paper order showing each field's whole name,
+  up/down reordering for Join, and "Fill in ditto marks from the row above" on table templates. Expressions
+  are written with `{Name}` references and an "Insert a field" picker. Escape cancels.
+- **From ticks** (Phase 24, decision 84): *"Several tick boxes become one answer, e.g. a tick under ကျား or မ
+  becomes M or F."* Its form, top to bottom:
+  - **Tick fields, and what each one writes** — one row per chosen field: its name, a box for the value it
+    writes (pre-filled with the last part of its name; blank = the field's own name) and a remove button. Under
+    them `Add a tick field…`, which lists only Mark / tick fields not chosen yet.
+  - **How many can be ticked?** — `Only one` / `Several` (joined with commas).
+  - **When nothing is ticked** — `Leave blank` / `Leave blank and flag it` / `Mark as an error`, then an optional
+    *Write this instead of leaving it blank* (`Not tested`).
+  - **When several are ticked** (only under `Only one`) — `Flag it` / `Mark as an error`. The cell stays blank;
+    no box is picked for the operator.
+  - **Name used in warnings** (optional) — what a warning calls these boxes, with the sentence shown as it will
+    read; the column's name when empty.
+  Each choice has one line under it saying what it does. In the mapping list a From ticks row reads
+  `M → 1, F → 2`. Changing a mapping to From ticks keeps only its Mark / tick fields.
 - The preview follows the unsaved editor (debounced 400 ms): it shows the mapped columns plus the one being edited
   (highlighted), up to 50 rows, void rows labelled (`Total, void`), ditto-filled values with `⇡`, flagged cells with a
   bar, a flag glyph and every message listed in words below, and the document checks (sequence gaps and so on). A draft
@@ -401,9 +406,8 @@ Added in Phase 10:
 - **`Create columns from this template`** sits above the two panes. For every `Extract`-mode field
   with no mapping it creates an Output Column (label from the meaning label, falling back to the
   source label; key auto-slugged; type from the field's data type) and a `COPY` mapping to it.
-  A **selection group is one answer, so it proposes one column**, mapped from the group: `One of`
-  becomes a list column of its option labels, `Any of` a text column, and the group's tick fields
-  are not proposed separately. Counted confirmation first, listing every proposed column:
+  **Every tick field gets a yes/no column of its own** (Phase 24): the app does not guess which
+  ticks belong together, and the confirmation says to use From ticks for that. Counted confirmation first, listing every proposed column:
   `Creates 11 columns and 11 mappings`. The proposal is recomputed on the server as it is applied,
   so a second click creates nothing twice. A first book is almost always 1:1 field → column, so
   this replaces the hardest part of setup with one click and a round of renaming (decision 52).

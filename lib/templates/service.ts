@@ -14,7 +14,6 @@ import { summariseRunState, type RunCounts, type RunSummary } from "./config-sta
 import { copyTemplateInto, nextTemplatePosition, type TemplateCopy } from "./copy";
 import {
   MAX_FIELDS,
-  MAX_GROUPS,
   type ConfigState,
   type CreateTemplateInput,
   type DeleteTemplatesInput,
@@ -23,7 +22,7 @@ import {
   MAX_TEMPLATES,
   type UpdateTemplateInput,
 } from "./schemas";
-import { fieldSelect, groupSelect, toFieldView, type DeletedFieldView, type FieldView, type GroupView } from "./views";
+import { fieldSelect, toFieldView, type DeletedFieldView, type FieldView } from "./views";
 
 export { MAX_TEMPLATES };
 
@@ -58,7 +57,6 @@ export type TemplateDetail = {
   updatedAt: string;
   /** Decision 78: a test reading older than this was read with different fields. */
   fieldsChangedAt: string;
-  groups: GroupView[];
   fields: FieldView[];
   deletedFields: DeletedFieldView[];
   mappingCount: number;
@@ -165,7 +163,6 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
       fieldsChangedAt: true,
     },
   });
-  const groups = await db.fieldGroup.findMany({ where: { templateId }, select: groupSelect, take: MAX_GROUPS });
   const fields = await db.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS });
   const deleted = await db.field.findMany({
     where: { templateId, deletedAt: { not: null } },
@@ -185,7 +182,6 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
     ...t,
     updatedAt: t.updatedAt.toISOString(),
     fieldsChangedAt: t.fieldsChangedAt.toISOString(),
-    groups: sortByPosition(groups),
     fields: sortByPosition(fields).map(toFieldView),
     deletedFields: deleted.map(({ deletedAt, ...f }) => ({
       ...toFieldView(f),
@@ -318,24 +314,22 @@ export async function deleteTemplates(userId: string, input: DeleteTemplatesInpu
   });
 }
 
-export type TemplateCopySummary = { fields: number; groups: number; selectionGroups: number; mappings: number };
+export type TemplateCopySummary = { fields: number; mappings: number };
 
 /** What a copy carries and what it leaves behind, for the counted confirmation (docs/06 Phase 17). */
 export async function templateCopySummary(userId: string, templateId: string): Promise<TemplateCopySummary> {
   await requireTemplateAccess(userId, templateId);
-  const [fields, groups, selectionGroups, mappings] = await Promise.all([
+  const [fields, mappings] = await Promise.all([
     prisma.field.count({ where: { templateId, deletedAt: null } }),
-    prisma.fieldGroup.count({ where: { templateId } }),
-    prisma.fieldGroup.count({ where: { templateId, selection: { not: "NONE" } } }),
     prisma.mapping.count({ where: { templateId } }),
   ]);
-  return { fields, groups, selectionGroups, mappings };
+  return { fields, mappings };
 }
 
 export type DuplicateResult = TemplateCopy & { bookId: string; mappingsLeftBehind: number };
 
 /**
- * Copies a template's live source layer (groups, fields, anchors, instructions) with new ids, optionally as
+ * Copies a template's live source layer (fields, anchors, instructions) with new ids, optionally as
  * the other kind — the answer to "switch Form ↔ Table", which is refused — and optionally into another book
  * the user owns (Phase 17). Within a book, mappings are copied on request, only those whose inputs and
  * column are all live. Into another book they never travel: they name this book's columns (decision 3).

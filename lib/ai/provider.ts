@@ -1,4 +1,4 @@
-import type { FieldType, GroupSelection, MarkSymbols, TemplateKind } from "@/lib/templates/schemas";
+import type { FieldType, TickSelection, MarkSymbols, TemplateKind } from "@/lib/templates/schemas";
 
 import type { AIModelId } from "./models";
 
@@ -51,7 +51,7 @@ export type PathLabel = { label: string; meaning: string | null };
 
 export type SnapshotField = {
   id: string;
-  /** Header path from the top group down to the field itself. */
+  /** The headers above the field from the top down (when it has any), then the field itself. */
   path: PathLabel[];
   dataType: FieldType;
   /** MANUAL fields are never part of a snapshot. */
@@ -62,12 +62,13 @@ export type SnapshotField = {
   isSequence: boolean;
 };
 
+/** Tick sets as templates had them before decision 84. No snapshot carries any now; the frozen prompts still read the shape. */
 export type SnapshotGroup = {
   id: string;
   path: PathLabel[];
   note: string | null;
-  selection: GroupSelection;
-  /** Selection groups only: option field ids in paper order. */
+  selection: TickSelection;
+  /** Option field ids in paper order. */
   optionFieldIds: string[];
 };
 
@@ -79,7 +80,7 @@ export type TemplateSnapshot = {
   anchors: string[];
   /** EXTRACT and SKIP fields in paper order. */
   fields: SnapshotField[];
-  /** Groups that carry a note or a selection, in paper order. */
+  /** Always empty (decision 84). */
   groups: SnapshotGroup[];
 };
 
@@ -141,9 +142,9 @@ export type FieldProposalRequest = {
 };
 
 export type ProposedFieldDTO = {
-  /** The label exactly as written on the paper, in its own script. */
+  /** The field's name exactly as written on the paper, in its own script, with the headers above it in front, joined with " › ". */
   labelSource: string;
-  /** A short English meaning, where the label is not already English. */
+  /** A short English meaning in the same levels, where the name is not already English. */
   labelMeaning: string | null;
   dataType: FieldType;
   /** CHOICE only: the printed options, as written. */

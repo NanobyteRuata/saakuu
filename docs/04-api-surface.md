@@ -164,7 +164,7 @@ GET    /api/books/:id/templates
 POST   /api/books/:id/templates            { name, kind, modelOverride? }
 GET    /api/templates/:id                  source layer + mapping layer + counts
 PATCH  /api/templates/:id                  { name?, instructions?, anchors?, languageHint?, modelOverride?, doubleExtraction?, sequenceFieldId? }
-GET    /api/templates/:id/duplicate        -> { fields, groups, selectionGroups, mappings }   what a copy carries
+GET    /api/templates/:id/duplicate        -> { fields, tickSets, mappings }   what a copy carries
 POST   /api/templates/:id/duplicate        { includeMappings, kind?, name?, targetBookId? }
                                               -> { id, bookId, fields, groups, mappings, skippedMappings, mappingsLeftBehind }
 POST   /api/templates/delete               { ids[], impactHash, confirm }   soft-deletes templates and their documents
@@ -260,6 +260,27 @@ POST   /api/fields/:id/restore              -> { ..., placedOutside }
   `noneMarked`, `multipleMarked`, `note`. `GET /api/templates/:id` returns groups and fields flat;
   `lib/templates/tree.ts` builds the ordered tree and header paths.
 
+**Phase 24 changes** (flat fields, decision 84). These replace the Phase 3 and 3.1 shapes above.
+There are no groups of any kind: **every `/groups` route is removed**, and so are `groupId`,
+`parentGroupId` and `placedOutside`.
+```
+POST   /api/templates/:id/fields            { labelSource, labelMeaning?, dataType?, mode?, note?, after?: fieldId | null, choices?, markSymbols?, typeOptions? }
+PATCH  /api/fields/:id                      any of the above except after, + move: { after: fieldId | null }
+```
+- Fields are one list per template. `after` names the field it goes after (`null` = first; absent
+  on create = the end of the list). A move writes one row.
+- `labelSource` is the field's whole name, the header above it in front, levels joined with ` › `
+  (`RDT Test › Positive › A`), up to 1,000 characters; `labelMeaning` is the same levels in English.
+  There is no header property and no bulk header route.
+- Two live fields may have the same name. Nothing is refused: the editor warns.
+- Field create without `dataType` gets `TEXT`.
+- Restore puts a field back at its old place in the list.
+- Saving only a note, or only moving a field, does not rebuild rows. Anything else about a field
+  does, and re-checks the template's mappings: a `TICKS` mapping breaks when a field it reads stops
+  being `MARK` or it is left with fewer than two tick fields in `Extract` or `Manual`.
+- `GET /api/templates/:id` returns the fields flat; `lib/templates/field-list.ts` orders them.
+- Proposal items (`FieldProposalView`) carry `labelSource` / `labelMeaning` with the header in front.
+
 ### Mappings
 ```
 GET    /api/templates/:id/mappings
@@ -299,15 +320,22 @@ GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | 
 ```
 ```jsonc
 // MappingDraft
-{ "outputColumnId", "kind": "COPY" | "CONCAT" | "SPLIT" | "CONSTANT" | "EXPRESSION",
-  "inputs": [{ "kind": "field", "id" } | { "kind": "group", "id", "optionValues": { "<optionFieldId>": "1" }, "noneValue": "Not tested" | null }],
-  "separator", "splitBy", "splitIndex", "splitRegex", "constantValue", "expression", "fillDown" }
+{ "outputColumnId", "kind": "COPY" | "CONCAT" | "SPLIT" | "CONSTANT" | "EXPRESSION" | "TICKS",
+  "inputs": [{ "id": "<fieldId>", "tickValue": "1" | null }],          // tickValue: TICKS only
+  "separator", "splitBy", "splitIndex", "splitRegex", "constantValue", "expression",
+  "ticks": { "selection": "ONE_OF" | "ANY_OF", "noneMarked": "BLANK" | "REVIEW" | "ERROR",
+             "multipleMarked": "REVIEW" | "ERROR", "noneValue": "Not tested" | null, "label": "လိင်" | null } | null,   // TICKS only
+  "fillDown" }
 ```
+- An input is always a field (Phase 24, decision 84; until then it could be a tick set with `optionValues` and
+  `noneValue`). `TICKS` ("From ticks") reads several tick fields as one answer: `tickValue` is what each writes
+  (blank = the field's meaning or name), and `ticks` carries the rules and the name warnings use (blank = the
+  column's label).
 - Options that don't belong to the kind are cleared. For `EXPRESSION` the inputs are the `{id}` references in the
-  expression (a group input sent with the same id keeps its option values).
-- `VALIDATION`, each with a plain message: a column that already has a mapping in this template; a deleted column, field
-  or group; a group that is header only or breaks its selection rules; wrong input count for the kind; a tick group as
-  a Split input; a separator split without a part, or a pattern without a capture group or with a repeated repeating
+  expression.
+- `VALIDATION`, each with a plain message: a column that already has a mapping in this template; a deleted column or
+  field; wrong input count for the kind; a `TICKS` mapping with no field, the same field twice, a field that is not
+  `MARK`, or fewer than two tick fields in `Extract` or `Manual`; a separator split without a part, or a pattern without a capture group or with a repeated repeating
   group; an expression that doesn't parse or uses anything outside the
   allow-list (docs/03 §9).
 - `MappingView.problem` is worked out on read, so a mapping broken by a later change says why.
@@ -318,7 +346,6 @@ GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | 
   `draftProblem` and the preview uses the saved mappings.
 - `retransform` status is the template's pending or running job; when `idle`, `lastRun` is the last finished rebuild
   (kept a week): how many documents failed, or why it failed.
-- `GET /api/groups/:id/delete-impact` also returns `brokenMappings` (mappings that read the group as a tick group).
 - Document list items and details carry `transformFlags`; moving documents clears them.
 
 ## Documents & photos
@@ -636,8 +663,8 @@ GET    /api/books/:id/column-sources       (Phase 20) ?columnId&cursor&limit (�
 ```
 - Review covers live, non-void rows and cells of live columns. A document counts once it has such a cell and is complete when
   all of them are reviewed; the Documents list shows `reviewed` and filters `?reviewed=true|false` on the same rule.
-- A cell's region is the union of the boxes of the fields its column's working mapping reads (a selection group reads its
-  option fields), on the record's page. `paths` are those fields' header paths.
+- A cell's region is the union of the boxes of the fields its column's working mapping reads (a `From ticks` mapping reads all
+  of its tick fields), on the record's page. `paths` are those fields' names.
 
 **Phase 12:** `POST /api/cells/review` takes `via: "CELL" | "ROW" | "ILLEGIBLE"`, required when `isReviewed` is true and
 ignored when it is false. It records **how** the cell was reviewed alongside `Cell.reviewedAt`: a per-cell confirm

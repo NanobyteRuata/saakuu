@@ -23,7 +23,8 @@ export const CONFIG_STATES = ["DRAFT", "READY", "CONFLICTED"] as const;
 export type ConfigState = (typeof CONFIG_STATES)[number];
 
 export const MAX_FIELDS = 500;
-export const MAX_GROUPS = 100;
+/** A name can carry several header levels, and one folded from a header and a label must still save. */
+export const MAX_FIELD_NAME = 1000;
 export const MAX_ANCHORS = 50;
 export const MAX_CHOICES = 200;
 export const MAX_MARK_SYMBOLS = 20;
@@ -95,60 +96,17 @@ export const deleteTemplatesSchema = z.object({ ids: idListSchema, impactHash: i
 
 export type DeleteTemplatesInput = z.infer<typeof deleteTemplatesSchema>;
 
-// ---------- Groups ----------
+// ---------- Tick rules ----------
 
-export const GROUP_SELECTIONS = ["NONE", "ONE_OF", "ANY_OF"] as const;
-export type GroupSelection = (typeof GROUP_SELECTIONS)[number];
+/** How a `From ticks` mapping reads its tick fields (decision 84). Here because the transform and the mapping editor share them. */
+export const TICK_SELECTIONS = ["ONE_OF", "ANY_OF"] as const;
+export type TickSelection = (typeof TICK_SELECTIONS)[number];
 
 export const NONE_MARKED = ["BLANK", "REVIEW", "ERROR"] as const;
 export type NoneMarked = (typeof NONE_MARKED)[number];
 
 export const MULTIPLE_MARKED = ["REVIEW", "ERROR"] as const;
 export type MultipleMarked = (typeof MULTIPLE_MARKED)[number];
-
-/** A sibling of either kind: groups and fields share one order under a parent. */
-export const siblingRefSchema = z.object({ kind: z.enum(["field", "group"]), id: idSchema });
-
-const groupProps = {
-  labelSource: z.string().trim().min(1, { error: "Enter the header as it is written on the paper." }).max(500),
-  labelMeaning: optionalText(500),
-  selection: z.enum(GROUP_SELECTIONS),
-  noneMarked: z.enum(NONE_MARKED),
-  multipleMarked: z.enum(MULTIPLE_MARKED),
-  note: optionalText(2000),
-};
-
-export const createGroupSchema = z.object({
-  labelSource: groupProps.labelSource,
-  labelMeaning: groupProps.labelMeaning.optional(),
-  /** Parent group; null or absent = top level. The group is appended at the end of that parent. */
-  parentGroupId: idSchema.nullable().optional(),
-  // No selection here: a new group has no options yet. Set it with PATCH once it holds 2 mark fields.
-  noneMarked: groupProps.noneMarked.optional(),
-  multipleMarked: groupProps.multipleMarked.optional(),
-  note: groupProps.note.optional(),
-});
-
-export type CreateGroupInput = z.infer<typeof createGroupSchema>;
-
-export const updateGroupSchema = z
-  .object({
-    labelSource: groupProps.labelSource.optional(),
-    labelMeaning: groupProps.labelMeaning.optional(),
-    selection: groupProps.selection.optional(),
-    noneMarked: groupProps.noneMarked.optional(),
-    multipleMarked: groupProps.multipleMarked.optional(),
-    note: groupProps.note.optional(),
-    /** Move: new parent (null = top level) and the sibling of either kind to place after (null = first). */
-    move: z.object({ parentGroupId: idSchema.nullable(), after: siblingRefSchema.nullable() }).optional(),
-  })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), { error: "Nothing to update." });
-
-export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
-
-export const deleteGroupSchema = z.object({ impactHash: impactHashSchema, confirm: confirmSchema });
-
-export type DeleteGroupInput = z.infer<typeof deleteGroupSchema>;
 
 // ---------- Fields ----------
 
@@ -185,8 +143,9 @@ export const choicesSchema = z
   .max(MAX_CHOICES, { error: `Up to ${MAX_CHOICES} choices.` });
 
 const fieldProps = {
-  labelSource: z.string().trim().min(1, { error: "Enter the label as it is written on the paper." }).max(500),
-  labelMeaning: optionalText(500),
+  /** The field's name. A header above it on the paper goes in front: "RDT Test › Positive › A". */
+  labelSource: z.string().trim().min(1, { error: "Enter the name as it is written on the paper." }).max(MAX_FIELD_NAME),
+  labelMeaning: optionalText(MAX_FIELD_NAME),
   dataType: z.enum(FIELD_TYPES),
   mode: z.enum(FIELD_MODES),
   note: optionalText(2000),
@@ -221,12 +180,12 @@ export function fieldShapeProblem(f: {
 export const createFieldSchema = z.object({
   labelSource: fieldProps.labelSource,
   labelMeaning: fieldProps.labelMeaning.optional(),
-  /** Absent: Mark / tick inside a selection group, Text elsewhere. */
+  /** Absent: Text. */
   dataType: fieldProps.dataType.optional(),
   mode: fieldProps.mode.default("EXTRACT"),
   note: fieldProps.note.optional(),
-  /** Parent group at any depth; null or absent = top level. Appended at the end of that parent. */
-  groupId: idSchema.nullable().optional(),
+  /** The field to place it after (null = first). Absent: at the end of the list. */
+  after: idSchema.nullable().optional(),
   choices: fieldProps.choices.default([]),
   markSymbols: fieldProps.markSymbols.optional(),
   typeOptions: fieldProps.typeOptions.optional(),
@@ -244,8 +203,8 @@ export const updateFieldSchema = z
     choices: fieldProps.choices.optional(),
     markSymbols: fieldProps.markSymbols.optional(),
     typeOptions: fieldProps.typeOptions.optional(),
-    /** Move: new parent group (null = top level) and the sibling of either kind to place after (null = first). */
-    move: z.object({ groupId: idSchema.nullable(), after: siblingRefSchema.nullable() }).optional(),
+    /** Move: the field to place it after (null = first). */
+    move: z.object({ after: idSchema.nullable() }).optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), { error: "Nothing to update." });
 

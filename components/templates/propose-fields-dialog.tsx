@@ -28,6 +28,8 @@ import type { FieldProposalEstimate, FieldProposalView } from "@/lib/templates/f
 import { FIELD_TYPE_LABELS } from "@/lib/templates/labels";
 import type { TemplateKind } from "@/lib/templates/schemas";
 
+import { FieldName } from "./field-name";
+
 const POLL_MS = 2000;
 /** Five minutes of polling; a proposal is one request, so this is far past anything real. */
 const MAX_POLLS = 150;
@@ -262,8 +264,8 @@ export function ProposeFieldsDialog({
               <span lang={lang} className="font-value">
                 {documentLabel ?? "this page"}
               </span>{" "}
-              as a {KIND_WORD[kind]} and lists {KIND_ITEMS[kind]}. Nothing is added until you choose which to keep. Groups
-              and tick groups stay yours to add.
+              as a {KIND_WORD[kind]} and lists {KIND_ITEMS[kind]}. Nothing is added until you choose which to keep. Tick
+              sets stay yours to make.
             </DialogDescription>
           </DialogHeader>
 
@@ -326,7 +328,7 @@ export function ProposeFieldsDialog({
               <div className="flex min-h-0 flex-col gap-2">
                 <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-sm">
                   The AI can be confidently wrong, and a wrong list looks finished. Check each label against the paper before
-                  you add it — and again in the tree afterwards.
+                  you add it — and again in the list afterwards.
                 </p>
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">
@@ -352,10 +354,8 @@ export function ProposeFieldsDialog({
                         />
                         <label htmlFor={id} className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span className="flex items-baseline gap-2">
-                            <span lang={lang} className="font-value min-w-0 truncate font-medium">
-                              {item.labelSource}
-                            </span>
-                            {item.labelMeaning ? <span className="text-muted-foreground min-w-0 truncate">{item.labelMeaning}</span> : null}
+                            <FieldName name={item.labelSource} lang={lang} className="min-w-0 font-medium" />
+                            {item.labelMeaning ? <span className="text-muted-foreground min-w-0 break-words">{item.labelMeaning}</span> : null}
                           </span>
                           {item.choices.length > 0 ? (
                             <span lang={lang} className="font-value text-muted-foreground truncate text-xs">
@@ -363,7 +363,7 @@ export function ProposeFieldsDialog({
                             </span>
                           ) : null}
                           {item.note ? <span className="text-muted-foreground truncate text-xs">{item.note}</span> : null}
-                          {item.alreadyInTree ? <span className="text-muted-foreground text-xs">Already in the tree</span> : null}
+                          {item.alreadyInTree ? <span className="text-muted-foreground text-xs">Already in the list</span> : null}
                         </label>
                         <Badge variant="outline" className="shrink-0">
                           {FIELD_TYPE_LABELS[item.dataType]}
@@ -416,7 +416,7 @@ export function ProposeFieldsDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Adds {plural(chosen.length, "field")}</AlertDialogTitle>
             <AlertDialogDescription>
-              At the end of the tree, in paper order, each set to Extract.{" "}
+              At the end of the list, in paper order, each set to Extract.{" "}
               {left > 0 ? `${plural(left, "proposed field")} ${left === 1 ? "is" : "are"} left out and won't be created.` : "Every proposed field is included."}{" "}
               Nothing is read again and no further AI cost is involved.
             </AlertDialogDescription>
@@ -424,9 +424,7 @@ export function ProposeFieldsDialog({
           <ul className="max-h-64 overflow-y-auto rounded-md border text-sm" aria-label="Fields to add">
             {chosen.map((item) => (
               <li key={item.index} className="flex items-baseline justify-between gap-3 border-b px-3 py-1.5 last:border-b-0">
-                <span lang={lang} className="font-value min-w-0 truncate">
-                  {item.labelSource}
-                </span>
+                <FieldName name={item.labelSource} lang={lang} className="min-w-0" />
                 <span className="text-muted-foreground shrink-0 text-xs">{FIELD_TYPE_LABELS[item.dataType]}</span>
               </li>
             ))}

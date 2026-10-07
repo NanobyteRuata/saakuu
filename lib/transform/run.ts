@@ -1,10 +1,10 @@
 import { plural } from "@/lib/format";
-import { buildTree, selectionOptions } from "@/lib/templates/tree";
+import { isTickOption, orderFields, shortName } from "@/lib/templates/field-list";
 
 import { coerceToColumn } from "./coerce";
 import { evaluateExpression, parseExpression, type ParsedExpression } from "./expression";
 import type { DocumentFlag } from "./flags";
-import { DEFAULT_SEPARATOR, mappingProblem, OPTION_SEPARATOR, optionLabel, sourceId, type MappingContext, type SourceTree } from "./mappings";
+import { DEFAULT_SEPARATOR, DEFAULT_TICK_RULES, mappingProblem, OPTION_SEPARATOR, type MappingContext } from "./mappings";
 import { normaliseReading, type NormValue, type RawReading } from "./normalise";
 import { cleanText, numericReading, toLatinDigits } from "./numerals";
 import type {
@@ -27,7 +27,7 @@ import type {
 /**
  * The transform pipeline (docs/03 §8): raw records + mappings + book settings → rows and cells.
  * Pure, deterministic and cheap, so it runs again after every mapping or setting change at no AI
- * cost. Steps: filter → ditto → dedupe → sequence check → normalise → selection groups → map →
+ * cost. Steps: filter → ditto → dedupe → sequence check → normalise → map (ticks included) →
  * coerce → validate. Merging with existing cells is `merge.ts`.
  */
 
@@ -53,7 +53,13 @@ const warn = (message: string): Issue => ({ severity: "WARNING", message });
  */
 const MAX_PATTERN_INPUT = 2000;
 
-type WorkingMapping = { mapping: TransformMapping; parsed: ParsedExpression | null; pattern: RegExp | null };
+type WorkingMapping = {
+  mapping: TransformMapping;
+  parsed: ParsedExpression | null;
+  pattern: RegExp | null;
+  /** The output column's label: what a From ticks warning calls the answer when the mapping gives no name. */
+  columnLabel: string;
+};
 
 function emptyValue(issues: Issue[] = []): NormValue {
   return { text: null, state: "EMPTY", confidence: null, inherited: false, mark: null, issues };
@@ -250,16 +256,11 @@ function sequenceFlags(
 // ---------- per record ----------
 
 type Reader = {
+  fields: ReadonlyMap<string, TransformField>;
   field: (fieldId: string, fillDown: boolean) => NormValue;
-  group: (source: Extract<MappingSource, { kind: "group" }>, fillDown: boolean) => NormValue;
 };
 
-function makeReader(
-  values: ReadonlyMap<string, Reading>,
-  fields: ReadonlyMap<string, TransformField>,
-  tree: SourceTree,
-  book: BookSettings,
-): Reader {
+function makeReader(values: ReadonlyMap<string, Reading>, fields: ReadonlyMap<string, TransformField>, book: BookSettings): Reader {
   const cache = new Map<string, NormValue>();
   const field = (fieldId: string, fillDown: boolean): NormValue => {
     const cacheKey = `${fieldId}:${fillDown}`;
@@ -276,43 +277,48 @@ function makeReader(
     return value;
   };
 
-  /** Step 5a: a selection group's answer from its option ticks (docs/03 §8 step 5a). */
-  const group: Reader["group"] = (source, fillDown) => {
-    const node = tree.groups.get(source.groupId);
-    if (!node) return emptyValue();
-    const name = `“${node.group.labelSource}”`;
-    const options = selectionOptions(node).map((option) => ({ option, value: field(option.id, fillDown) }));
-    const issues = options.flatMap((o) => o.value.issues);
-    const ticked = options.filter((o) => o.value.mark?.ticked === true);
-    const unclear = options.filter((o) => o.value.state === "ILLEGIBLE" || o.value.mark?.ticked === null);
-    const base = {
-      confidence: minConfidence(options.map((o) => o.value.confidence)),
-      inherited: ticked.some((o) => o.value.inherited),
-      mark: null,
-    };
-    // An unreadable tick is always flagged and never read as "nothing ticked".
-    if (unclear.length > 0) issues.push(warn(`A tick in ${name} couldn't be read, so the answer needs checking.`));
+  return { fields, field };
+}
 
-    if (ticked.length === 0) {
-      if (unclear.length > 0) return { ...base, text: null, state: "ILLEGIBLE", issues };
-      const rule = node.group.noneMarked;
-      if (rule !== "BLANK") issues.push({ severity: rule === "ERROR" ? "ERROR" : "WARNING", message: `Nothing is ticked in ${name}.` });
-      const text = source.noneValue === null || source.noneValue === "" ? null : source.noneValue;
-      return { ...base, text, state: text === null ? "EMPTY" : "OK", issues };
-    }
-    if (node.group.selection === "ONE_OF" && ticked.length > 1) {
-      const labels = ticked.map((o) => optionLabel(tree, node.id, o.option.id)).join(", ");
-      issues.push({
-        severity: node.group.multipleMarked === "ERROR" ? "ERROR" : "WARNING",
-        message: `Several options are ticked in ${name} (${labels}), so none was picked.`,
-      });
-      return { ...base, text: null, state: "EMPTY", issues };
-    }
-    const text = ticked.map((o) => source.optionValues[o.option.id] ?? optionLabel(tree, node.id, o.option.id)).join(OPTION_SEPARATOR);
-    return { ...base, text, state: "OK", issues };
+/**
+ * Step 5a: one answer from a From ticks mapping's tick fields (docs/03 §8 step 5a). Each tick is
+ * still read on its own; the mapping only decides what the ticks together mean.
+ */
+function resolveTicks(m: TransformMapping, reader: Reader, columnLabel: string): NormValue {
+  const rules = m.ticks ?? DEFAULT_TICK_RULES;
+  const name = `“${rules.label ?? columnLabel}”`;
+  // A Skip field is listed but never read, so it is never an option.
+  const options = m.inputs.flatMap((input) => {
+    const option = reader.fields.get(input.fieldId);
+    return option && isTickOption(option) ? [{ option, input, value: reader.field(option.id, m.fillDown) }] : [];
+  });
+  const issues = options.flatMap((o) => o.value.issues);
+  const ticked = options.filter((o) => o.value.mark?.ticked === true);
+  const unclear = options.filter((o) => o.value.state === "ILLEGIBLE" || o.value.mark?.ticked === null);
+  const base = {
+    confidence: minConfidence(options.map((o) => o.value.confidence)),
+    inherited: ticked.some((o) => o.value.inherited),
+    mark: null,
   };
+  // An unreadable tick is always flagged and never read as "nothing ticked".
+  if (unclear.length > 0) issues.push(warn(`A tick in ${name} couldn't be read, so the answer needs checking.`));
 
-  return { field, group };
+  if (ticked.length === 0) {
+    if (unclear.length > 0) return { ...base, text: null, state: "ILLEGIBLE", issues };
+    if (rules.noneMarked !== "BLANK") issues.push({ severity: rules.noneMarked === "ERROR" ? "ERROR" : "WARNING", message: `Nothing is ticked in ${name}.` });
+    const text = rules.noneValue === null || rules.noneValue === "" ? null : rules.noneValue;
+    return { ...base, text, state: text === null ? "EMPTY" : "OK", issues };
+  }
+  if (rules.selection === "ONE_OF" && ticked.length > 1) {
+    const labels = ticked.map((o) => shortName(o.option)).join(", ");
+    issues.push({
+      severity: rules.multipleMarked === "ERROR" ? "ERROR" : "WARNING",
+      message: `Several options are ticked in ${name} (${labels}), so none was picked.`,
+    });
+    return { ...base, text: null, state: "EMPTY", issues };
+  }
+  const text = ticked.map((o) => o.input.tickValue ?? o.option.labelMeaning ?? o.option.labelSource).join(OPTION_SEPARATOR);
+  return { ...base, text, state: "OK", issues };
 }
 
 /** The cell state for a mapped value: OK when there is text, else what its inputs agree on. */
@@ -340,10 +346,13 @@ function combine(values: NormValue[], text: string | null, extra: Issue[] = []):
   };
 }
 
-function applyMapping({ mapping: m, parsed, pattern }: WorkingMapping, reader: Reader): NormValue {
-  const read = (s: MappingSource | undefined): NormValue =>
-    s?.kind === "field" ? reader.field(s.fieldId, m.fillDown) : s?.kind === "group" ? reader.group(s, m.fillDown) : emptyValue();
+function applyMapping({ mapping: m, parsed, pattern, columnLabel }: WorkingMapping, reader: Reader): NormValue {
+  const read = (s: MappingSource | undefined): NormValue => (s ? reader.field(s.fieldId, m.fillDown) : emptyValue());
   switch (m.kind) {
+    case "TICKS": {
+      const v = resolveTicks(m, reader, columnLabel);
+      return combine([v], v.text);
+    }
     case "COPY": {
       const v = read(m.inputs[0]);
       return combine([v], v.text);
@@ -372,10 +381,7 @@ function applyMapping({ mapping: m, parsed, pattern }: WorkingMapping, reader: R
       return combine([], m.constantValue);
     case "EXPRESSION": {
       const values = new Map<string, NormValue>();
-      for (const s of m.inputs) {
-        const id = sourceId(s);
-        if (id !== null) values.set(id, read(s));
-      }
+      for (const s of m.inputs) values.set(s.fieldId, read(s));
       const all = [...values.values()];
       if (!parsed) return combine(all, null, [{ severity: "ERROR", message: "The expression can't be read." }]);
       const result = evaluateExpression(parsed, (id) => values.get(id)?.text ?? null);
@@ -442,8 +448,8 @@ export function firstWorkingMappings(mappings: TransformMapping[], context: Mapp
 }
 
 export function runTransform(input: TransformInput): TransformResult {
-  const tree: SourceTree = buildTree(input.groups, input.fields);
-  const fields = new Map(input.fields.map((f) => [f.id, f]));
+  const source = orderFields(input.fields);
+  const fields = source.byId;
   const system = input.book.numeralSystem;
 
   const records = input.records.filter((r) => r.rowType !== "HEADER").sort(readingOrder);
@@ -470,10 +476,11 @@ export function runTransform(input: TransformInput): TransformResult {
 
   // Expressions are parsed and split patterns compiled once per mapping, not per cell.
   const byColumn = new Map<string, WorkingMapping>();
-  for (const [columnId, mapping] of firstWorkingMappings(input.mappings, { tree, liveColumnIds: new Set(input.columns.map((c) => c.id)) })) {
+  const columnLabels = new Map(input.columns.map((c) => [c.id, c.label]));
+  for (const [columnId, mapping] of firstWorkingMappings(input.mappings, { fields: source, liveColumnIds: new Set(input.columns.map((c) => c.id)) })) {
     const parsed = mapping.kind === "EXPRESSION" && mapping.expression !== null ? parseExpression(mapping.expression) : null;
     const pattern = mapping.kind === "SPLIT" && mapping.splitRegex !== null ? new RegExp(mapping.splitRegex, "u") : null;
-    byColumn.set(columnId, { mapping, parsed: parsed?.ok ? parsed.value : null, pattern });
+    byColumn.set(columnId, { mapping, parsed: parsed?.ok ? parsed.value : null, pattern, columnLabel: columnLabels.get(columnId) ?? "" });
   }
 
   let unresolvedDittos = 0;
@@ -482,7 +489,7 @@ export function runTransform(input: TransformInput): TransformResult {
   const rows: ComputedRow[] = output.map((record, i) => {
     const values = readings.get(record.id) ?? new Map<string, Reading>();
     const voidReason = voidReasonOf(record);
-    const reader = makeReader(values, fields, tree, input.book);
+    const reader = makeReader(values, fields, input.book);
     const cells = input.columns.map((column) => {
       const entry = byColumn.get(column.id);
       return finishCell(column, entry ? applyMapping(entry, reader) : emptyValue(), voidReason, input.book);

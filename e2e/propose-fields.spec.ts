@@ -47,12 +47,12 @@ test("the AI proposes fields; only the chosen ones are added, in paper order", a
   const templatesUrl = new URL(page.url()).pathname;
 
   await templateWithSpecimen(page, "Registration card", "Form");
-  const tree = page.getByRole("list", { name: "Fields and groups in paper order" });
+  const tree = page.getByRole("list", { name: "Fields in paper order" });
   const form = await propose(page);
   await expect(form.list.getByRole("listitem")).toHaveCount(12);
   await expect(form.dialog.getByText("12 of 12 fields chosen")).toBeVisible();
 
-  // Nothing is in the tree while the proposal is only a proposal.
+  // Nothing is in the list while the proposal is only a proposal.
   await expect(page.getByText("No fields yet.")).toBeVisible();
 
   await form.list.getByRole("checkbox").nth(5).uncheck();

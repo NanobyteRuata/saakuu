@@ -7,7 +7,7 @@ Postgres + Prisma. IDs are `cuid2`. Timestamps are `timestamptz`.
 ```
 User
  └── Book ── OutputColumn, GlossaryEntry, ValidationRule
-      ├── Template ── FieldGroup ── Field
+      ├── Template ── Field
       │         └── Mapping ── MappingInput
       └── Document ── Photo
                  ├── ExtractionRun
@@ -169,7 +169,6 @@ model Template {
   deletedAt       DateTime?
 
   book      Book        @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  groups    FieldGroup[]
   fields    Field[]
   mappings  Mapping[]
   documents Document[]
@@ -186,29 +185,11 @@ model Template {
  * when `lastExtractedAt >= fieldsChangedAt` and no page changed since (`testReadingState`).
  */
 
-enum GroupSelection { NONE  ONE_OF  ANY_OF }   // Phase 3.1
-enum NoneMarked     { BLANK  REVIEW  ERROR }   // Phase 3.1
-enum MultipleMarked { REVIEW  ERROR }          // Phase 3.1
-
-// A header on the paper. May span columns and nest (Phase 3.1). Never holds raw values.
-model FieldGroup {
-  id             String         @id @default(cuid())
-  templateId     String
-  parentGroupId  String?                           // Phase 3.1: null = top level; depth capped in code
-  labelSource    String                            // Phase 3.1: renamed from `label`; as written on the paper
-  labelMeaning   String?                           // Phase 3.1: English meaning
-  position       String                            // shares one order with sibling fields (same parent)
-  selection      GroupSelection @default(NONE)     // Phase 3.1: tick columns encoding one / many answers
-  noneMarked     NoneMarked     @default(REVIEW)   // Phase 3.1: selection group with nothing ticked
-  multipleMarked MultipleMarked @default(ERROR)    // Phase 3.1: ONE_OF group with 2+ ticks
-  note           String?                           // Phase 3.1: instruction to the AI
-  template       Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  parent         FieldGroup?    @relation("GroupNesting", fields: [parentGroupId], references: [id], onDelete: Restrict)
-  children       FieldGroup[]   @relation("GroupNesting")
-  fields         Field[]
-  @@index([templateId])
-  @@index([parentGroupId])
-}
+// How a TICKS mapping reads its tick fields (Phase 24, decision 84). Until Phase 24 these lived on
+// `FieldGroup`, a "tick set" on the source side; that table is gone.
+enum TickSelection  { ONE_OF  ANY_OF }         // one answer, or several joined
+enum NoneMarked     { BLANK  REVIEW  ERROR }   // nothing ticked
+enum MultipleMarked { REVIEW  ERROR }          // ONE_OF with 2+ ticks
 
 enum FieldType { TEXT NUMBER INTEGER DATE MARK CHOICE AGE FRACTION }
 enum FieldMode { EXTRACT SKIP MANUAL }
@@ -216,9 +197,8 @@ enum FieldMode { EXTRACT SKIP MANUAL }
 model Field {
   id           String    @id @default(cuid())
   templateId   String
-  groupId      String?   // parent group; null = top level of the template
-  labelSource  String    // as written on the paper, any script
-  labelMeaning String?   // English meaning
+  labelSource  String    // its name: as written on the paper, any script, with the header above it in front, levels joined with " › "
+  labelMeaning String?   // English meaning, in the same levels
   dataType     FieldType @default(TEXT)
   mode         FieldMode @default(EXTRACT)
   note         String?   // human-language hint to the AI
@@ -230,7 +210,6 @@ model Field {
   deletedAt    DateTime?  // soft delete: raw values are kept as orphans
 
   template      Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  group         FieldGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
   rawValues     RawValue[]
   mappingInputs MappingInput[]
 
@@ -239,7 +218,7 @@ model Field {
 
 // ---------- Mapping ----------
 
-enum MappingKind  { COPY CONCAT SPLIT CONSTANT EXPRESSION }
+enum MappingKind  { COPY CONCAT SPLIT CONSTANT EXPRESSION TICKS }   // TICKS: Phase 24, "From ticks" in the UI
 enum MappingState { OK BROKEN }
 
 model Mapping {
@@ -254,6 +233,11 @@ model Mapping {
   splitRegex     String?      // SPLIT: alternative, first capture group
   constantValue  String?      // CONSTANT
   expression     String?      // EXPRESSION
+  tickSelection  TickSelection?   // TICKS: one answer, or several joined
+  noneMarked     NoneMarked?      // TICKS: nothing ticked
+  multipleMarked MultipleMarked?  // TICKS, ONE_OF with 2+ ticks
+  noneValue      String?      // TICKS: exported when nothing is ticked
+  tickLabel      String?      // TICKS: the name warnings use; the column's label when null
   fillDown       Boolean      @default(true)  // resolve ditto marks for this column
   position       String
 
@@ -270,6 +254,7 @@ model MappingInput {
   mappingId String
   fieldId   String
   position  Int
+  tickValue String?  // TICKS: what this tick writes; the field's meaning or name when null
   mapping   Mapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
   field     Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   @@unique([mappingId, fieldId, position])
@@ -573,24 +558,27 @@ model ValidationRule {
    state and never writes.
 7. **A FORM document has exactly 0 or 1 `RawRecord`.** A TABLE document has 0..N.
 8. **`Template.configState = CONFLICTED`** iff any of its mappings is `BROKEN`.
-9. **Siblings share one order (Phase 3.1).** Under one parent (the template root, or a group),
-   child `FieldGroup`s and `Field`s share a single fractional position space: display order
-   merges `FieldGroup.position` and `Field.position` for rows with the same `templateId` and
-   parent (`parentGroupId` / `groupId`). A move names the new parent and the sibling it goes
-   after, of either kind, and writes one row. Comparisons are code-unit (`COLLATE "C"`), ties
-   broken by id.
-10. **Group depth is capped in code, not in the schema.** `MAX_GROUP_DEPTH = 3` today; raising it
-    needs no migration. A group can never be moved under itself or a descendant. Trees are built
-    in memory from at most 100 groups and 500 fields; no recursive SQL.
-11. **Every physical column or answer box is a `Field`; groups are headers only.** Groups never
-    own raw values. A selection group (`ONE_OF` / `ANY_OF`) is resolved in the transform from its
-    descendant `MARK` fields' raw values; its options are those fields in `EXTRACT` or `MANUAL`
-    mode. Selection groups don't nest inside each other and contain no non-`MARK` fields.
-12. **Deleting a group never deletes or orphans a field.** Groups are hard-deleted, but first
-    their child groups and live fields move up one level into the group's slot (order kept), and
-    soft-deleted fields are re-parented to the group's parent so a restore lands on the nearest
-    surviving ancestor. `parentGroupId` is `onDelete: Restrict`, so a group can never disappear
-    with children still attached.
+9. **Fields are one flat list per template (Phase 24).** Paper order is `Field.position` alone:
+   one fractional position space per `templateId`. A move names the field it goes after and
+   writes one row. Comparisons are code-unit (`COLLATE "C"`), ties broken by id. There are no
+   parents and no depth.
+10. **A header is the front of the field's name.** `labelSource` holds the header printed above a
+    field and then its own label, levels joined with ` › ` (`RDT Test › Positive › A`), and
+    `labelMeaning` the same levels in English. There is no header property and no band. The name
+    travels whole into the mapping picker and review, and is split back into its levels for the
+    prompt (`splitName`, `lib/templates/field-list.ts`), which is how two columns with the same
+    label are told apart. Two live fields may share a name: the editor warns
+    (`duplicateNames`), nothing refuses. The list is built in memory from at most 500 fields.
+11. **Every physical column or answer box is a `Field`, and a field is one box giving one value.**
+    Nothing on the source side groups fields. Several tick fields become one answer only in a
+    `TICKS` mapping, which never owns raw values: the transform resolves it from the `MARK` values
+    of the fields it reads, in input order. Its options are the inputs that are `MARK` fields in
+    `EXTRACT` or `MANUAL` mode; it needs two, and any non-`MARK` input makes it `BROKEN`. The
+    fields need not be neighbours, may sit under different headers, and may be read by other
+    mappings too.
+12. **A mapping input is always a live field.** `MappingInput.fieldId` is `NOT NULL` with a real
+    foreign key. Soft-deleting a field a mapping reads — a tick field of a `TICKS` mapping
+    included — turns that mapping `BROKEN`; restoring the field repairs it.
 
 ## Photo storage and transforms (Phase 4)
 
@@ -640,11 +628,11 @@ failed pages only.
 ## Mapping and transform (Phase 6)
 
 One additive migration:
-- `MappingInput.fieldId` becomes nullable; `MappingInput.groupId` (→ `FieldGroup`, `onDelete: SetNull`), `optionValues Json?`
-  and `noneValue String?` are added. An input reads a field or a selection group, never both (CHECK constraint). A group
-  input resolves to the group's answer: `optionValues` maps option field ids to the value exported for that option, and
-  `noneValue` is exported when nothing is ticked. Both ids null means the group was deleted, and the mapping is `BROKEN`.
-  This answers docs/07 Part C question 7.
+- As built in Phase 6, an input read either a field or a selection group (`MappingInput.groupId`, with `optionValues Json?`
+  and `noneValue String?`). **Phase 24 replaced that** (decision 84): the group is gone, an input is always a field, and
+  the tick rules sit on a `TICKS` mapping — `Mapping.tickSelection`, `noneMarked`, `multipleMarked`, `noneValue`,
+  `tickLabel`, and `MappingInput.tickValue` per tick field. Migration `20261008000001_phase_24_ticks_in_mapping` carried
+  every mapping that read a tick set across with the same values and rules. This answers docs/07 Part C question 7.
 - `Field.typeOptions Json?`: settings that belong to the field's type, cleared when the type changes (like choices and
   mark symbols). `DATE`: `{ date: { twoDigitYear: "REFUSE" | "CENTURY" | "PIVOT", pivotYear } }`.
 - `Row.recordKey String?` and `Row.voidReason String?`.

@@ -1060,6 +1060,94 @@ as the default, hiding SKIP fields, `template-v2`, and a larger working copy tha
 
 ---
 
+## Phase 24 — Flat fields (built, not shipped)
+
+A field is one box on the paper giving one value in its type, and nothing else. Headers stop
+being rows that fields sit inside: the header above a field is the front of its name. Nothing on
+the Fields side groups anything; several tick boxes become one answer in the mapping. Decision 84
+has the reasoning and the test readings behind it.
+
+**Why now.** Proposals have been flat since Phase 16, and seeing real registers proposed in one
+layer made the three-level tree look like cost without return. A test settled it: a register with
+repeated sub-headers, read twice with a flat template, placed 60 of 60 values under the right
+header and read every tick right in 22 rows.
+
+**How it was built.** In two halves, both in this phase and neither shipped on its own. The first
+kept a header *property* on each field and kept `FieldGroup` as a "tick set". Using it showed
+both were still structure the operator had to learn for no measured gain, so the second half
+removed them: the header went into the name and the tick rules went to the mapping.
+
+**Schema (two migrations, run in order).**
+- `20261008000000_phase_24_flat_fields`: flattens the nested groups. Header words joined top down
+  with ` › ` into `Field.headerSource` / `headerMeaning`, paper order as one list, tick sets kept
+  with their options, each mapping's option outputs frozen where the default would have changed.
+- `20261008000001_phase_24_ticks_in_mapping`: folds `headerSource` / `headerMeaning` into
+  `labelSource` / `labelMeaning` with ` › ` and drops them; adds the mapping kind `TICKS` with
+  `Mapping.tickSelection`, `noneMarked`, `multipleMarked`, `noneValue`, `tickLabel` and
+  `MappingInput.tickValue`; turns every mapping that read a tick set into a `TICKS` mapping with
+  the same fields in paper order, the value each wrote, the same rules and the set's name; then
+  drops `Field.groupId`, `MappingInput.groupId` / `optionValues` / `noneValue` and the
+  `FieldGroup` table. `GroupSelection` is renamed `TickSelection`.
+- **Tick sets that no mapping read simply disappear** (19 of 25 in the dev database). Their fields
+  stay as ordinary tick fields with the same name, order and readings; nothing exported came from
+  them. A tick set's note is appended to its fields' notes.
+- The second migration **stops without changing anything** if a mapping other than a one-input
+  Copy reads a tick set (inside a Join or an Expression): that has no equivalent, and a stopped
+  release is better than a different export. Check production for one before pushing.
+
+**Rehearsals.** Each migration was run first on a copy of the dev database and compared before
+and after. First: 21 templates, 255 fields, 23 tick sets, 18 option outputs, no difference.
+Second (2026-10-08): 262 templates, 809 fields, 6 mappings reading a tick set, 168 documents with
+records. Compared: every field's name, meaning, note and place in order; every tick mapping's
+values and rules; **every row the transform builds for every document** (value, state, flag level
+and message text); and each field's AI path. No difference in any of them.
+
+**What ships**
+- `lib/templates/field-list.ts` is the source model: one ordered field list, `splitName` (a name
+  back into header levels for the AI), `shortName`, `duplicateNames`, `isTickOption`.
+- Services: fields move with `after: fieldId`. Every `/groups` route, the bulk header route,
+  `setFieldsHeader` and the tick-set rules are deleted.
+- Transform: step 5a resolves ticks from the mapping (`case "TICKS"` in `lib/transform/run.ts`),
+  with the same logic line for line. An input is always a field.
+- Editor (docs/05 Fields tab): a flat list with drag reorder; name, meaning, type, mode, note. Two
+  fields with the same name are warned about, never blocked. Names wrap or shorten in the middle
+  wherever they are listed (`components/templates/field-name.tsx`), never at the end.
+- Mapping editor: the kind **From ticks** — which tick fields, what each writes, only one or
+  several, nothing ticked (blank / flag / error, plus an optional value), several ticked
+  (flag / error), and the name warnings use.
+- `Create columns from this template` proposes one yes/no column per tick field. It does not
+  guess which ticks belong together.
+- AI: the extraction prompt stays `v4`. The snapshot splits a name on ` › ` into the same `path`
+  elements a nested template sent, and sends no tick sets. The proposal prompt is `template-v3`,
+  which returns one combined name. `template-v2` (header in keys of its own) was used for two
+  proposals during the phase and is kept, unedited; its stored proposals are folded when read.
+- `scripts/respace-template-positions.ts` and `pnpm db:respace` (the Phase 3.1 one-off) are removed:
+  they rewrote group positions that no longer exist.
+
+**Tests (per the testing policy).** `field-list.test.ts` replaces `tree.test.ts` (order,
+`splitName`, `shortName`, `duplicateNames`). The tick golden fixture's *input* is the migrated
+shape — fields with the header in the name, `TICKS` mappings — and its expected rows are
+untouched. `copy.test.ts` and `fields-service.test.ts` lost their tick sets. No new E2E; the
+existing specs' list and input names changed.
+
+**Not in this phase:** the AI proposing which ticks belong together (post-v1 #7), a tick answer
+as an input *inside* a Join or an Expression (they can still read single tick fields), and a
+check that a running-number column counts up by one.
+
+**Checked before shipping (2026-10-08).** The blanked test register (template `Test 3`, document
+`u13eneb97n3hbd28ga9eudo8`) was read again on the finished code and compared with its earlier
+reading of the same page: 71 cells both times, every one in the same row and column, the 16 twin
+`Temp` / `Weight` cells included. The 14 differences were handwriting (the running number's `၅`
+read as `၁` down the column, two names, one weight). `Propose fields` under `template-v3` was run
+three times on that page and returned names with the header in front, which were added to the
+template.
+
+**Still not measured:** that reading used the template as it stood, with the header words in each
+field's note. A reading whose twin columns are told apart *only* by the header in the name has not
+been compared yet. The fields for it are now in `Test 3`.
+
+---
+
 ## Post-v1
 
 **Provisional, as before** (decision 64). Re-rank from real usage rather than building down it. Three
@@ -1078,8 +1166,9 @@ items from the old list were pulled into Phases 16, 17 and 20; what remains:
    first paying conversations need seats (decision 65): operators do the work, but a clinic, NGO or
    research manager is who buys. Note that Phase 15's autosave assumes single-owner editing and will
    need revisiting here.
-7. **AI proposes groups and selection structure** — the half of Phase 16 deliberately left manual.
-   Build it only if real proposals show flat fields are the bottleneck.
+7. **AI proposes which ticks belong together** — the half of Phase 16 deliberately left manual;
+   since Phase 24 that means proposing a `From ticks` mapping, not a group. Build it only if real
+   use shows combining ticks by hand is the bottleneck.
 8. **Perspective correction** — corner-drag four-point transform.
 9. **Template rule overrides** — a nullable `ValidationRule.templateId` and a Validation section in the
    template workspace (docs/01 §16, decision 40). Build when a real form needs a rule the book-level one
@@ -1116,6 +1205,7 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 81 | Credits are a fixed slice of provider cost, kept as a ledger; a reading holds its estimate and is charged what it cost. Replaces 55. ✅ written up |
 | 82 | How long the model thinks is one deployment setting, recorded on every reading; it is not a prompt version. ✅ written up |
 | 83 | In a table answer a cell left out is blank; fields are named by alias. Prompts `v2` to `v4`. ✅ written up |
+| 84 | A field is one box; the header is part of its name; ticks are combined in a `From ticks` mapping. Supersedes 28 (in part), 30, 31, 33. ✅ written up |
 
 ---
 

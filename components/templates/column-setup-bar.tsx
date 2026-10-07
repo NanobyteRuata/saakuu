@@ -20,6 +20,7 @@ import type { ColumnState } from "@/lib/books/column-ops";
 import { COLUMN_TYPE_LABELS } from "@/lib/books/schemas";
 import { plural } from "@/lib/format";
 import type { ColumnProposal } from "@/lib/mappings/service";
+import { FieldName } from "./field-name";
 
 type Props = {
   bookId: string;
@@ -115,19 +116,17 @@ export function ColumnSetupBar({ bookId, templateId, lang, onApplied }: Props) {
               Creates {plural(items.length, "column")} and {plural(items.length, "mapping")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              One column per field this template reads that nothing fills yet, copied straight across. Rename or delete
+              One column per field this template reads that nothing fills yet, copied straight across. Each tick box gets a yes/no
+              column of its own; to turn several tick boxes into one answer, use From ticks on the Mapping tab. Rename or delete
               any of them afterwards in the output table; nothing is read again and no AI cost is involved.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <ul className="max-h-64 overflow-y-auto rounded-md border text-sm" aria-label="Columns to create">
             {items.map((item) => (
-              <li key={`${item.source.kind}-${item.source.id}`} className="flex items-baseline justify-between gap-3 border-b px-3 py-1.5 last:border-b-0">
-                <span className="min-w-0 truncate">
-                  <span lang={lang} className="font-value">
-                    {item.sourcePath}
-                  </span>{" "}
-                  → {item.label}
+              <li key={item.fieldId} className="flex items-baseline justify-between gap-3 border-b px-3 py-1.5 last:border-b-0">
+                <span className="min-w-0 break-words">
+                  <FieldName name={item.sourcePath} lang={lang} /> → {item.label}
                 </span>
                 <span className="text-muted-foreground shrink-0 text-xs">{COLUMN_TYPE_LABELS[item.dataType]}</span>
               </li>

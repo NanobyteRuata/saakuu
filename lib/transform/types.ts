@@ -4,11 +4,11 @@ import type {
   FieldMode,
   FieldType,
   FieldTypeOptions,
-  GroupSelection,
   MarkSymbols,
   MultipleMarked,
   NoneMarked,
   TemplateKind,
+  TickSelection,
 } from "@/lib/templates/schemas";
 
 import type { DocumentFlag } from "./flags";
@@ -18,7 +18,7 @@ import type { DocumentFlag } from "./flags";
  * golden-file tests all go through the same shapes.
  */
 
-export const MAPPING_KINDS = ["COPY", "CONCAT", "SPLIT", "CONSTANT", "EXPRESSION"] as const;
+export const MAPPING_KINDS = ["COPY", "CONCAT", "SPLIT", "CONSTANT", "EXPRESSION", "TICKS"] as const;
 export type MappingKind = (typeof MAPPING_KINDS)[number];
 
 export type { DateEra, NumeralSystem, RowType, ValueState };
@@ -27,21 +27,9 @@ export type ValidationState = "NONE" | "WARNING" | "ERROR";
 export type Severity = "WARNING" | "ERROR";
 export type Issue = { severity: Severity; message: string };
 
-export type TransformGroup = {
-  id: string;
-  parentGroupId: string | null;
-  labelSource: string;
-  labelMeaning: string | null;
-  position: string;
-  selection: GroupSelection;
-  noneMarked: NoneMarked;
-  multipleMarked: MultipleMarked;
-};
-
 /** Live fields only. Values of deleted fields are orphans and never reach a cell. */
 export type TransformField = {
   id: string;
-  groupId: string | null;
   labelSource: string;
   labelMeaning: string | null;
   position: string;
@@ -63,15 +51,21 @@ export type TransformColumn = {
   isRequired: boolean;
 };
 
+/** One field a mapping reads. `tickValue` is what a TICKS mapping writes when this field is ticked; null = the field's own words. */
+export type MappingSource = { fieldId: string; tickValue: string | null };
+
 /**
- * What a mapping reads. A group source is a selection group resolved to its answer; its option output
- * values and the value exported when nothing is ticked belong to the mapping (docs/07 decision 32).
- * `missing` is a group reference whose group was deleted.
+ * How a TICKS mapping turns its tick fields into one answer (docs/03 §8 step 5a, decisions 32, 33
+ * and 84). `label` is the name warnings use; null = the column's label.
  */
-export type MappingSource =
-  | { kind: "field"; fieldId: string }
-  | { kind: "group"; groupId: string; optionValues: Record<string, string>; noneValue: string | null }
-  | { kind: "missing" };
+export type TickRules = {
+  selection: TickSelection;
+  noneMarked: NoneMarked;
+  multipleMarked: MultipleMarked;
+  /** Exported when nothing is ticked. */
+  noneValue: string | null;
+  label: string | null;
+};
 
 export type TransformMapping = {
   id: string;
@@ -83,6 +77,8 @@ export type TransformMapping = {
   splitRegex: string | null;
   constantValue: string | null;
   expression: string | null;
+  /** TICKS only. */
+  ticks: TickRules | null;
   fillDown: boolean;
   /** In input order. */
   inputs: MappingSource[];
@@ -111,7 +107,6 @@ export type BookSettings = { numeralSystem: NumeralSystem; dateEra: DateEra };
 export type TransformInput = {
   kind: TemplateKind;
   sequenceFieldId: string | null;
-  groups: TransformGroup[];
   fields: TransformField[];
   columns: TransformColumn[];
   /** In mapping order; the first working mapping for a column fills it. */

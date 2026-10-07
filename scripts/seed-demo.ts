@@ -131,7 +131,6 @@ async function main(): Promise<void> {
 
   // ---------- register template (TABLE, docs/06 §3.1) ----------
   const registerId = createId();
-  const g = { sex: createId(), rdt: createId(), positive: createId() };
   const f = {
     no: createId(),
     name: createId(),
@@ -146,8 +145,7 @@ async function main(): Promise<void> {
     village: createId(),
     remarks: createId(),
   };
-  const top = generateNKeysBetween(null, null, 8);
-  const [p0, p1] = generateNKeysBetween(null, null, 2);
+  const order = generateNKeysBetween(null, null, 12);
   const marks = { "✓": true, "✗": false };
   await prisma.template.create({
     data: {
@@ -160,16 +158,7 @@ async function main(): Promise<void> {
       languageHint: "my",
       instructions: "One row per patient. The last row of a page may be a total.",
       sequenceFieldId: f.no,
-      groups: {
-        create: [
-          { id: g.sex, labelSource: "ကျား/မ", labelMeaning: "Sex", selection: "ONE_OF", noneMarked: "REVIEW", multipleMarked: "ERROR", position: top[2] ?? "" },
-          { id: g.rdt, labelSource: "RDT Test", labelMeaning: "Rapid test", selection: "ONE_OF", noneMarked: "BLANK", multipleMarked: "ERROR", position: top[4] ?? "" },
-        ],
-      },
     },
-  });
-  await prisma.fieldGroup.create({
-    data: { id: g.positive, templateId: registerId, parentGroupId: g.rdt, labelSource: "Positive", labelMeaning: "Positive, by species", position: p0 ?? "" },
   });
   const field = (id: string, labelSource: string, labelMeaning: string, dataType: "TEXT" | "INTEGER" | "AGE" | "DATE" | "MARK", position: string, extra: Record<string, unknown> = {}) => ({
     id,
@@ -181,38 +170,52 @@ async function main(): Promise<void> {
     ...(dataType === "MARK" ? { markSymbols: marks } : {}),
     ...extra,
   });
-  const [s0, s1] = generateNKeysBetween(null, null, 2);
-  const [q0, q1, q2] = generateNKeysBetween(null, null, 3);
   await prisma.field.createMany({
     data: [
-      field(f.no, "စဉ်", "No.", "INTEGER", top[0] ?? "", { isSequence: true }),
-      field(f.name, "အမည်", "Name", "TEXT", top[1] ?? ""),
-      field(f.m, "ကျား", "M", "MARK", s0 ?? "", { groupId: g.sex }),
-      field(f.fe, "မ", "F", "MARK", s1 ?? "", { groupId: g.sex }),
-      field(f.age, "အသက်", "Age", "AGE", top[3] ?? ""),
-      field(f.a, "A", "P. falciparum", "MARK", q0 ?? "", { groupId: g.positive }),
-      field(f.b, "B", "P. vivax", "MARK", q1 ?? "", { groupId: g.positive }),
-      field(f.c, "C", "Mixed", "MARK", q2 ?? "", { groupId: g.positive }),
-      field(f.neg, "Neg.", "Negative", "MARK", p1 ?? "", { groupId: g.rdt }),
-      field(f.date, "ရက်စွဲ", "Test date", "DATE", top[5] ?? ""),
-      field(f.village, "ရွာ", "Village", "TEXT", top[6] ?? "", { mode: "MANUAL" }),
-      field(f.remarks, "မှတ်ချက်", "Remarks", "TEXT", top[7] ?? "", { mode: "SKIP" }),
+      field(f.no, "စဉ်", "No.", "INTEGER", order[0] ?? "", { isSequence: true }),
+      field(f.name, "အမည်", "Name", "TEXT", order[1] ?? ""),
+      field(f.m, "ကျား/မ › ကျား", "Sex › M", "MARK", order[2] ?? ""),
+      field(f.fe, "ကျား/မ › မ", "Sex › F", "MARK", order[3] ?? ""),
+      field(f.age, "အသက်", "Age", "AGE", order[4] ?? ""),
+      field(f.a, "RDT Test › Positive › A", "Rapid test › Positive, by species › P. falciparum", "MARK", order[5] ?? ""),
+      field(f.b, "RDT Test › Positive › B", "Rapid test › Positive, by species › P. vivax", "MARK", order[6] ?? ""),
+      field(f.c, "RDT Test › Positive › C", "Rapid test › Positive, by species › Mixed", "MARK", order[7] ?? ""),
+      field(f.neg, "RDT Test › Neg.", "Rapid test › Negative", "MARK", order[8] ?? ""),
+      field(f.date, "ရက်စွဲ", "Test date", "DATE", order[9] ?? ""),
+      field(f.village, "ရွာ", "Village", "TEXT", order[10] ?? "", { mode: "MANUAL" }),
+      field(f.remarks, "မှတ်ချက်", "Remarks", "TEXT", order[11] ?? "", { mode: "SKIP" }),
     ],
   });
   const mappingPositions = generateNKeysBetween(null, null, 7);
-  const mapping = (i: number, key: (typeof columnDefs)[number]["key"], input: { fieldId?: string; groupId?: string; optionValues?: Record<string, string>; noneValue?: string }) => ({
+  const mapping = (i: number, key: (typeof columnDefs)[number]["key"], input: { fieldId: string }) => ({
     templateId: registerId,
     outputColumnId: column(key),
     kind: "COPY" as const,
     position: mappingPositions[i] ?? "",
     inputs: { create: [{ position: 0, ...input }] },
   });
+  /** From ticks: several tick fields become one answer, each writing its own value. */
+  const ticks = (
+    i: number,
+    key: (typeof columnDefs)[number]["key"],
+    rules: { tickLabel: string; noneMarked: "BLANK" | "REVIEW"; noneValue?: string },
+    values: [fieldId: string, tickValue: string][],
+  ) => ({
+    templateId: registerId,
+    outputColumnId: column(key),
+    kind: "TICKS" as const,
+    tickSelection: "ONE_OF" as const,
+    multipleMarked: "ERROR" as const,
+    ...rules,
+    position: mappingPositions[i] ?? "",
+    inputs: { create: values.map(([fieldId, tickValue], position) => ({ fieldId, tickValue, position })) },
+  });
   for (const m of [
     mapping(0, "no", { fieldId: f.no }),
     mapping(1, "name", { fieldId: f.name }),
-    mapping(2, "sex", { groupId: g.sex, optionValues: { [f.m]: "M", [f.fe]: "F" } }),
+    ticks(2, "sex", { tickLabel: "ကျား/မ", noneMarked: "REVIEW" }, [[f.m, "M"], [f.fe, "F"]]),
     mapping(3, "age_months", { fieldId: f.age }),
-    mapping(4, "rdt_result", { groupId: g.rdt, optionValues: { [f.a]: "Positive (Pf)", [f.b]: "Positive (Pv)", [f.c]: "Positive (mixed)", [f.neg]: "Negative" }, noneValue: "Not tested" }),
+    ticks(4, "rdt_result", { tickLabel: "RDT Test", noneMarked: "BLANK", noneValue: "Not tested" }, [[f.a, "Positive (Pf)"], [f.b, "Positive (Pv)"], [f.c, "Positive (mixed)"], [f.neg, "Negative"]]),
     mapping(5, "test_date", { fieldId: f.date }),
     mapping(6, "village", { fieldId: f.village }),
   ]) {

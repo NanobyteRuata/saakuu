@@ -1,21 +1,18 @@
 import type { Prisma } from "@prisma/client";
-import { z } from "zod";
 
-import type { MappingSource, TransformMapping } from "@/lib/transform/types";
+import { DEFAULT_TICK_RULES } from "@/lib/transform/mappings";
+import type { MappingSource, TickRules, TransformMapping } from "@/lib/transform/types";
 
 import type { MappingDraft, MappingSourceInput } from "./schemas";
 
 /** Mapping rows as the API returns them, and the conversions to the transform's shape. */
 
-export type MappingSourceView = MappingSourceInput | { kind: "missing" };
-
-export type MappingView = Omit<MappingDraft, "inputs"> & {
+export type MappingView = MappingDraft & {
   id: string;
   state: "OK" | "BROKEN";
   /** Why it is broken, in plain language; null when it works. Worked out on read. */
   problem: string | null;
   position: string;
-  inputs: MappingSourceView[];
 };
 
 export const mappingSelect = {
@@ -29,32 +26,44 @@ export const mappingSelect = {
   splitRegex: true,
   constantValue: true,
   expression: true,
+  tickSelection: true,
+  noneMarked: true,
+  multipleMarked: true,
+  noneValue: true,
+  tickLabel: true,
   fillDown: true,
   position: true,
   inputs: {
-    select: { fieldId: true, groupId: true, position: true, optionValues: true, noneValue: true },
+    select: { fieldId: true, position: true, tickValue: true },
     orderBy: [{ position: "asc" }, { id: "asc" }],
   },
 } satisfies Prisma.MappingSelect;
 
 export type MappingRow = Prisma.MappingGetPayload<{ select: typeof mappingSelect }>;
 
-const optionValuesSchema = z.record(z.string(), z.string());
-
-export function toSourceView(input: MappingRow["inputs"][number]): MappingSourceView {
-  if (input.fieldId !== null) return { kind: "field", id: input.fieldId };
-  if (input.groupId === null) return { kind: "missing" };
-  const parsed = optionValuesSchema.safeParse(input.optionValues);
-  return { kind: "group", id: input.groupId, optionValues: parsed.success ? parsed.data : {}, noneValue: input.noneValue };
+export function toSourceView(input: MappingRow["inputs"][number]): MappingSourceInput {
+  return { id: input.fieldId, tickValue: input.tickValue };
 }
 
-export function toTransformSource(source: MappingSourceView): MappingSource {
-  if (source.kind === "field") return { kind: "field", fieldId: source.id };
-  if (source.kind === "group") return { kind: "group", groupId: source.id, optionValues: source.optionValues, noneValue: source.noneValue };
-  return { kind: "missing" };
+export function toTransformSource(source: MappingSourceInput): MappingSource {
+  return { fieldId: source.id, tickValue: source.tickValue };
 }
 
-export function toTransformMapping(row: Omit<MappingRow, "inputs"> & { inputs: MappingSourceView[] }): TransformMapping {
+type TickColumns = Pick<MappingRow, "kind" | "tickSelection" | "noneMarked" | "multipleMarked" | "noneValue" | "tickLabel">;
+
+/** The tick rules a row stores, for a From ticks mapping; null for every other kind. */
+export function rowTickRules(row: TickColumns): TickRules | null {
+  if (row.kind !== "TICKS") return null;
+  return {
+    selection: row.tickSelection ?? DEFAULT_TICK_RULES.selection,
+    noneMarked: row.noneMarked ?? DEFAULT_TICK_RULES.noneMarked,
+    multipleMarked: row.multipleMarked ?? DEFAULT_TICK_RULES.multipleMarked,
+    noneValue: row.noneValue,
+    label: row.tickLabel,
+  };
+}
+
+export function rowToTransformMapping(row: MappingRow): TransformMapping {
   return {
     id: row.id,
     outputColumnId: row.outputColumnId,
@@ -65,11 +74,8 @@ export function toTransformMapping(row: Omit<MappingRow, "inputs"> & { inputs: M
     splitRegex: row.splitRegex,
     constantValue: row.constantValue,
     expression: row.expression,
+    ticks: rowTickRules(row),
     fillDown: row.fillDown,
-    inputs: row.inputs.map(toTransformSource),
+    inputs: row.inputs.map((i) => toTransformSource(toSourceView(i))),
   };
-}
-
-export function rowToTransformMapping(row: MappingRow): TransformMapping {
-  return toTransformMapping({ ...row, inputs: row.inputs.map(toSourceView) });
 }

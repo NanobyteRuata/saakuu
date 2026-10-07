@@ -7,9 +7,8 @@ import { expressionFromDisplay } from "@/lib/transform/expression";
 
 import { recomputeConfigState, type Db } from "./access";
 import { appendPosition } from "./positions";
-import { MAX_FIELDS, MAX_GROUPS, type TemplateKind } from "./schemas";
-import { buildTree, flattenTree } from "./tree";
-import { fieldSelect, groupSelect } from "./views";
+import { MAX_FIELDS, type TemplateKind } from "./schemas";
+import { fieldSelect } from "./views";
 
 /**
  * How a copy's mappings find their output columns (decision 3: the source layer is portable, the mapping
@@ -22,7 +21,7 @@ import { fieldSelect, groupSelect } from "./views";
  */
 export type ColumnMap = "same" | ReadonlyMap<string, string> | null;
 
-export type TemplateCopy = { id: string; fields: number; groups: number; mappings: number; skippedMappings: number };
+export type TemplateCopy = { id: string; fields: number; mappings: number; skippedMappings: number };
 
 export async function nextTemplatePosition(db: Db, bookId: string): Promise<string> {
   const existing = await db.template.findMany({ where: { bookId }, select: { id: true, position: true }, take: 5000 });
@@ -30,7 +29,7 @@ export async function nextTemplatePosition(db: Db, bookId: string): Promise<stri
 }
 
 /**
- * Copies a template's live source layer (groups, fields, selection settings, notes, anchors, language hint,
+ * Copies a template's live source layer (fields, notes, anchors, language hint,
  * instructions) with new ids into `targetBookId`, and its mappings as `columnMap` says. The caller has
  * checked ownership of both books and holds the target book's lock.
  */
@@ -54,12 +53,10 @@ export async function copyTemplateInto(
     where: { id: templateId },
     select: { kind: true, modelOverride: true, anchors: true, languageHint: true, instructions: true, sequenceFieldId: true },
   });
-  const groups = await tx.fieldGroup.findMany({ where: { templateId }, select: groupSelect, take: MAX_GROUPS });
   const fields = await tx.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS });
   const kind = input.kind ?? source.kind;
 
   const newTemplateId = createId();
-  const groupIds = new Map(groups.map((g) => [g.id, createId()]));
   const fieldIds = new Map(fields.map((f) => [f.id, createId()]));
   const sequenceFieldId = kind === "TABLE" && source.sequenceFieldId ? (fieldIds.get(source.sequenceFieldId) ?? null) : null;
 
@@ -78,34 +75,12 @@ export async function copyTemplateInto(
       ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     },
   });
-  // Pre-order, so every parent row is inserted before its children.
-  await tx.fieldGroup.createMany({
-    data: flattenTree(buildTree(groups, fields)).flatMap((n) =>
-      n.kind === "group"
-        ? [
-            {
-              id: groupIds.get(n.id) ?? createId(),
-              templateId: newTemplateId,
-              parentGroupId: n.parentId === null ? null : (groupIds.get(n.parentId) ?? null),
-              labelSource: n.group.labelSource,
-              labelMeaning: n.group.labelMeaning,
-              position: n.group.position,
-              selection: n.group.selection,
-              noneMarked: n.group.noneMarked,
-              multipleMarked: n.group.multipleMarked,
-              note: n.group.note,
-            },
-          ]
-        : [],
-    ),
-  });
   await tx.field.createMany({
     data: fields.map((f) => {
       const id = fieldIds.get(f.id) ?? createId();
       return {
         id,
         templateId: newTemplateId,
-        groupId: f.groupId ? (groupIds.get(f.groupId) ?? null) : null,
         labelSource: f.labelSource,
         labelMeaning: f.labelMeaning,
         dataType: f.dataType,
@@ -126,29 +101,18 @@ export async function copyTemplateInto(
     const mappings = await tx.mapping.findMany({
       where: { templateId },
       include: {
-        inputs: { select: { fieldId: true, groupId: true, position: true, optionValues: true, noneValue: true } },
+        inputs: { select: { fieldId: true, position: true, tickValue: true } },
         outputColumn: { select: { deletedAt: true } },
       },
       take: MAX_MAPPINGS,
     });
     for (const m of mappings) {
-      // Inputs point at the copies: fields, tick groups and the option fields their values are keyed by.
-      const inputs = m.inputs.map((i) => ({
-        fieldId: i.fieldId === null ? null : fieldIds.get(i.fieldId),
-        groupId: i.groupId === null ? null : groupIds.get(i.groupId),
-        position: i.position,
-        noneValue: i.noneValue,
-        optionValues:
-          i.optionValues !== null && typeof i.optionValues === "object" && !Array.isArray(i.optionValues)
-            ? Object.fromEntries(
-                Object.entries(i.optionValues).flatMap(([id, v]) => {
-                  const copy = fieldIds.get(id);
-                  return copy && typeof v === "string" ? [[copy, v]] : [];
-                }),
-              )
-            : null,
-      }));
-      const gone = inputs.some((i) => i.fieldId === undefined || i.groupId === undefined || (i.fieldId === null && i.groupId === null));
+      // Inputs point at the copies of the fields they read.
+      const inputs = m.inputs.flatMap((i) => {
+        const fieldId = fieldIds.get(i.fieldId);
+        return fieldId === undefined ? [] : [{ fieldId, position: i.position, tickValue: i.tickValue }];
+      });
+      const gone = inputs.length !== m.inputs.length;
       const outputColumnId = columnMap === "same" ? m.outputColumnId : columnMap.get(m.outputColumnId);
       if (m.outputColumn.deletedAt !== null || gone || outputColumnId === undefined) {
         skippedMappings++;
@@ -167,20 +131,18 @@ export async function copyTemplateInto(
           splitIndex: m.splitIndex,
           splitRegex: m.splitRegex,
           constantValue: m.constantValue,
-          expression: m.expression === null ? null : expressionFromDisplay(m.expression, (ref) => fieldIds.get(ref) ?? groupIds.get(ref) ?? null),
+          expression: m.expression === null ? null : expressionFromDisplay(m.expression, (ref) => fieldIds.get(ref) ?? null),
+          tickSelection: m.tickSelection,
+          noneMarked: m.noneMarked,
+          multipleMarked: m.multipleMarked,
+          noneValue: m.noneValue,
+          tickLabel: m.tickLabel,
           fillDown: m.fillDown,
           position: m.position,
         },
       });
       await tx.mappingInput.createMany({
-        data: inputs.map((i) => ({
-          mappingId,
-          fieldId: i.fieldId ?? null,
-          groupId: i.groupId ?? null,
-          position: i.position,
-          noneValue: i.noneValue,
-          optionValues: i.optionValues ?? Prisma.DbNull,
-        })),
+        data: inputs.map((i) => ({ mappingId, ...i })),
       });
       mappingCount++;
     }
@@ -189,5 +151,5 @@ export async function copyTemplateInto(
   // A copy as the other kind can change what works (e.g. no sequence field); check every mapping.
   await recomputeMappingStates(tx, newTemplateId);
   await recomputeConfigState(tx, newTemplateId);
-  return { id: newTemplateId, fields: fields.length, groups: groups.length, mappings: mappingCount, skippedMappings };
+  return { id: newTemplateId, fields: fields.length, mappings: mappingCount, skippedMappings };
 }

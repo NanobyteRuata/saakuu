@@ -109,11 +109,7 @@ export function DuplicateTemplateDialog({ bookId, template, initialKind, open, o
     router.push(`/books/${result.data.bookId}/templates/${result.data.id}`);
   }
 
-  const travels = summary
-    ? `${plural(summary.fields, "field")} and ${plural(summary.groups, "group")}${
-        summary.selectionGroups > 0 ? ` (${plural(summary.selectionGroups, "selection group")})` : ""
-      }`
-    : null;
+  const travels = summary ? plural(summary.fields, "field") : null;
 
   return (
     <Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
@@ -122,7 +118,7 @@ export function DuplicateTemplateDialog({ bookId, template, initialKind, open, o
           <DialogHeader>
             <DialogTitle>Duplicate “{template?.name}”</DialogTitle>
             <DialogDescription>
-              Copies the groups, fields, notes, anchors and instructions into a new template. Documents are not copied,
+              Copies the fields with their notes, anchors and instructions into a new template. Documents are not copied,
               and the original template is not changed.
             </DialogDescription>
           </DialogHeader>

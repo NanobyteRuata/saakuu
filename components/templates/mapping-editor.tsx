@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { getJson } from "@/lib/api-client";
 import { langOf } from "@/lib/templates/labels";
 import type { TemplateDetail } from "@/lib/templates/service";
-import { buildTree } from "@/lib/templates/tree";
+import { orderFields } from "@/lib/templates/field-list";
 
 import { MappingTab } from "./mapping-tab";
 import { TemplateChrome } from "./template-chrome";
@@ -15,7 +15,7 @@ import { TemplateChrome } from "./template-chrome";
 export function MappingEditor({ initial, bookDefaultModel }: { initial: TemplateDetail; bookDefaultModel: string }) {
   const [template, setTemplate] = useState(initial);
   const lang = langOf(template.languageHint);
-  const tree = useMemo(() => buildTree(template.groups, template.fields), [template.groups, template.fields]);
+  const fields = useMemo(() => orderFields(template.fields).list, [template.fields]);
 
   const reload = useCallback(async () => {
     const result = await getJson<TemplateDetail>(`/api/templates/${template.id}`);
@@ -25,7 +25,7 @@ export function MappingEditor({ initial, bookDefaultModel }: { initial: Template
 
   return (
     <TemplateChrome template={template} bookDefaultModel={bookDefaultModel} active="mapping" onTemplate={setTemplate} scroll>
-      <MappingTab template={template} tree={tree} lang={lang} onChanged={reload} />
+      <MappingTab template={template} fields={fields} lang={lang} onChanged={reload} />
     </TemplateChrome>
   );
 }

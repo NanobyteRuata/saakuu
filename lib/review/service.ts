@@ -8,12 +8,12 @@ import type { Db } from "@/lib/documents/access";
 import { AppError } from "@/lib/errors";
 import { decodeCursor, encodeCursor } from "@/lib/table/cursor";
 import { bboxSchema, liveRow } from "@/lib/table/service";
-import { buildTree } from "@/lib/templates/tree";
+import { orderFields, type FieldList } from "@/lib/templates/field-list";
 import { firstWorkingMappings } from "@/lib/transform/run";
 import { loadTemplateContext } from "@/lib/transform/service";
 
 import type { ColumnSourcesInput, ReviewQueueInput } from "./schemas";
-import { cellSources, sourceFieldIds, type RegionValue } from "./sources";
+import { cellSources, type RegionValue } from "./sources";
 import type { ColumnSource, ColumnSourcesPage, ResumePoint, ReviewProgress, ReviewQueuePage, RowSources } from "./types";
 
 /**
@@ -41,13 +41,13 @@ export async function getRowSources(userId: string, rowId: string): Promise<RowS
     prisma.rawValue.findMany({ where: { rawRecordId: row.rawRecordId }, select: { fieldId: true, photoId: true, bbox: true, valueText: true }, take: MAX_VALUES_PER_RECORD }),
   ]);
   if (!ctx) return { ...base, cells: {} };
-  const tree = buildTree(ctx.groups, ctx.fields);
-  const working = firstWorkingMappings(ctx.mappings, { tree, liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
+  const fields = orderFields(ctx.fields);
+  const working = firstWorkingMappings(ctx.mappings, { fields, liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
   const regions = values.map((v): RegionValue => {
     const bbox = bboxSchema.safeParse(v.bbox);
     return { fieldId: v.fieldId, photoId: v.photoId, bbox: bbox.success ? bbox.data : null, valueText: v.valueText };
   });
-  return { ...base, cells: cellSources(tree, working, regions, base.photoId) };
+  return { ...base, cells: cellSources(fields, working, regions, base.photoId) };
 }
 
 type ColumnRowRecord = { id: string; position: string; templateId: string; rawRecordId: string | null; photoId: string | null; bbox: unknown };
@@ -80,20 +80,20 @@ export async function getColumnSources(userId: string, bookId: string, input: Co
   const nextCursor = found.length > input.limit && last ? encodeCursor(last.position, last.id) : null;
 
   // This column's working mapping, per template on the page.
-  const plans = new Map<string, { tree: ReturnType<typeof buildTree>; working: ReturnType<typeof firstWorkingMappings> } | null>();
+  const plans = new Map<string, { fields: FieldList; working: ReturnType<typeof firstWorkingMappings> } | null>();
   await Promise.all(
     [...new Set(rows.map((r) => r.templateId))].map(async (templateId) => {
       const ctx = await loadTemplateContext(prisma, templateId);
       if (!ctx) return plans.set(templateId, null);
-      const tree = buildTree(ctx.groups, ctx.fields);
-      const all = firstWorkingMappings(ctx.mappings, { tree, liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
+      const fields = orderFields(ctx.fields);
+      const all = firstWorkingMappings(ctx.mappings, { fields, liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
       const mapping = all.get(column.id);
-      plans.set(templateId, mapping ? { tree, working: new Map([[column.id, mapping]]) } : null);
+      plans.set(templateId, mapping ? { fields, working: new Map([[column.id, mapping]]) } : null);
     }),
   );
   const recordIds = rows.flatMap((r) => (r.rawRecordId && plans.get(r.templateId) ? [r.rawRecordId] : []));
-  // Only the fields this column's mappings read (a selection group reads its option fields).
-  const fieldIds = [...new Set([...plans.values()].flatMap((plan) => (plan ? [...plan.working.values()].flatMap((m) => m.inputs.flatMap((i) => sourceFieldIds(plan.tree, i))) : [])))];
+  // Only the fields this column's mappings read.
+  const fieldIds = [...new Set([...plans.values()].flatMap((plan) => (plan ? [...plan.working.values()].flatMap((m) => m.inputs.map((i) => i.fieldId)) : [])))];
   const values =
     recordIds.length === 0 || fieldIds.length === 0
       ? []
@@ -115,7 +115,7 @@ export async function getColumnSources(userId: string, bookId: string, input: Co
     const base = { rowId: r.id, photoId: r.photoId, bbox: null, recordBbox: recordBbox.success ? recordBbox.data : null, paths: [], written: null };
     const plan = plans.get(r.templateId);
     if (!plan || !r.rawRecordId) return base;
-    const source = cellSources(plan.tree, plan.working, byRecord.get(r.rawRecordId) ?? [], r.photoId)[column.id];
+    const source = cellSources(plan.fields, plan.working, byRecord.get(r.rawRecordId) ?? [], r.photoId)[column.id];
     return source ? { ...base, ...source, photoId: source.photoId ?? r.photoId } : base;
   });
   return { columnId: column.id, items, nextCursor };

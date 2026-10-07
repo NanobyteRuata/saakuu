@@ -29,8 +29,8 @@ import type {
   StartFieldProposalInput,
 } from "./field-proposal-schemas";
 import { fieldShapeProblem, FIELD_TYPES, MAX_FIELDS } from "./schemas";
-import { loadSourceTree } from "./source-tree";
-import { childrenOf, compareSiblings, toSibling } from "./tree";
+import { formatPath, nameKey } from "./field-list";
+import { loadSourceFields } from "./source-fields";
 
 /**
  * The AI proposes the template (Phase 16, decision 73). Nothing here calls the model: starting records a
@@ -214,13 +214,18 @@ export function parseProposalItems(json: Prisma.JsonValue | null): ProposedField
   if (!Array.isArray(json)) return [];
   return json.flatMap((raw): ProposedFieldDTO[] => {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return [];
-    const { labelSource, labelMeaning, dataType, choices, note } = raw;
+    // `template-v2` proposals carry the header apart from the label; it is the front of the name now.
+    const { headerSource, headerMeaning, labelSource, labelMeaning, dataType, choices, note } = raw;
+    const header = typeof headerSource === "string" && headerSource.trim() !== "" ? headerSource.trim() : null;
+    const headerEnglish = typeof headerMeaning === "string" && headerMeaning.trim() !== "" ? headerMeaning.trim() : null;
+    const meaning = typeof labelMeaning === "string" ? labelMeaning : null;
     if (typeof labelSource !== "string" || labelSource.trim() === "") return [];
     if (typeof dataType !== "string" || !(FIELD_TYPES as readonly string[]).includes(dataType)) return [];
     return [
       {
-        labelSource,
-        labelMeaning: typeof labelMeaning === "string" ? labelMeaning : null,
+        labelSource: header === null ? labelSource : formatPath([header, labelSource]),
+        labelMeaning:
+          header === null || (headerEnglish === null && meaning === null) ? meaning : formatPath([headerEnglish ?? header, meaning ?? labelSource]),
         dataType: dataType as ProposedFieldDTO["dataType"],
         choices: Array.isArray(choices) ? choices.filter((c): c is string => typeof c === "string") : [],
         note: typeof note === "string" ? note : null,
@@ -229,19 +234,17 @@ export function parseProposalItems(json: Prisma.JsonValue | null): ProposedField
   });
 }
 
-const labelKey = (label: string) => label.trim().normalize("NFC").toLowerCase();
-
 async function toView(row: ProposalRow): Promise<FieldProposalView> {
   const items = parseProposalItems(row.items);
   const live =
     items.length === 0
       ? new Set<string>()
       : new Set(
-          (await prisma.field.findMany({ where: { templateId: row.templateId, deletedAt: null }, select: { labelSource: true }, take: MAX_FIELDS })).map(
-            (f) => labelKey(f.labelSource),
+          (await prisma.field.findMany({ where: { templateId: row.templateId, deletedAt: null }, select: { labelSource: true }, take: MAX_FIELDS })).map((f) =>
+            nameKey(f.labelSource),
           ),
         );
-  const view: ProposedFieldView[] = items.map((f, index) => ({ index, ...f, alreadyInTree: live.has(labelKey(f.labelSource)) }));
+  const view: ProposedFieldView[] = items.map((f, index) => ({ index, ...f, alreadyInTree: live.has(nameKey(f.labelSource)) }));
   return {
     id: row.id,
     documentId: row.documentId,
@@ -324,7 +327,7 @@ async function lockProposal(tx: Db, proposalId: string, templateId: string): Pro
 }
 
 /**
- * Creates the ticked items as top-level fields, after everything already in the tree, in paper order
+ * Creates the ticked items as fields, after everything already in the list, in paper order
  * (the proposal's order, whatever order the indexes arrive in). The items come from the stored proposal,
  * never from the request: the client sends indexes only. Accepting twice creates nothing the second time.
  */
@@ -345,21 +348,20 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
     if ([...include].some((i) => i >= items.length)) throw new AppError("VALIDATION", "The proposal changed. Reload and try again.");
     const chosen = items.filter((_, i) => include.has(i));
 
-    const { fields, tree } = await loadSourceTree(tx, templateId);
-    if (fields.length + chosen.length > MAX_FIELDS) {
-      throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields; this would make ${fields.length + chosen.length}.`);
+    const source = await loadSourceFields(tx, templateId);
+    if (source.list.length + chosen.length > MAX_FIELDS) {
+      throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields; this would make ${source.list.length + chosen.length}.`);
     }
     for (const f of chosen) {
       const shape = fieldShapeProblem({ dataType: f.dataType, choices: f.choices, markSymbols: null, typeOptions: null });
       if (shape) throw new AppError("VALIDATION", `“${f.labelSource}”: ${shape}`);
     }
 
-    const last = childrenOf(tree, null).map(toSibling).sort(compareSiblings).at(-1)?.position ?? null;
+    const last = source.list.at(-1)?.position ?? null;
     const positions = generateNKeysBetween(last, null, chosen.length);
     const data = chosen.map((f, i) => ({
       id: createId(),
       templateId,
-      groupId: null,
       labelSource: f.labelSource,
       labelMeaning: f.labelMeaning,
       dataType: f.dataType,

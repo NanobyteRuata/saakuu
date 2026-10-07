@@ -159,10 +159,10 @@ List of templates. Each item shows:
 - Actions (icon-only): `Edit`, `Duplicate`, `Delete`. Uploading and extracting live on the
   Documents tab, not here (Phase 9.1, docs/06)
 - `Duplicate` can copy **into another book** the user owns (Phase 17, decision 74). The source layer
-  travels — fields, groups, selection settings, notes, anchors, language hint, instructions — and the
+  travels — fields, notes, anchors, language hint, instructions — and the
   mappings do not, because they name this book's columns. The copy lands as `Draft` and the target
-  book's `Create columns from this template` completes it in one click. The dialog counts the fields and
-  groups that travel and the mappings that stay.
+  book's `Create columns from this template` completes it in one click. The dialog counts the fields
+  that travel and the mappings that stay.
 
 Expand/collapse reveals that template's documents inline; collapsed shows counts only.
 For large templates the inline list caps at 20 with a "view all in Documents" link.
@@ -190,22 +190,26 @@ column headers, left to right. Labels come back as written, in their own script,
 meaning. The operator sees how long it will take before it runs (and, on a personal key, the cost in money and that the key is theirs). What comes back is a
 **proposal, not a write**: every field has a toggle, the confirmation states the exact count
 ("Adds 11 fields … 1 is left out"), and only the ticked fields are created, flat, at the end of the
-tree, where they are corrected like any other. Groups and tick groups stay manual.
+list, where they are corrected like any other. A proposed field's name starts with the header
+above it, joined with ` › ` (Phase 24). Which tick boxes belong together is never proposed: the
+operator combines them in a mapping.
 
 **a. Source layer**
 - Type: Form or Table (chosen at creation; switching later is blocked — offer
   "duplicate as new template" instead).
-- Groups: the headers on the paper. Each has a label as written plus an optional English
-  meaning, is collapsible, and can nest up to 3 levels (a spanning header over sub-headers).
-  Groups and single fields are ordered **together** at every level, so the template follows the
-  paper exactly (Phase 3.1).
-- A group can declare a **selection** when its columns are tick boxes that together encode one
-  answer: `Header only` (default), `One of` (e.g. Sex: M | F) or `Any of`. Per group, configure
-  what "nothing ticked" means (normal blank / flag for review / error) and, for `One of`, what
-  "several ticked" means (flag for review / error). See §11.7.
-- Fields, ordered within their parent. Each field has:
-  - `labelSource` — how it is written on the paper, any script (required)
-  - `labelMeaning` — what it means, English (optional)
+- Fields, in **one flat list in paper order** (Phase 24, decision 84). A field is **one box on the
+  paper giving one value in its type**, and nothing else: there are no groups to put fields in,
+  nothing nests, and nothing on this side says which fields belong together.
+- A **header** on the paper is the front of the name of each field under it, joined with ` › `:
+  `၁ ရက်နေ့ › ကိုယ်ပူချိန်`, `RDT Test › Positive › A`. It is what tells two columns with the same
+  label apart, for the AI and for the person mapping and reviewing. The operator may type any name.
+- Two live fields with the same name are **warned about, never refused**: both rows are marked and
+  the operator is told to put the header in front so they can be told apart.
+- Wherever names are listed, the end of a name — the field's own words — is never cut off: the name
+  wraps, or the headers in front are shortened.
+- Each field has:
+  - `labelSource` — its name: how it is written on the paper, any script, header first (required)
+  - `labelMeaning` — what it means, English, in the same levels (optional)
   - `dataType` — see §9
   - `mode` — `EXTRACT` | `SKIP` | `MANUAL` (see §10)
   - `note` — free text instruction to the AI ("people write 1 1/2 to mean 1 year 6 months")
@@ -216,8 +220,8 @@ tree, where they are corrected like any other. Groups and tick groups stay manua
 - Toggle: **double extraction** (§13).
 
 **Which fields to add** (guidance shown in the editor, Phase 3.1):
-- Every physical column or answer box you add becomes a field. Groups are only the headers above
-  them, never a substitute for the columns themselves.
+- Every physical column or answer box you add becomes a field. A header is only the front of
+  those fields' names, never a substitute for the columns themselves.
 - **Table templates: add every column visible on the paper, in paper order, and set the ones you
   don't need to `Skip`.** Tables are read row by row, matching values to the listed headers. An
   unlisted column between two listed ones gives the model nowhere to put its values, and
@@ -242,6 +246,7 @@ Maps fields to output columns. Supported mapping kinds:
 | `SPLIT` | 1 field → 1 column | takes a part of the field: by delimiter+index, or by regex capture group |
 | `CONSTANT` | none → 1 column | fixed value per template |
 | `EXPRESSION` | N fields → 1 column | small safe expression language (§14) |
+| `TICKS` ("From ticks") | N tick fields → 1 column | several tick boxes become one answer: a value per tick field, `Only one` / `Several`, what nothing ticked and several ticked mean (§11.7; Phase 24, decision 84) |
 
 One-to-many is expressed as multiple `SPLIT` mappings from the same field to
 different columns. Unmapped columns are legal and stay empty.
@@ -447,7 +452,7 @@ dash means in this dataset.
 circled → true, tally strokes → count).
 
 Registers often encode one answer as a row of tick columns under a spanning header, sometimes
-nested (Phase 3.1):
+with sub-headers (Phase 3.1; combined in the mapping since Phase 24):
 
 ```
 |  Sex  |         RDT Test          |
@@ -458,22 +463,27 @@ nested (Phase 3.1):
 |   | ✓ |   |   |   |      ✓        |
 ```
 
-- Each tick column is a `MARK` field; each header is a group (`RDT Test` › `Positive` › `A`).
-- The group that carries the answer is set to `One of` (or `Any of`). `Positive` is a
-  `Header only` group inside `RDT Test`.
-- The AI still reports each column's tick verbatim. The transform turns the ticked option into a
-  value (`Sex = F`, `RDT Test = Positive › A`) and applies the group's rules:
-  - nothing ticked → normal blank, review flag or error, as configured (blank often means
-    "not tested");
-  - several ticked in a `One of` group → review flag or error, as configured; the raw ticks are
-    kept and no option is picked;
-  - any option `ILLEGIBLE` → always flagged for review, never treated as "nothing ticked".
-- A selection group's options are its descendant `MARK` fields in `Extract` or `Manual` mode. It
-  can't contain non-mark fields or another selection group.
-- The value exported when nothing is ticked (empty, `Not tested`, `0`) and per-option output
-  values (M → `1`, F → `2`) are mapping options (Phase 6), because they depend on the output
-  table, not the paper. Separate yes/no columns per option remain possible with plain `COPY`
-  mappings from each field.
+- Each tick column is a `MARK` field of its own, named with its header in front
+  (`RDT Test › Positive › A`). The source layer does not know that they answer together.
+- The **mapping** that fills the answer's column is of the kind `From ticks` (§6.5b): it lists the
+  tick fields (`Sex` reads `ကျား` and `မ`; `RDT result` reads `A`, `B`, `C` and `Neg.`, although
+  they sit under different headers), the value each one writes, and whether one may be ticked
+  (`Only one`) or several (`Several`, joined with commas).
+- The AI still reports each column's tick verbatim. The transform turns the ticked field into its
+  value (`Sex = F`, `RDT result = Positive › A`) and applies the mapping's rules:
+  - nothing ticked → leave blank, leave blank and flag it, or mark as an error, as configured
+    (blank often means "not tested"), with an optional value to write instead (`Not tested`);
+  - several ticked under `Only one` → flag or error, as configured; the cell stays blank, the raw
+    ticks are kept and no box is picked;
+  - any tick `ILLEGIBLE` → always flagged for review, never treated as "nothing ticked".
+- A `From ticks` mapping reads only `MARK` fields and needs at least two in `Extract` or `Manual`
+  mode (a `Skip` field is never ticked). A value left blank writes the field's own name. A tick
+  field can be read by several mappings.
+- All of it lives on the mapping because it depends on the output table, not the paper: the same
+  two boxes can write `M` / `F` in one book and `1` / `2` in another. Separate yes/no columns per
+  tick box remain possible with plain `COPY` mappings from each field, and that is what
+  `Create columns from this template` proposes: one column per tick field, never a guess at which
+  ticks belong together.
 
 ### 11.8 Script and numerals
 Burmese digits `၀–၉` collide visually with Latin and punctuation (`၀` vs `0`/`○`,

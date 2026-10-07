@@ -70,7 +70,7 @@ export function SpecimenPane({
   flushPending: () => Promise<void>;
   /** A reading changes the book's counts and the mapping preview. */
   onRead: () => void;
-  /** Accepted proposed fields are in the tree now. */
+  /** Accepted proposed fields are in the list now. */
   onFieldsAdded: () => void;
 }) {
   const [specimens, setSpecimens] = useState<SpecimenDocument[] | null>(null);

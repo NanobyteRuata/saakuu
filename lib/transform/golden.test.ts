@@ -10,9 +10,9 @@ import type {
   ComputedCell,
   MappingKind,
   RowType,
+  TickRules,
   TransformColumn,
   TransformField,
-  TransformGroup,
   TransformInput,
   ValueState,
 } from "./types";
@@ -32,13 +32,14 @@ type Fixture = {
     sequenceFieldId?: string;
     book?: Partial<BookSettings>;
     manualValues?: Record<string, string>;
-    groups?: (Partial<TransformGroup> & { id: string; labelSource: string })[];
     fields: (Partial<TransformField> & { id: string })[];
     columns: (Partial<TransformColumn> & { key: string })[];
     mappings: {
       column: string;
       kind?: MappingKind;
-      inputs?: (string | { group: string; optionValues?: Record<string, string>; noneValue?: string | null })[];
+      /** A field id, or for TICKS a field with the value its tick writes. */
+      inputs?: (string | { field: string; value: string })[];
+      ticks?: Partial<TickRules>;
       separator?: string;
       splitBy?: string;
       splitIndex?: number;
@@ -68,17 +69,7 @@ type Fixture = {
 function buildInput(f: Fixture["input"]): TransformInput {
   let position = 0;
   const nextPosition = () => `p${String(position++).padStart(4, "0")}`;
-  const groups: TransformGroup[] = (f.groups ?? []).map((g) => ({
-    parentGroupId: null,
-    labelMeaning: null,
-    selection: "NONE",
-    noneMarked: "REVIEW",
-    multipleMarked: "ERROR",
-    ...g,
-    position: g.position ?? nextPosition(),
-  }));
   const fields: TransformField[] = f.fields.map((field) => ({
-    groupId: null,
     labelSource: field.id,
     labelMeaning: null,
     dataType: "TEXT",
@@ -93,7 +84,6 @@ function buildInput(f: Fixture["input"]): TransformInput {
   return {
     kind: f.kind,
     sequenceFieldId: f.sequenceFieldId ?? null,
-    groups,
     fields,
     columns: f.columns.map((c) => ({ id: c.key, label: c.key, dataType: "TEXT", enumValues: [], isRequired: false, ...c })),
     mappings: f.mappings.map((m, i) => ({
@@ -106,11 +96,10 @@ function buildInput(f: Fixture["input"]): TransformInput {
       splitRegex: m.splitRegex ?? null,
       constantValue: m.constantValue ?? null,
       expression: m.expression ?? null,
+      ticks: m.kind === "TICKS" ? { selection: "ONE_OF", noneMarked: "REVIEW", multipleMarked: "ERROR", noneValue: null, label: null, ...m.ticks } : null,
       fillDown: m.fillDown ?? true,
       inputs: (m.inputs ?? []).map((input) =>
-        typeof input === "string"
-          ? { kind: "field" as const, fieldId: input }
-          : { kind: "group" as const, groupId: input.group, optionValues: input.optionValues ?? {}, noneValue: input.noneValue ?? null },
+        typeof input === "string" ? { fieldId: input, tickValue: null } : { fieldId: input.field, tickValue: input.value },
       ),
     })),
     book: { numeralSystem: "AUTO", dateEra: "GREGORIAN", ...f.book },

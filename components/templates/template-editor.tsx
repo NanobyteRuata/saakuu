@@ -12,29 +12,28 @@ import { isoDate } from "@/lib/format";
 import type { DateEra } from "@/lib/books/schemas";
 import { langOf } from "@/lib/templates/labels";
 import type { TemplateDetail } from "@/lib/templates/service";
-import { buildTree, formatPath, headerPath, sameRef, type SiblingRef } from "@/lib/templates/tree";
-import type { FieldView, GroupView } from "@/lib/templates/views";
+import { duplicateNames, orderFields } from "@/lib/templates/field-list";
+import type { FieldView } from "@/lib/templates/views";
 import { useLayoutTarget } from "@/lib/ui/breakpoint";
 import { PHOTO_MIN_PX } from "@/lib/ui/panes";
 
 import type { Flush } from "./autosave";
 import { DeleteFieldDialog } from "./delete-field-dialog";
-import { DeleteGroupDialog } from "./delete-group-dialog";
+import { FieldList } from "./field-list";
+import { FieldName } from "./field-name";
 import { FieldProperties, type FieldDraft } from "./field-properties";
-import { FieldTree } from "./field-tree";
-import { GroupProperties, type GroupDraft } from "./group-properties";
 import { SpecimenPane } from "./specimen-pane";
 import { TemplateChrome } from "./template-chrome";
 
-/** 24rem: the field tree stops being readable much below this, labels being in their own script. */
-const TREE_MIN_PX = 384;
+/** 24rem: the field list stops being readable much below this, names being in their own script. */
+const LIST_MIN_PX = 384;
 /** The densest form in the app — source label, meaning, type, mode, note, choices, marks. */
 const PROPERTIES_MIN_PX = 360;
 
 /**
  * The Fields workspace (docs/05 §7, docs/06 Phase 15).
  *
- * The paper is on screen beside the tree the whole time. Until Phase 15 this was the screen where
+ * The paper is on screen beside the field list the whole time. Until Phase 15 this was the screen where
  * the operator typed the most — twenty Burmese labels transcribed off a page on the desk — with no
  * image on it at all, while review, which types the least, had one. Two panes at 1280 with the
  * properties opening under the selected row; three at 1600, properties in their own.
@@ -53,20 +52,15 @@ export function TemplateEditor({
 }) {
   const router = useRouter();
   const [template, setTemplate] = useState(initial);
-  const [selected, setSelected] = useState<SiblingRef | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<FieldView | null>(null);
-  const [groupToDelete, setGroupToDelete] = useState<GroupView | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const layout = useLayoutTarget();
   const lang = langOf(template.languageHint);
-  const tree = useMemo(() => buildTree(template.groups, template.fields), [template.groups, template.fields]);
+  const source = useMemo(() => orderFields(template.fields), [template.fields]);
   // Local edits don't refresh `fieldsChangedAt`, so the specimen pane also watches the fields themselves.
-  const fieldsKey = useMemo(() => {
-    const byId = <T extends { id: string }>(a: T, b: T) => a.id.localeCompare(b.id);
-    return JSON.stringify([[...template.fields].sort(byId), [...template.groups].sort(byId)]);
-  }, [template.groups, template.fields]);
-  const selectedField = selected?.kind === "field" ? (template.fields.find((f) => f.id === selected.id) ?? null) : null;
-  const selectedGroup = selected?.kind === "group" ? (template.groups.find((g) => g.id === selected.id) ?? null) : null;
+  const fieldsKey = useMemo(() => JSON.stringify([...template.fields].sort((a, b) => a.id.localeCompare(b.id))), [template.fields]);
+  const selectedField = selected === null ? null : (source.byId.get(selected) ?? null);
 
   /*
    * Autosave, not save-and-discard (decision 72). The open form registers a flush here, so switching
@@ -78,7 +72,6 @@ export function TemplateEditor({
     flushRef.current = flush;
   }, []);
   const fieldDrafts = useRef(new Map<string, FieldDraft>()).current;
-  const groupDrafts = useRef(new Map<string, GroupDraft>()).current;
 
   const reload = useCallback(async () => {
     const result = await getJson<TemplateDetail>(`/api/templates/${template.id}`);
@@ -87,10 +80,10 @@ export function TemplateEditor({
   }, [template.id]);
 
   const requestSelect = useCallback(
-    (ref: SiblingRef) => {
-      if (sameRef(ref, selected)) return;
+    (fieldId: string) => {
+      if (fieldId === selected) return;
       const flush = flushRef.current;
-      setSelected(ref);
+      setSelected(fieldId);
       void flush?.();
     },
     [selected],
@@ -102,7 +95,7 @@ export function TemplateEditor({
 
   async function restore(field: { id: string; labelSource: string }) {
     setRestoring(field.id);
-    const result = await postJson<{ field: FieldView; sequenceRestored: boolean; placedOutside: boolean }>(
+    const result = await postJson<{ field: FieldView; sequenceRestored: boolean }>(
       `/api/fields/${field.id}/restore`,
       {},
     );
@@ -112,17 +105,8 @@ export function TemplateEditor({
       return;
     }
     await reload();
-    setSelected({ kind: "field", id: result.data.field.id });
-    toast.success(
-      `Restored “${result.data.field.labelSource}”.${result.data.sequenceRestored ? " It's the sequence field again." : ""}${
-        result.data.placedOutside ? " Its group only takes Mark / tick fields now, so it's placed just after that group." : ""
-      }`,
-    );
-  }
-
-  function deletedFieldPath(f: FieldView): string {
-    if (f.groupId === null || !tree.groups.has(f.groupId)) return "";
-    return `${formatPath(headerPath(tree, { kind: "group", id: f.groupId }))} › `;
+    setSelected(result.data.field.id);
+    toast.success(`Restored “${result.data.field.labelSource}”.${result.data.sequenceRestored ? " It's the sequence field again." : ""}`);
   }
 
   const properties = selectedField ? (
@@ -130,7 +114,7 @@ export function TemplateEditor({
       key={selectedField.id}
       field={selectedField}
       template={template}
-      tree={tree}
+      duplicateName={duplicateNames(source.list).has(selectedField.id)}
       lang={lang}
       bookDateEra={bookDateEra}
       drafts={fieldDrafts}
@@ -139,34 +123,21 @@ export function TemplateEditor({
       onTemplate={setTemplate}
       onDelete={() => setToDelete(selectedField)}
     />
-  ) : selectedGroup ? (
-    <GroupProperties
-      key={selectedGroup.id}
-      group={selectedGroup}
-      template={template}
-      tree={tree}
-      lang={lang}
-      drafts={groupDrafts}
-      registerFlush={registerFlush}
-      onSaved={(group) => setTemplate((t) => ({ ...t, groups: t.groups.map((g) => (g.id === group.id ? group : g)) }))}
-      onDelete={() => setGroupToDelete(selectedGroup)}
-    />
   ) : null;
 
-  const treePane = (
+  const listPane = (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-      <FieldTree
+      <FieldList
         template={template}
-        tree={tree}
+        list={source.list}
         setTemplate={setTemplate}
-        selected={selected}
+        selectedId={selected}
         onSelect={requestSelect}
-        onDeleteGroup={setGroupToDelete}
         reload={reload}
         lang={lang}
         // Below three panes the properties open under the row they belong to, rather than in a
         // permanent narrow column that would starve the densest form in the app (docs/06 Phase 15).
-        renderDetail={layout === "three" ? undefined : (ref) => (sameRef(ref, selected) ? properties : null)}
+        renderDetail={layout === "three" ? undefined : (fieldId) => (fieldId === selected ? properties : null)}
       />
       {template.deletedFields.length > 0 ? (
         <details className="rounded-lg border">
@@ -175,11 +146,10 @@ export function TemplateEditor({
             {template.deletedFields.map((f) => (
               <li key={f.id} className="flex items-center gap-3 px-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <p lang={lang} className="font-value truncate">
-                    <span className="text-muted-foreground">{deletedFieldPath(f)}</span>
-                    {f.labelSource}
+                  <p>
+                    <FieldName name={f.labelSource} lang={lang} />
                   </p>
-                  <p className="text-muted-foreground truncate text-xs">
+                  <p className="text-muted-foreground text-xs break-words">
                     {f.labelMeaning ? `${f.labelMeaning} · ` : ""}deleted {isoDate(f.deletedAt)}
                   </p>
                 </div>
@@ -225,8 +195,8 @@ export function TemplateEditor({
           />
         </Pane>
         <PaneHandle />
-        <Pane id="fields" defaultSize={layout === "three" ? "34%" : "52%"} minSize={TREE_MIN_PX}>
-          {treePane}
+        <Pane id="fields" defaultSize={layout === "three" ? "34%" : "52%"} minSize={LIST_MIN_PX}>
+          {listPane}
         </Pane>
         {layout === "three" ? (
           <>
@@ -238,8 +208,8 @@ export function TemplateEditor({
                     <p className="font-medium">Nothing selected</p>
                     <p className="text-muted-foreground text-sm">
                       {template.fields.length === 0
-                        ? "Add the first field in the middle: type its label exactly as it's written on the page."
-                        : "Choose a field to set its meaning, type, mode and a note for the AI, or a group to set how its tick columns are read."}
+                        ? "Add the first field in the middle: type its name exactly as it's written on the page."
+                        : "Choose a field to set its name, meaning, type, mode and a note for the AI."}
                     </p>
                   </div>
                 )}
@@ -255,25 +225,12 @@ export function TemplateEditor({
         open={toDelete !== null}
         onOpenChange={(open) => !open && setToDelete(null)}
         onDeleted={async (field) => {
-          if (sameRef(selected, { kind: "field", id: field.id })) clearSelection();
+          if (selected === field.id) clearSelection();
           fieldDrafts.delete(field.id);
           await reload();
           toast.success(`Deleted “${field.labelSource}”. Its values are kept.`, {
             action: { label: "Restore", onClick: () => void restore(field) },
           });
-        }}
-      />
-
-      <DeleteGroupDialog
-        group={groupToDelete}
-        lang={lang}
-        open={groupToDelete !== null}
-        onOpenChange={(open) => !open && setGroupToDelete(null)}
-        onDeleted={async (group, summary) => {
-          if (sameRef(selected, { kind: "group", id: group.id })) clearSelection();
-          groupDrafts.delete(group.id);
-          await reload();
-          toast.success(`Deleted the group “${group.labelSource}”. ${summary}`);
         }}
       />
     </TemplateChrome>

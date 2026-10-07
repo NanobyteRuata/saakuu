@@ -10,7 +10,6 @@ const { db, guards } = vi.hoisted(() => ({
   db: {
     book: { findUniqueOrThrow: vi.fn(), create: vi.fn() },
     template: { findUniqueOrThrow: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
-    fieldGroup: { findMany: vi.fn(), createMany: vi.fn() },
     field: { findMany: vi.fn(), createMany: vi.fn(), count: vi.fn() },
     mapping: { findMany: vi.fn(), create: vi.fn(), count: vi.fn() },
     mappingInput: { createMany: vi.fn() },
@@ -39,15 +38,10 @@ import { AppError } from "@/lib/errors";
 
 import { duplicateTemplate } from "./service";
 
-const groups = [
-  { id: "g_outer", parentGroupId: null, labelSource: "ကလေး", labelMeaning: "Child", position: "a0", selection: "NONE", noneMarked: "REVIEW", multipleMarked: "ERROR", note: null },
-  { id: "g_sex", parentGroupId: "g_outer", labelSource: "ကျား / မ", labelMeaning: "Sex", position: "a1", selection: "ONE_OF", noneMarked: "BLANK", multipleMarked: "REVIEW", note: "tick one" },
-];
-const field = (id: string, groupId: string | null, position: string) => ({
+const field = (id: string, position: string) => ({
   id,
-  groupId,
-  labelSource: id,
-  labelMeaning: null,
+  labelSource: `ကလေး › ${id}`,
+  labelMeaning: `Child › ${id}`,
   dataType: "TEXT",
   mode: "EXTRACT",
   note: null,
@@ -57,7 +51,7 @@ const field = (id: string, groupId: string | null, position: string) => ({
   isSequence: false,
   position,
 });
-const fields = [field("f_name", "g_outer", "a0"), field("f_m", "g_sex", "a0"), field("f_f", "g_sex", "a1")];
+const fields = [field("f_name", "a0"), field("f_m", "a1"), field("f_f", "a2")];
 const mapping = (id: string, outputColumnId: string) => ({
   id,
   outputColumnId,
@@ -68,9 +62,14 @@ const mapping = (id: string, outputColumnId: string) => ({
   splitRegex: null,
   constantValue: null,
   expression: null,
+  tickSelection: null,
+  noneMarked: null,
+  multipleMarked: null,
+  noneValue: null,
+  tickLabel: null,
   fillDown: true,
   position: "a0",
-  inputs: [{ fieldId: "f_name", groupId: null, position: 0, optionValues: null, noneValue: null }],
+  inputs: [{ fieldId: "f_name", position: 0, tickValue: null }],
   outputColumn: { deletedAt: null },
 });
 
@@ -102,7 +101,6 @@ describe("copying across books", () => {
       instructions: "Read carefully",
       sequenceFieldId: null,
     });
-    db.fieldGroup.findMany.mockResolvedValue(groups);
     db.field.findMany.mockResolvedValue(fields);
     db.field.count.mockResolvedValue(fields.length);
     db.mapping.count.mockResolvedValue(2);
@@ -117,19 +115,15 @@ describe("copying across books", () => {
     expect(db.mapping.findMany).not.toHaveBeenCalled();
     expect(db.mapping.create).not.toHaveBeenCalled();
     expect(db.mappingInput.createMany).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ bookId: "book_b", fields: 3, groups: 2, mappings: 0, mappingsLeftBehind: 2 });
+    expect(result).toMatchObject({ bookId: "book_b", fields: 3, mappings: 0, mappingsLeftBehind: 2 });
 
     const [template] = written(db.template.create);
     expect(template).toMatchObject({ id: result.id, bookId: "book_b", name: "Malaria register", anchors: ["ဆေးရုံ"], languageHint: "my" });
-    const copiedGroups = written(db.fieldGroup.createMany);
     const copiedFields = written(db.field.createMany);
-    for (const row of [...copiedGroups, ...copiedFields]) expect(row.templateId).toBe(result.id);
-    // Nesting and selection settings survive, pointing at the copies rather than the originals.
-    const sex = copiedGroups.find((g) => g.labelSource === "ကျား / မ");
-    const outer = copiedGroups.find((g) => g.labelSource === "ကလေး");
-    expect(sex).toMatchObject({ selection: "ONE_OF", noneMarked: "BLANK", multipleMarked: "REVIEW", note: "tick one", parentGroupId: outer?.id });
-    expect(copiedFields.filter((f) => f.groupId === sex?.id)).toHaveLength(2);
-    expect([...copiedGroups, ...copiedFields].map((r) => r.id)).not.toContain("g_sex");
+    for (const row of copiedFields) expect(row.templateId).toBe(result.id);
+    // Names keep the header in front, and the copies have ids of their own.
+    expect(copiedFields.map((f) => f.labelSource)).toEqual(["ကလေး › f_name", "ကလေး › f_m", "ကလေး › f_f"]);
+    expect(copiedFields.map((r) => r.id)).not.toContain("f_name");
   });
 
   it("refuses a book the user does not own, and writes nothing", async () => {

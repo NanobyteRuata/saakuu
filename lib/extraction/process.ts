@@ -15,8 +15,8 @@ import { log } from "@/lib/log";
 import { normalizeTransform, transformHash } from "@/lib/photos/transform";
 import { workingKey } from "@/lib/storage/keys";
 import { getObjectBuffer } from "@/lib/storage/s3";
-import { MAX_FIELDS, MAX_GROUPS } from "@/lib/templates/schemas";
-import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
+import { MAX_FIELDS } from "@/lib/templates/schemas";
+import { fieldSelect, toFieldView } from "@/lib/templates/views";
 import { flagBuildProblem, transformDocument } from "@/lib/transform/service";
 import { requestDocumentTransform } from "@/lib/transform/triggers";
 
@@ -316,12 +316,11 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
   claimed.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   await prisma.$transaction((tx) => recomputeDocumentRun(tx, documentId));
 
-  const [groups, fieldRows, glossary] = await Promise.all([
-    prisma.fieldGroup.findMany({ where: { templateId: doc.template.id }, select: groupSelect, take: MAX_GROUPS }),
+  const [fieldRows, glossary] = await Promise.all([
     prisma.field.findMany({ where: { templateId: doc.template.id, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS }),
     prisma.glossaryEntry.findMany({ where: { bookId: doc.bookId }, select: { id: true, term: true, meaning: true, position: true }, take: 500 }),
   ]);
-  const snapshot = buildTemplateSnapshot(doc.template, groups, fieldRows.map(toFieldView));
+  const snapshot = buildTemplateSnapshot(doc.template, fieldRows.map(toFieldView));
   const sequenceFieldId = snapshot.fields.find((f) => f.isSequence)?.id ?? null;
 
   // Resolved once per claim round, not per run: the owner's own key when they have saved one,

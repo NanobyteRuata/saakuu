@@ -1,31 +1,40 @@
 {
-  "description": "tick groups resolve to one answer: option output values, nothing ticked, several ticked, unreadable ticks, nested headers, Any of",
+  "description": "From ticks mappings give one answer: a value per tick, nothing ticked, several ticked, unreadable ticks, ticks under a sub-header, Any of",
   "input": {
     "kind": "TABLE",
     "sequenceFieldId": "fno",
-    "groups": [
-      { "id": "gsex", "labelSource": "လိင်", "labelMeaning": "Sex", "selection": "ONE_OF", "noneMarked": "REVIEW", "multipleMarked": "ERROR" },
-      { "id": "grdt", "labelSource": "RDT Test", "selection": "ONE_OF", "noneMarked": "BLANK" },
-      { "id": "gpos", "labelSource": "Positive", "parentGroupId": "grdt" },
-      { "id": "gsym", "labelSource": "Symptoms", "selection": "ANY_OF", "noneMarked": "BLANK" }
-    ],
     "fields": [
       { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
-      { "id": "fm", "labelSource": "ကျား", "labelMeaning": "M", "groupId": "gsex", "dataType": "MARK" },
-      { "id": "ff", "labelSource": "မ", "labelMeaning": "F", "groupId": "gsex", "dataType": "MARK" },
-      { "id": "fa", "labelSource": "A", "groupId": "gpos", "dataType": "MARK" },
-      { "id": "fb", "labelSource": "B", "groupId": "gpos", "dataType": "MARK" },
-      { "id": "fc", "labelSource": "C", "groupId": "gpos", "dataType": "MARK" },
-      { "id": "fneg", "labelSource": "Neg.", "groupId": "grdt", "dataType": "MARK" },
-      { "id": "ffever", "labelSource": "Fever", "groupId": "gsym", "dataType": "MARK" },
-      { "id": "fcough", "labelSource": "Cough", "groupId": "gsym", "dataType": "MARK" }
+      { "id": "fm", "labelSource": "လိင် › ကျား", "labelMeaning": "Sex › M", "dataType": "MARK" },
+      { "id": "ff", "labelSource": "လိင် › မ", "labelMeaning": "Sex › F", "dataType": "MARK" },
+      { "id": "fa", "labelSource": "RDT Test › Positive › A", "dataType": "MARK" },
+      { "id": "fb", "labelSource": "RDT Test › Positive › B", "dataType": "MARK" },
+      { "id": "fc", "labelSource": "RDT Test › Positive › C", "dataType": "MARK" },
+      { "id": "fneg", "labelSource": "RDT Test › Neg.", "dataType": "MARK" },
+      { "id": "ffever", "labelSource": "Fever", "dataType": "MARK" },
+      { "id": "fcough", "labelSource": "Cough", "dataType": "MARK" }
     ],
     "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "sex" }, { "key": "rdt" }, { "key": "symptoms" }],
     "mappings": [
       { "column": "no", "inputs": ["fno"] },
-      { "column": "sex", "inputs": [{ "group": "gsex", "optionValues": { "fm": "1", "ff": "2" } }] },
-      { "column": "rdt", "inputs": [{ "group": "grdt", "noneValue": "Not tested" }] },
-      { "column": "symptoms", "inputs": [{ "group": "gsym" }] }
+      {
+        "column": "sex",
+        "kind": "TICKS",
+        "ticks": { "label": "လိင်", "selection": "ONE_OF", "noneMarked": "REVIEW", "multipleMarked": "ERROR" },
+        "inputs": [{ "field": "fm", "value": "1" }, { "field": "ff", "value": "2" }]
+      },
+      {
+        "column": "rdt",
+        "kind": "TICKS",
+        "ticks": { "label": "RDT Test", "selection": "ONE_OF", "noneMarked": "BLANK", "noneValue": "Not tested" },
+        "inputs": [
+          { "field": "fa", "value": "Positive › A" },
+          { "field": "fb", "value": "Positive › B" },
+          { "field": "fc", "value": "Positive › C" },
+          { "field": "fneg", "value": "Neg." }
+        ]
+      },
+      { "column": "symptoms", "kind": "TICKS", "ticks": { "selection": "ANY_OF", "noneMarked": "BLANK" }, "inputs": ["ffever", "fcough"] }
     ],
     "records": [
       { "id": "r1", "values": { "fno": "1", "fm": "✓", "ff": null, "fa": "✓", "ffever": "✓", "fcough": "✓" } },

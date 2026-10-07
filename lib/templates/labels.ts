@@ -5,9 +5,6 @@ import type {
   ConfigState,
   FieldMode,
   FieldType,
-  GroupSelection,
-  MultipleMarked,
-  NoneMarked,
   TemplateKind,
   TwoDigitYearRule,
 } from "./schemas";
@@ -69,29 +66,6 @@ export function twoDigitYearHint(rule: TwoDigitYearRule, era: DateEra, pivotYear
     }
   }
 }
-
-export const GROUP_SELECTION_LABELS: Record<GroupSelection, string> = { NONE: "Header only", ONE_OF: "One of", ANY_OF: "Any of" };
-
-export const GROUP_SELECTION_HINTS: Record<GroupSelection, string> = {
-  NONE: "A header above its columns. Each column is read on its own.",
-  ONE_OF: "Tick columns that give one answer, e.g. Sex: M or F. The ticked option becomes the value.",
-  ANY_OF: "Tick columns where several can be ticked. The ticked options become the value.",
-};
-
-export const NONE_MARKED_LABELS: Record<NoneMarked, string> = { BLANK: "Normal blank", REVIEW: "Flag for review", ERROR: "Error" };
-
-export const NONE_MARKED_HINTS: Record<NoneMarked, string> = {
-  BLANK: "Blank is a normal answer, e.g. not tested: no flag.",
-  REVIEW: "A row with nothing ticked is flagged for you to check.",
-  ERROR: "A row with nothing ticked is marked as an error.",
-};
-
-export const MULTIPLE_MARKED_LABELS: Record<MultipleMarked, string> = { REVIEW: "Flag for review", ERROR: "Error" };
-
-export const MULTIPLE_MARKED_HINTS: Record<MultipleMarked, string> = {
-  REVIEW: "Several ticks are flagged for you to check. No option is picked.",
-  ERROR: "Several ticks are marked as an error. No option is picked.",
-};
 
 export const LANGUAGE_HINTS = [
   { value: "my", label: "Burmese" },

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { db } = vi.hoisted(() => ({
   db: {
     field: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), updateMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    fieldGroup: { findMany: vi.fn(), update: vi.fn() },
     template: { findUniqueOrThrow: vi.fn(), update: vi.fn() },
     mapping: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     mappingInput: { deleteMany: vi.fn() },
@@ -26,7 +25,6 @@ import { deleteFields, fieldsDeleteImpact, restoreField } from "./fields-service
 
 const seqField = {
   id: "f_seq",
-  groupId: "g1",
   labelSource: "စဉ်",
   labelMeaning: "No.",
   dataType: "INTEGER",
@@ -93,13 +91,12 @@ describe("field soft delete and restore", () => {
           expression: null,
           fillDown: true,
           position: "a0",
-          inputs: [{ fieldId: "f_seq", groupId: null, position: 0, optionValues: null, noneValue: null }],
+          inputs: [{ fieldId: "f_seq", position: 0, tickValue: null }],
           outputColumn: { deletedAt: null },
         },
       ]);
     // The impact reads the field again; the recompute sees it deleted (no live fields).
     db.field.findMany.mockResolvedValueOnce([{ id: "f_seq", templateId: "t1", labelSource: "စဉ်" }]).mockResolvedValueOnce([]);
-    db.fieldGroup.findMany.mockResolvedValue([]);
 
     await deleteFields("u1", { ids: ["f_seq"], impactHash: impact.impactHash, confirm: true });
 
@@ -116,9 +113,6 @@ describe("field soft delete and restore", () => {
 
   it("restores the same field in place, reinstates the sequence field and repairs its mappings", async () => {
     db.field.findFirst.mockResolvedValue(seqField);
-    db.fieldGroup.findMany.mockResolvedValue([
-      { id: "g1", parentGroupId: null, labelSource: "Child", labelMeaning: null, position: "a1", selection: "NONE" },
-    ]);
     const other = { ...seqField, id: "f_other", isSequence: false, position: "a1" };
     // Live fields before the restore, then after it (read again by the mapping state recompute).
     db.field.findMany.mockReset().mockResolvedValueOnce([other]).mockResolvedValue([other, seqField]);
@@ -138,7 +132,7 @@ describe("field soft delete and restore", () => {
         expression: null,
         fillDown: true,
         position: "a0",
-        inputs: [{ fieldId: "f_seq", groupId: null, position: 0, optionValues: null, noneValue: null }],
+        inputs: [{ fieldId: "f_seq", position: 0, tickValue: null }],
         outputColumn: { deletedAt: null },
       },
     ]);
@@ -146,7 +140,7 @@ describe("field soft delete and restore", () => {
     const result = await restoreField("u1", "f_seq");
 
     expect(db.field.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "f_seq" }, data: { deletedAt: null, groupId: "g1", position: "a0", isSequence: true } }),
+      expect.objectContaining({ where: { id: "f_seq" }, data: { deletedAt: null, position: "a0", isSequence: true } }),
     );
     expect(db.template.update).toHaveBeenCalledWith({ where: { id: "t1" }, data: { sequenceFieldId: "f_seq" } });
     expect(db.mapping.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["m1"] } }, data: { state: "OK" } });

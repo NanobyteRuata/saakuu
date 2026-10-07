@@ -17,7 +17,7 @@ no migration and no data backfill.
 | Team sharing | `Book.userId` → membership table later | Personal in v1. Concurrent editing of the output table is a separate design problem. |
 | Perspective correction | `Photo.transform` JSON is open-ended | Add a `corners` key; crop/rotate/deskew ship in v1. |
 | Cost calibration | `ExtractionRun.inputTokens/outputTokens` | Recorded from v1 so estimates can be calibrated against history. Surfaced as money in Phase 12; a quota is sized from it later (decision 55). |
-| AI proposes the template | `FieldProposal` (Phase 16) | **Flat fields shipped in Phase 16** (decision 73). Proposing groups and selection structure stays deferred (docs/06 post-v1 #7). `Create columns from this template` was its cheap half, shipped in Phase 10 (decisions 52, 53). |
+| AI proposes the template | `FieldProposal` (Phase 16) | **Flat fields shipped in Phase 16** (decision 73); since Phase 24 each proposed name starts with the header above it (decision 84). Proposing which ticks belong together stays deferred (docs/06 post-v1 #7). `Create columns from this template` was its cheap half, shipped in Phase 10 (decisions 52, 53). |
 | Review-speed readouts | `Cell.reviewedAt`, `Cell.reviewedVia` | Collected from Phase 12 so the launch period is measurable; the display is built when there is data worth showing (decisions 56, 57). |
 
 ---
@@ -634,6 +634,71 @@ only `altValueText` may be absent.
 
 Short property names, or a row as a bare array, would save more and were not taken: each makes the
 answer harder for the model to get right and for a person to read in `rawResponse`. (Phase 23)
+
+**84. A field is one box on the paper; the header is part of its name, and ticks are combined in the mapping.**
+*Supersedes decisions 28 (in part), 30, 31 and 33, and moves the rules of 32 onto the mapping.*
+Headers were rows of their own (`FieldGroup`) that fields sat inside, three levels deep, on the
+reasoning that the model needs the header context (decision 28). That reasoning was never
+measured, and the structure was expensive: a drag-to-indent tree, one order shared by two tables,
+depth and move rules, re-parenting on delete.
+
+It was measured on 2026-10-07. A plain header reaches the model only as extra words in a field's
+`path`, so the question was whether those words need a tree behind them. A hand-made register with
+the hard cases — `Temp` and `Weight` repeated under `Day 1` and `Day 3`, a three-level RDT header,
+then the same page with half of the twin cells blanked so position alone could not place a value —
+was read twice with a **flat** template that carried the header words as text. All 60 twin values
+landed in the right column, including a row with only Day 3 filled, and every tick was read right
+in 22 rows. Nesting and tick sets gave the AI nothing measurable. What did go wrong on that page
+was handwriting (a whole column read `၁` as `၅` on one reading and not the other), which no
+structure fixes.
+
+The phase first stopped halfway: a header *property* on each field, a band drawn over neighbours
+that shared one, and `FieldGroup` kept as a "tick set". Built and used, both were still things the
+operator had to learn, with forms and rules of their own, for a result the plain version gives.
+So the final shape has neither:
+
+- **No header property.** The header is the front of the name, joined with ` › `
+  (`၁ ရက်နေ့ › ကိုယ်ပူချိန်`, `RDT Test › Positive › A`), and `Propose fields` writes names that
+  way. The operator may type any name. For the model the name is split on ` › ` back into the
+  `path` elements a nested template sent, so the extraction prompt stays `v4` and a template that
+  was nested sends the same field paths as before.
+- **Same name twice is a warning, never a block.** The operator is told to put the header in front
+  so the two can be told apart. Refusing would stop someone mid-transcription over something only
+  they can judge.
+- **A name's end is never cut off** where names are listed: it is the field's own words. Names
+  wrap, or the headers in front are shortened.
+- **No tick sets on the Fields side.** That one of two boxes is ticked is a fact about the paper
+  (decision 32), but everything done with that fact — the value per box, what nothing ticked and
+  several ticked mean — depends on the output table, and decision 32 already put half of it on the
+  mapping. Now all of it is there: a mapping kind, **From ticks** (`TICKS`), lists the tick fields,
+  the value each writes, only one or several, and both rules. Warnings still land on the cell.
+- **A kind, not a reference** — the reverse of decision 33, whose group reference has nothing left
+  to point at. A new kind does repeat a little of Copy and Join, but the rules only make sense
+  when every input is a tick, so as options on Join they would need answers for mixed inputs that
+  nobody wants to define. It also makes an input always a field with a real foreign key, so the
+  field-or-group input, its `missing` state and the JSON keyed by field id are gone. What is given
+  up: a tick answer as an input *inside* a Join or an Expression. They can still read single tick
+  fields.
+- **`Create columns from this template` proposes one column per tick field.** It does not guess
+  which ticks belong together; the operator combines them. A wrong guess costs more to undo than
+  a missing one (decision 73's reasoning, applied to mappings).
+
+The part of decision 28 that stands is the other half: every tick column stays its own field, so
+the model transcribes ticks and never chooses between them. The model is no longer told which
+ticks belong together; the readings above are why that is expected to cost nothing.
+
+Nothing that reaches a row changed. Two migrations carry production across (docs/06 Phase 24):
+header words into the name, paper order as one list, and every mapping that read a tick set into a
+From ticks mapping with the same fields in the same order, the value each wrote, the same rules
+and the set's name for its warnings. Tick sets no mapping read are dropped; their fields stay.
+Both were rehearsed on a copy of the dev database; the second compared every row the transform
+builds for 168 documents, messages included, and found no difference.
+
+Limits of the evidence: one page, one hand, two readings, and those readings had the header words
+in the field's *note*. A third reading on the finished code (2026-10-08), same page and same
+template, put all 71 cells in the same place as the one before it. **A reading where only the
+header in the name tells twin columns apart has still not been compared**; if one goes wrong, the
+note is the fallback that is known to work. (Phase 24)
 
 ## Part C — Open questions for later
 

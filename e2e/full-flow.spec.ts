@@ -37,11 +37,11 @@ test("sign in → book → template → upload → extract → review → export
   await page.getByRole("button", { name: "Drop photos here, or click to choose them" }).locator("input[type=file]").setInputFiles(FIXTURE);
   await expect(page.getByRole("button", { name: "Propose fields" })).toBeEnabled({ timeout: 60_000 });
 
-  const newField = page.getByLabel("New field label, as written on the paper");
+  const newField = page.getByLabel("New field name, as written on the paper");
   for (const label of ["Name", "Village"]) {
     await newField.fill(label);
     await page.getByRole("button", { name: "Add field" }).click();
-    await expect(page.getByRole("list", { name: "Fields and groups in paper order" }).getByText(label, { exact: true })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Fields in paper order" }).getByText(label, { exact: true })).toBeVisible();
   }
 
   // Let the app propose the output table: one column and one COPY mapping per unmapped Extract field.
@@ -53,7 +53,7 @@ test("sign in → book → template → upload → extract → review → export
   await expect(page.getByText("Created 2 columns and 2 mappings")).toBeVisible();
   await expect(page.getByText("Filled by this template (2)")).toBeVisible();
 
-  // Read the specimen where it already is, beside the tree. This is the trust moment, and it is the
+  // Read the specimen where it already is, beside the field list. This is the trust moment, and it is the
   // ordinary extraction of one document (Phase 15).
   await page.goto(templateUrl);
   await page.getByRole("button", { name: "Test on this page" }).click();

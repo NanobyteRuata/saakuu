@@ -15,71 +15,56 @@ import { Textarea } from "@/components/ui/textarea";
 import { getJson, patchJson, postJson } from "@/lib/api-client";
 import { COLUMN_TYPE_LABELS } from "@/lib/books/schemas";
 import { plural } from "@/lib/format";
-import { MAPPING_KIND_HINTS, MAPPING_KIND_LABELS } from "@/lib/mappings/labels";
+import {
+  MAPPING_KIND_HINTS,
+  MAPPING_KIND_LABELS,
+  MULTIPLE_MARKED_HINTS,
+  MULTIPLE_MARKED_LABELS,
+  NONE_MARKED_HINTS,
+  NONE_MARKED_LABELS,
+  TICK_SELECTION_HINTS,
+  TICK_SELECTION_LABELS,
+} from "@/lib/mappings/labels";
 import type { MappingDraft, MappingSourceInput } from "@/lib/mappings/schemas";
 import type { ColumnOption, MappingsOverview, RetransformStatus } from "@/lib/mappings/service";
 import type { MappingView } from "@/lib/mappings/views";
-import { FIELD_MODE_LABELS, FIELD_TYPE_LABELS, GROUP_SELECTION_LABELS } from "@/lib/templates/labels";
+import { shortName } from "@/lib/templates/field-list";
+import { FIELD_MODE_LABELS, FIELD_TYPE_LABELS } from "@/lib/templates/labels";
+import { MULTIPLE_MARKED, NONE_MARKED, TICK_SELECTIONS, type MultipleMarked, type NoneMarked, type TickSelection } from "@/lib/templates/schemas";
 import type { TemplateDetail } from "@/lib/templates/service";
-import { flattenTree, formatPath, headerPath, selectionOptions, type Tree } from "@/lib/templates/tree";
-import type { FieldView, GroupView } from "@/lib/templates/views";
+import type { FieldView } from "@/lib/templates/views";
 import { expressionFromDisplay, expressionToDisplay } from "@/lib/transform/expression";
-import { DEFAULT_SEPARATOR, optionLabel } from "@/lib/transform/mappings";
+import { DEFAULT_SEPARATOR, DEFAULT_TICK_RULES } from "@/lib/transform/mappings";
 import { MAPPING_KINDS, type MappingKind } from "@/lib/transform/types";
 
 import { TryOneDocument } from "@/components/documents/try-one-document";
 
 import { ColumnSetupBar } from "./column-setup-bar";
 import { DeleteMappingDialog } from "./delete-mapping-dialog";
+import { FieldName } from "./field-name";
 import { MappingPreviewPanel } from "./mapping-preview";
 
-type SourceTree = Tree<GroupView, FieldView>;
+type SourceOption = { id: string; name: string; detail: string; isTick: boolean; tickDefault: string };
 
-type SourceOption = { value: string; kind: "field" | "group"; id: string; label: string; path: string; detail: string };
-
-/** Fields in paper order, and tick groups (One of / Any of) that resolve to an answer. */
-function sourceOptions(tree: SourceTree): SourceOption[] {
-  return flattenTree(tree).flatMap((node): SourceOption[] => {
-    if (node.kind === "field") {
-      return [
-        {
-          value: `field:${node.id}`,
-          kind: "field",
-          id: node.id,
-          label: node.field.labelSource,
-          path: formatPath(headerPath(tree, { kind: "field", id: node.id })),
-          detail: `${FIELD_TYPE_LABELS[node.field.dataType]} · ${FIELD_MODE_LABELS[node.field.mode]}`,
-        },
-      ];
-    }
-    if (node.group.selection === "NONE") return [];
-    return [
-      {
-        value: `group:${node.id}`,
-        kind: "group",
-        id: node.id,
-        label: node.group.labelSource,
-        path: formatPath(headerPath(tree, { kind: "group", id: node.id })),
-        detail: `Tick group · ${GROUP_SELECTION_LABELS[node.group.selection]}`,
-      },
-    ];
-  });
+/** The template's fields in paper order. */
+function sourceOptions(fields: FieldView[]): SourceOption[] {
+  return fields.map((f) => ({
+    id: f.id,
+    name: f.labelSource,
+    detail: `${FIELD_TYPE_LABELS[f.dataType]} · ${FIELD_MODE_LABELS[f.mode]}`,
+    isTick: f.dataType === "MARK",
+    tickDefault: shortName(f),
+  }));
 }
 
-/** How expressions name fields for people: the label when unique, else the header path, else the id. */
+/** How expressions name fields for people: the name when no other field has it, else the id. */
 function referenceNames(options: SourceOption[]): { nameFor: Map<string, string>; idFor: Map<string, string> } {
-  const count = (key: (o: SourceOption) => string) => {
-    const counts = new Map<string, number>();
-    for (const o of options) counts.set(key(o), (counts.get(key(o)) ?? 0) + 1);
-    return counts;
-  };
-  const labels = count((o) => o.label);
-  const paths = count((o) => o.path);
+  const counts = new Map<string, number>();
+  for (const o of options) counts.set(o.name, (counts.get(o.name) ?? 0) + 1);
   const nameFor = new Map<string, string>();
   const idFor = new Map<string, string>();
   for (const o of options) {
-    const name = labels.get(o.label) === 1 ? o.label : paths.get(o.path) === 1 ? o.path : o.id;
-    const safe = /[{}]/u.test(name) ? o.id : name;
+    const safe = counts.get(o.name) === 1 && !/[{}]/u.test(o.name) ? o.name : o.id;
     nameFor.set(o.id, safe);
     idFor.set(safe, o.id);
   }
@@ -96,13 +81,18 @@ type EditorState = {
   splitRegex: string;
   constantValue: string;
   expressionText: string;
+  tickSelection: TickSelection;
+  noneMarked: NoneMarked;
+  multipleMarked: MultipleMarked;
+  noneValue: string;
+  tickLabel: string;
   fillDown: boolean;
 };
 
 function initialState(mapping: MappingView | null, nameFor: Map<string, string>): EditorState {
   return {
     kind: mapping?.kind ?? "COPY",
-    inputs: (mapping?.inputs ?? []).flatMap((i) => (i.kind === "missing" ? [] : [i])),
+    inputs: mapping?.inputs ?? [],
     separator: mapping?.separator ?? DEFAULT_SEPARATOR,
     splitMode: mapping?.splitRegex ? "pattern" : "separator",
     splitBy: mapping?.splitBy ?? "/",
@@ -110,6 +100,11 @@ function initialState(mapping: MappingView | null, nameFor: Map<string, string>)
     splitRegex: mapping?.splitRegex ?? "",
     constantValue: mapping?.constantValue ?? "",
     expressionText: mapping?.expression ? expressionToDisplay(mapping.expression, (id) => nameFor.get(id) ?? null) : "",
+    tickSelection: mapping?.ticks?.selection ?? DEFAULT_TICK_RULES.selection,
+    noneMarked: mapping?.ticks?.noneMarked ?? DEFAULT_TICK_RULES.noneMarked,
+    multipleMarked: mapping?.ticks?.multipleMarked ?? DEFAULT_TICK_RULES.multipleMarked,
+    noneValue: mapping?.ticks?.noneValue ?? "",
+    tickLabel: mapping?.ticks?.label ?? "",
     fillDown: mapping?.fillDown ?? true,
   };
 }
@@ -120,13 +115,17 @@ function toDraft(columnId: string, s: EditorState, idFor: Map<string, string>): 
   return {
     outputColumnId: columnId,
     kind: s.kind,
-    inputs: s.kind === "CONCAT" ? s.inputs : s.kind === "COPY" || s.kind === "SPLIT" ? s.inputs.slice(0, 1) : [],
+    inputs: s.kind === "CONCAT" || s.kind === "TICKS" ? s.inputs : s.kind === "COPY" || s.kind === "SPLIT" ? s.inputs.slice(0, 1) : [],
     separator: s.kind === "CONCAT" ? s.separator : null,
     splitBy: splitting && s.splitMode === "separator" ? s.splitBy : null,
     splitIndex: splitting && s.splitMode === "separator" ? (Number.isInteger(part) && part >= 1 ? part - 1 : null) : null,
     splitRegex: splitting && s.splitMode === "pattern" ? s.splitRegex : null,
     constantValue: s.kind === "CONSTANT" ? s.constantValue : null,
     expression: s.kind === "EXPRESSION" ? expressionFromDisplay(s.expressionText, (name) => idFor.get(name) ?? null) : null,
+    ticks:
+      s.kind === "TICKS"
+        ? { selection: s.tickSelection, noneMarked: s.noneMarked, multipleMarked: s.multipleMarked, noneValue: s.noneValue || null, label: s.tickLabel.trim() || null }
+        : null,
     fillDown: s.fillDown,
   };
 }
@@ -144,26 +143,22 @@ function SourcePicker({
   lang: string | undefined;
   onChange: (source: MappingSourceInput) => void;
 }) {
-  const current = value ? `${value.kind}:${value.id}` : undefined;
-  const known = options.some((o) => o.value === current);
+  const known = options.some((o) => o.id === value?.id);
   return (
     <Select
-      value={known ? current : undefined}
+      value={known ? value?.id : undefined}
       onValueChange={(v) => {
-        const o = options.find((x) => x.value === v);
-        if (!o || v === current) return;
-        onChange(o.kind === "field" ? { kind: "field", id: o.id } : { kind: "group", id: o.id, optionValues: {}, noneValue: null });
+        if (v && v !== value?.id && options.some((o) => o.id === v)) onChange({ id: v, tickValue: null });
       }}
     >
-      <SelectTrigger id={id} className="w-full" aria-label={id ? undefined : "Field"}>
-        <SelectValue placeholder={value && !known ? "A deleted field: choose another" : "Choose a field or tick group"} />
+      {/* The chosen name wraps rather than losing its end, so the trigger grows with it. */}
+      <SelectTrigger id={id} className="h-auto min-h-9 w-full text-left whitespace-normal" aria-label={id ? undefined : "Field"}>
+        <SelectValue placeholder={value && !known ? "A deleted field: choose another" : "Choose a field"} />
       </SelectTrigger>
       <SelectContent>
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
-            <span lang={lang} className="font-value">
-              {o.path}
-            </span>
+          <SelectItem key={o.id} value={o.id}>
+            <FieldName name={o.name} lang={lang} />
             <span className="text-muted-foreground ml-2 text-xs">{o.detail}</span>
           </SelectItem>
         ))}
@@ -172,53 +167,46 @@ function SourcePicker({
   );
 }
 
-function GroupOptionValues({
-  source,
-  tree,
-  lang,
+/** A choice from a short fixed list, with what the chosen one does written underneath. */
+function RuleSelect<T extends string>({
+  id,
+  label,
+  value,
+  values,
+  labels,
+  hints,
   onChange,
 }: {
-  source: Extract<MappingSourceInput, { kind: "group" }>;
-  tree: SourceTree;
-  lang: string | undefined;
-  onChange: (source: MappingSourceInput) => void;
+  id: string;
+  label: string;
+  value: T;
+  values: readonly T[];
+  labels: Record<T, string>;
+  hints: Record<T, string>;
+  onChange: (value: T) => void;
 }) {
-  const node = tree.groups.get(source.id);
-  if (!node) return null;
   return (
-    <div className="flex flex-col gap-2 rounded-md border p-3">
-      <p className="text-sm font-medium">Values to export</p>
-      <p className="text-muted-foreground text-xs">
-        Leave a value blank to export the option&apos;s label.
-        {node.group.selection === "ANY_OF" ? " Several ticked options are joined with commas." : ""}
-      </p>
-      {selectionOptions(node).map((f) => {
-        const label = optionLabel(tree, node.id, f.id);
-        return (
-          <div key={f.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,10rem)] items-center gap-2">
-            <span lang={lang} className="font-value truncate text-sm">
-              {label}
-            </span>
-            <Input
-              aria-label={`Value exported for ${label}`}
-              value={source.optionValues[f.id] ?? ""}
-              placeholder={label}
-              onChange={(e) => onChange({ ...source, optionValues: { ...source.optionValues, [f.id]: e.target.value } })}
-            />
-          </div>
-        );
-      })}
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,10rem)] items-center gap-2">
-        <Label htmlFor={`none-${source.id}`} className="text-sm font-normal">
-          When nothing is ticked, export
-        </Label>
-        <Input
-          id={`none-${source.id}`}
-          value={source.noneValue ?? ""}
-          placeholder="Nothing"
-          onChange={(e) => onChange({ ...source, noneValue: e.target.value === "" ? null : e.target.value })}
-        />
-      </div>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Select
+        value={value}
+        onValueChange={(v) => {
+          const next = values.find((x) => x === v);
+          if (next) onChange(next);
+        }}
+      >
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {values.map((v) => (
+            <SelectItem key={v} value={v}>
+              {labels[v]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-muted-foreground text-xs">{hints[value]}</p>
     </div>
   );
 }
@@ -227,7 +215,6 @@ type EditorProps = {
   column: ColumnOption;
   mapping: MappingView | null;
   template: TemplateDetail;
-  tree: SourceTree;
   options: SourceOption[];
   names: { nameFor: Map<string, string>; idFor: Map<string, string> };
   lang: string | undefined;
@@ -237,7 +224,7 @@ type EditorProps = {
   onDelete: () => void;
 };
 
-function MappingEditor({ column, mapping, template, tree, options, names, lang, onDraft, onCancel, onSaved, onDelete }: EditorProps) {
+function MappingEditor({ column, mapping, template, options, names, lang, onDraft, onCancel, onSaved, onDelete }: EditorProps) {
   const [state, setState] = useState(() => initialState(mapping, names.nameFor));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -256,7 +243,20 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
     if (item) next.splice(i + by, 0, item);
     set({ inputs: next });
   };
-  const missingInputs = mapping?.inputs.some((i) => i.kind === "missing") ?? false;
+  const byId = new Map(options.map((o) => [o.id, o]));
+  /** From ticks reads tick fields only, each with the value it writes; the other kinds carry no values. */
+  const setKind = (kind: MappingKind) =>
+    set({
+      kind,
+      inputs:
+        kind === "TICKS"
+          ? state.inputs.flatMap((i) => {
+              const o = byId.get(i.id);
+              return o?.isTick ? [{ id: i.id, tickValue: i.tickValue ?? o.tickDefault }] : [];
+            })
+          : state.inputs,
+    });
+  const tickOptions = options.filter((o) => o.isTick && !state.inputs.some((i) => i.id === o.id));
 
   async function save() {
     setPending(true);
@@ -287,7 +287,7 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
     >
       <div className="flex flex-col gap-2">
         <Label htmlFor="mapping-kind">How the column is filled</Label>
-        <Select value={state.kind} onValueChange={(v) => set({ kind: MAPPING_KINDS.find((k) => k === v) ?? state.kind })}>
+        <Select value={state.kind} onValueChange={(v) => setKind(MAPPING_KINDS.find((k) => k === v) ?? state.kind)}>
           <SelectTrigger id="mapping-kind" className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -302,22 +302,113 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
         <p className="text-muted-foreground text-xs">{MAPPING_KIND_HINTS[state.kind]}</p>
       </div>
 
-      {missingInputs ? <FormMessage tone="info">A tick group this mapping read was deleted. Choose what to read instead.</FormMessage> : null}
-
       {state.kind === "COPY" || state.kind === "SPLIT" ? (
         <div className="flex flex-col gap-2">
           <Label htmlFor="mapping-source">Reads</Label>
           <SourcePicker
             id="mapping-source"
             value={single}
-            options={state.kind === "SPLIT" ? options.filter((o) => o.kind === "field") : options}
+            options={options}
             lang={lang}
             onChange={(s) => set({ inputs: [s] })}
           />
-          {single?.kind === "group" && state.kind === "COPY" ? (
-            <GroupOptionValues source={single} tree={tree} lang={lang} onChange={(s) => set({ inputs: [s] })} />
-          ) : null}
         </div>
+      ) : null}
+
+      {state.kind === "TICKS" ? (
+        <>
+          <div className="flex flex-col gap-2">
+            <Label>Tick fields, and what each one writes</Label>
+            {state.inputs.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                {options.some((o) => o.isTick)
+                  ? "None chosen yet. Add the tick boxes that together give this answer."
+                  : "This template has no Mark / tick fields yet. Set the tick boxes' type to Mark / tick on the Fields tab first."}
+              </p>
+            ) : null}
+            {state.inputs.map((source, i) => {
+              const o = byId.get(source.id);
+              return (
+                <div key={source.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,9rem)_auto] items-center gap-2">
+                  {o ? <FieldName name={o.name} lang={lang} className="text-sm" /> : <span className="text-destructive text-sm">A deleted field</span>}
+                  <Input
+                    aria-label={`Written when ${o?.name ?? "this field"} is ticked`}
+                    lang={lang}
+                    className="font-value"
+                    value={source.tickValue ?? ""}
+                    placeholder={o?.tickDefault ?? ""}
+                    onChange={(e) => setInput(i, { id: source.id, tickValue: e.target.value })}
+                  />
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${o?.name ?? "this field"}`} onClick={() => set({ inputs: state.inputs.filter((_, j) => j !== i) })}>
+                    <X />
+                  </Button>
+                </div>
+              );
+            })}
+            {tickOptions.length > 0 ? (
+              <Select
+                value=""
+                onValueChange={(v) => {
+                  const o = tickOptions.find((x) => x.id === v);
+                  if (o) set({ inputs: [...state.inputs, { id: o.id, tickValue: o.tickDefault }] });
+                }}
+              >
+                <SelectTrigger className="w-full" aria-label="Add a tick field">
+                  <SelectValue placeholder="Add a tick field…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tickOptions.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      <FieldName name={o.name} lang={lang} />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            <p className="text-muted-foreground text-xs">Only Mark / tick fields are listed. Leave a value blank to write the field&apos;s own name.</p>
+          </div>
+
+          <RuleSelect
+            id="mapping-tick-selection"
+            label="How many can be ticked?"
+            value={state.tickSelection}
+            values={TICK_SELECTIONS}
+            labels={TICK_SELECTION_LABELS}
+            hints={TICK_SELECTION_HINTS}
+            onChange={(tickSelection) => set({ tickSelection })}
+          />
+          <RuleSelect
+            id="mapping-none-marked"
+            label="When nothing is ticked"
+            value={state.noneMarked}
+            values={NONE_MARKED}
+            labels={NONE_MARKED_LABELS}
+            hints={NONE_MARKED_HINTS}
+            onChange={(noneMarked) => set({ noneMarked })}
+          />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="mapping-none-value">Write this instead of leaving it blank (optional)</Label>
+            <Input id="mapping-none-value" lang={lang} className="font-value" placeholder="e.g. Not tested" value={state.noneValue} onChange={(e) => set({ noneValue: e.target.value })} />
+          </div>
+          {state.tickSelection === "ONE_OF" ? (
+            <RuleSelect
+              id="mapping-multiple-marked"
+              label="When several are ticked"
+              value={state.multipleMarked}
+              values={MULTIPLE_MARKED}
+              labels={MULTIPLE_MARKED_LABELS}
+              hints={MULTIPLE_MARKED_HINTS}
+              onChange={(multipleMarked) => set({ multipleMarked })}
+            />
+          ) : null}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="mapping-tick-label">Name used in warnings (optional)</Label>
+            <Input id="mapping-tick-label" lang={lang} className="font-value" placeholder={column.label} value={state.tickLabel} onChange={(e) => set({ tickLabel: e.target.value })} />
+            <p className="text-muted-foreground text-xs">
+              What a warning calls these boxes, such as the header printed above them: “Nothing is ticked in “{state.tickLabel.trim() || column.label}”.”
+            </p>
+          </div>
+        </>
       ) : null}
 
       {state.kind === "CONCAT" ? (
@@ -352,17 +443,12 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
                   <X />
                 </Button>
               </div>
-              {source.kind === "group" ? <GroupOptionValues source={source} tree={tree} lang={lang} onChange={(s) => setInput(i, s)} /> : null}
             </div>
           ))}
           <Select
             value=""
             onValueChange={(v) => {
-              const o = options.find((x) => x.value === v);
-              if (o) {
-                const source: MappingSourceInput = o.kind === "field" ? { kind: "field", id: o.id } : { kind: "group", id: o.id, optionValues: {}, noneValue: null };
-                set({ inputs: [...state.inputs, source] });
-              }
+              if (byId.has(v)) set({ inputs: [...state.inputs, { id: v, tickValue: null }] });
             }}
           >
             <SelectTrigger className="w-full" aria-label="Add a field to join">
@@ -370,10 +456,8 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
             </SelectTrigger>
             <SelectContent>
               {options.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  <span lang={lang} className="font-value">
-                    {o.path}
-                  </span>
+                <SelectItem key={o.id} value={o.id}>
+                  <FieldName name={o.name} lang={lang} />
                 </SelectItem>
               ))}
             </SelectContent>
@@ -452,8 +536,7 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
           <Select
             value=""
             onValueChange={(v) => {
-              const o = options.find((x) => x.value === v);
-              if (o) set({ expressionText: `${state.expressionText}{${names.nameFor.get(o.id) ?? o.id}}` });
+              if (byId.has(v)) set({ expressionText: `${state.expressionText}{${names.nameFor.get(v) ?? v}}` });
             }}
           >
             <SelectTrigger className="w-full" aria-label="Insert a field">
@@ -461,10 +544,8 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
             </SelectTrigger>
             <SelectContent>
               {options.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  <span lang={lang} className="font-value">
-                    {o.path}
-                  </span>
+                <SelectItem key={o.id} value={o.id}>
+                  <FieldName name={o.name} lang={lang} />
                 </SelectItem>
               ))}
             </SelectContent>
@@ -503,9 +584,11 @@ function MappingEditor({ column, mapping, template, tree, options, names, lang, 
 }
 
 function summary(mapping: MappingView, options: SourceOption[], names: { nameFor: Map<string, string> }): string {
-  const name = (s: MappingView["inputs"][number]) =>
-    s.kind === "missing" ? "a deleted tick group" : (options.find((o) => o.id === s.id)?.path ?? "a deleted field");
+  const option = (s: MappingView["inputs"][number]) => options.find((o) => o.id === s.id);
+  const name = (s: MappingView["inputs"][number]) => option(s)?.name ?? "a deleted field";
   switch (mapping.kind) {
+    case "TICKS":
+      return mapping.inputs.map((s) => `${option(s)?.tickDefault ?? "a deleted field"} → ${s.tickValue ?? option(s)?.tickDefault ?? ""}`).join(", ");
     case "COPY":
       return mapping.inputs[0] ? name(mapping.inputs[0]) : "";
     case "CONCAT":
@@ -523,14 +606,15 @@ function summary(mapping: MappingView, options: SourceOption[], names: { nameFor
 
 type Props = {
   template: TemplateDetail;
-  tree: SourceTree;
+  /** The template's fields in paper order. */
+  fields: FieldView[];
   lang: string | undefined;
   /** Reloads the template, so the config badge follows mapping changes. */
   onChanged: () => Promise<void>;
 };
 
 /** The mapping layer (docs/01 §6.5b, docs/05 §7): how fields become output columns, with a live preview. */
-export function MappingTab({ template, tree, lang, onChanged }: Props) {
+export function MappingTab({ template, fields, lang, onChanged }: Props) {
   const [overview, setOverview] = useState<MappingsOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingColumn, setEditingColumn] = useState<string | null>(null);
@@ -545,7 +629,7 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
   const [previewKey, setPreviewKey] = useState(0);
   const [watching, setWatching] = useState(true);
 
-  const options = useMemo(() => sourceOptions(tree), [tree]);
+  const options = useMemo(() => sourceOptions(fields), [fields]);
   const names = useMemo(() => referenceNames(options), [options]);
 
   const load = useCallback(async () => {
@@ -558,10 +642,10 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
     }
   }, [template.id]);
 
-  // Fields and groups change what a mapping can read: reload when the source layer changes.
+  // Fields change what a mapping can read: reload when the source layer changes.
   useEffect(() => {
     void load();
-  }, [load, template.fields, template.groups]);
+  }, [load, template.fields]);
 
   useEffect(() => {
     if (!watching) return;
@@ -615,8 +699,8 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
   const byColumn = new Map(overview.mappings.map((m) => [m.outputColumnId, m]));
   const mapped = overview.columns.filter((c) => byColumn.has(c.id));
   const unmapped = overview.columns.filter((c) => !byColumn.has(c.id));
-  const used = new Set(overview.mappings.flatMap((m) => m.inputs.flatMap((i) => (i.kind === "missing" ? [] : [i.id]))));
-  const unusedFields = options.filter((o) => o.kind === "field" && !used.has(o.id) && !template.fields.some((f) => f.id === o.id && f.mode === "SKIP"));
+  const used = new Set(overview.mappings.flatMap((m) => m.inputs.map((i) => i.id)));
+  const unusedFields = options.filter((o) => !used.has(o.id) && !template.fields.some((f) => f.id === o.id && f.mode === "SKIP"));
   const shownColumnIds = new Set([...mapped.map((c) => c.id), ...(editingColumn ? [editingColumn] : [])]);
 
   const renderEditor = (column: ColumnOption) => (
@@ -625,7 +709,6 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
       column={column}
       mapping={byColumn.get(column.id) ?? null}
       template={template}
-      tree={tree}
       options={options}
       names={names}
       lang={lang}
@@ -784,9 +867,7 @@ export function MappingTab({ template, tree, lang, onChanged }: Props) {
             <ul className="flex flex-col gap-1 border-t px-3 py-2">
               {unusedFields.map((o) => (
                 <li key={o.id}>
-                  <span lang={lang} className="font-value">
-                    {o.path}
-                  </span>
+                  <FieldName name={o.name} lang={lang} />
                   <span className="text-muted-foreground ml-2 text-xs">{o.detail}</span>
                 </li>
               ))}

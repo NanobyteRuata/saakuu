@@ -18,8 +18,8 @@ import { parseDocumentFlags, type DocumentFlag } from "@/lib/transform/flags";
 import { requestDocumentTransform } from "@/lib/transform/triggers";
 import type { RowType, ValueState } from "@/lib/transform/types";
 import type { FieldType, TemplateKind } from "@/lib/templates/schemas";
-import { buildTree, flattenTree, formatPath, headerPath } from "@/lib/templates/tree";
-import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
+import { compareSiblings } from "@/lib/templates/field-list";
+import { fieldSelect } from "@/lib/templates/views";
 import { idSchema } from "@/lib/validation";
 
 import { assertNoExtractionOutput, assertNotSpecimens, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
@@ -374,24 +374,10 @@ function parseManualValues(value: Prisma.JsonValue | null): Record<string, strin
 }
 
 async function loadManualFields(db: Db, templateId: string): Promise<ManualFieldView[]> {
-  const [groups, fields] = await Promise.all([
-    db.fieldGroup.findMany({ where: { templateId }, select: groupSelect, take: 500 }),
-    db.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: 2000 }),
-  ]);
-  const tree = buildTree(groups, fields);
-  return flattenTree(tree).flatMap((node) =>
-    node.kind === "field" && node.field.mode === "MANUAL"
-      ? [
-          {
-            id: node.id,
-            labelSource: node.field.labelSource,
-            labelMeaning: node.field.labelMeaning,
-            path: formatPath(headerPath(tree, { kind: "field", id: node.id })),
-            dataType: node.field.dataType,
-          },
-        ]
-      : [],
-  );
+  const fields = await db.field.findMany({ where: { templateId, deletedAt: null, mode: "MANUAL" }, select: fieldSelect, take: 2000 });
+  return fields
+    .sort(compareSiblings)
+    .map((f) => ({ id: f.id, labelSource: f.labelSource, labelMeaning: f.labelMeaning, path: f.labelSource, dataType: f.dataType }));
 }
 
 async function loadDetail(db: Db, documentId: string): Promise<DocumentDetail> {
@@ -492,12 +478,11 @@ const RAW_VALUE_LIMIT = 1000;
  */
 export async function getDocumentRawValues(userId: string, documentId: string): Promise<DocumentRawValues> {
   const { templateId } = await requireDocumentAccess(userId, documentId);
-  const [doc, groups, fields, records] = await Promise.all([
+  const [doc, fields, records] = await Promise.all([
     prisma.document.findUniqueOrThrow({
       where: { id: documentId },
       select: { label: true, contentState: true, template: { select: { kind: true } } },
     }),
-    prisma.fieldGroup.findMany({ where: { templateId }, select: groupSelect }),
     prisma.field.findMany({ where: { templateId }, select: fieldSelect }),
     prisma.rawRecord.findMany({
       where: { documentId },
@@ -518,10 +503,9 @@ export async function getDocumentRawValues(userId: string, documentId: string): 
   ]);
   const totalRecords = await prisma.rawRecord.count({ where: { documentId } });
 
-  const tree = buildTree(groups, fields.map(toFieldView));
   // Template order, so a value sits where the operator's eye already is on the paper.
-  const order = new Map(flattenTree(tree).flatMap((n, i) => (n.kind === "field" ? [[n.id, i] as const] : [])));
-  const labels = new Map(fields.map((f) => [f.id, { label: f.labelMeaning ?? f.labelSource, path: formatPath(headerPath(tree, { kind: "field", id: f.id })) }]));
+  const order = new Map([...fields].sort(compareSiblings).map((f, i) => [f.id, i] as const));
+  const labels = new Map(fields.map((f) => [f.id, { label: f.labelMeaning ?? f.labelSource, path: f.labelSource }]));
 
   return {
     documentId,

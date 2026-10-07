@@ -7,7 +7,7 @@
 ```ts
 export interface ExtractionRequest {
   images: { data: Buffer; mimeType: string; pageIndex: number }[];
-  template: TemplateSnapshot;   // fields, groups, notes, kind, anchors, instructions
+  template: TemplateSnapshot;   // fields, notes, kind, anchors, instructions (`groups` is always empty since Phase 24)
   glossary: { term: string; meaning: string }[];
   book: { numeralSystem: NumeralSystem; dateEra: DateEra };
   model: string;
@@ -118,17 +118,22 @@ records its `promptVersion`.
 9. **Field list.** For each field: `fieldId`, source label (as written), meaning,
    data type, note. Fields with mode `SKIP` are listed under an explicit
    "ignore these fields entirely" heading; `MANUAL` fields are omitted entirely.
-   **Phase 3.1 structure:**
-   - Fields are listed in paper order (the template's merged group/field order) with their
-     header path, e.g. `"path": [{ "label": "RDT Test" }, { "label": "Positive" }, { "label": "A" }]`
-     with meanings where set. Group notes are attached to the group.
+   **Structure (Phase 3.1, flat since Phase 24):**
+   - Fields are listed in paper order, each with its `path`: the headers above it from the top
+     down, then its own label, e.g.
+     `"path": [{ "label": "RDT Test" }, { "label": "Positive" }, { "label": "A" }]`, with meanings
+     where set. A field has one name since Phase 24 (`RDT Test › Positive › A`); the snapshot
+     splits it on ` › ` back into these elements, so a template that used to be nested sends the
+     same `path` as before. The meaning is paired level by level when it has as many levels as the
+     name; otherwise it goes on the last element. The prompt builder is unchanged: still `v4`.
    - For TABLE templates, `SKIP` columns stay **in their paper position**, marked
      `"mode": "SKIP"` with an ignore instruction, instead of being moved to a separate heading, so
      the header list still anchors every column boundary.
-   - For selection groups, say that normally one option (`One of`) or a few (`Any of`) are ticked
-     per record, but the model must **report each option's tick exactly as seen, including none or
-     several**, and must never choose between them. Wording that implies "exactly one" invites
-     invented ticks.
+   - No tick sets are sent (Phase 24, decision 84). Until then a header carrying tick columns was
+     listed with its option field ids and a line saying one option (`One of`) or a few (`Any of`)
+     are normally ticked, report each as seen, never choose. Which ticks belong together is now
+     known only to the mapping, and the model reads every tick field as the separate box it is.
+     The frozen prompts still accept the list; the snapshot's is always empty.
 10. **Kind-specific rules** — see §4 and §5.
 11. **Anchors.** "Report which of these printed strings you can see on the page."
 12. **Restate the never-guess rule.**
@@ -292,21 +297,25 @@ transform(document, rawRecords, template, mappings, book, existingCells) -> Row[
    - **Burmese-specific:** normalise the well-known Zawgyi/Unicode confusions and
      apply NFC. Consider `rabbit-node` or a small hand-written digit map; a digit map
      is sufficient for v1 since numerals are the main case.
-5a. **Resolve selection groups** (defined in Phase 3.1, implemented with the transform).
-   For each `ONE_OF` / `ANY_OF` group, read its option fields' normalised `MARK` values for the
-   record:
-   - `ONE_OF` with one tick → the ticked option's path relative to the group, using meaning
-     labels where set, else source labels (`Positive › A`).
-   - `ANY_OF` → the ticked options in paper order.
-   - Nothing ticked → apply `noneMarked`: `BLANK` = empty value, no flag; `REVIEW` = empty value
-     plus a warning; `ERROR` = empty value plus an error.
+5a. **Resolve ticks, in the mapping** (defined in Phase 3.1; moved from the tick set to the
+   mapping in Phase 24, decision 84). For each `TICKS` ("From ticks") mapping, read the normalised
+   `MARK` values of the fields it lists, in the mapping's own order, for the record. A listed
+   field in `Skip` mode is never an option.
+   - `ONE_OF` with one tick → that input's `tickValue`; when blank, the field's meaning, else its
+     name as written.
+   - `ANY_OF` → the ticked inputs' values in order, joined with `, `.
+   - Nothing ticked → apply `noneMarked`: `BLANK` = no flag; `REVIEW` = a warning; `ERROR` = an
+     error. The value is the mapping's `noneValue` when it has one, else empty.
    - Several ticked in `ONE_OF` → apply `multipleMarked` (`REVIEW` or `ERROR`) and leave the
      value empty; never pick one.
-   - Any option `ILLEGIBLE` → review flag, regardless of the settings above.
-   - Raw values are never modified. How a mapping references a group (a new mapping kind, an
-     `EXPRESSION` helper, or a group reference on `MappingInput`) is decided in Phase 6, along
-     with per-option output values and the value exported when nothing is ticked.
-6. **Apply mappings.** COPY / CONCAT / SPLIT / CONSTANT / EXPRESSION, per §9.
+   - Any tick `ILLEGIBLE` → review flag, regardless of the settings above, and with nothing
+     ticked the cell is `ILLEGIBLE`, not empty.
+   - Messages land on the cell and name the answer by the mapping's `tickLabel`, or the column's
+     label when it has none (`Nothing is ticked in “လိင်”.`).
+   - Raw values are never modified. Mappings that read a tick set before Phase 24 were carried
+     across with the same fields in the same order, the same value per field and the same rules,
+     so nothing they export changed (`golden/selection-groups.json` expects the rows it always did).
+6. **Apply mappings.** COPY / CONCAT / SPLIT / CONSTANT / EXPRESSION / TICKS, per §9 and step 5a.
 7. **Coerce to column type.** On failure set `validationState = ERROR` with a message
    and keep the raw string in `currentValue` — never discard data to satisfy a type.
 8. **Run validation rules.** Populate `validationState` and `validationMsgs`.
@@ -342,8 +351,8 @@ Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pur
   queue: `transform.template` (every document of the template with raw records or rows, with progress) and
   `transform.document`. Both are deduplicated per target with BullMQ `keepLastIfActive`: one waiting job absorbs repeat
   requests, and a change saved during a run gets one more run after it. Rebuilds are requested after mapping writes;
-  field update, delete and restore; group update and delete; Manual value edits (that document); and a book numeral
-  system or date era change (every template). Saving only a field's or group's note (AI-only text) doesn't rebuild.
+  field update, delete and restore; Manual value edits (that document); and a book numeral
+  system or date era change (every template). Saving only a field's note (AI-only text), or moving it, doesn't rebuild.
   Jobs are added on fail-fast Redis connections (a few reconnect attempts, no offline queue), and a request gives up
   after 5 s, so an unreachable Redis never hangs a save or fails the change that caused the rebuild.
 - **Outcome.** A template rebuild counts documents that failed (logged, skipped) and records the result for a week; the
@@ -383,8 +392,9 @@ Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pur
   - `MARK`: the field's symbols; without symbols anything written is ticked. `count` symbols count repeats; the symbol
     `tally` counts strokes. An undeclared mark is kept as text with a warning and counts as an unreadable tick.
 - **Step 5a.** As specified. An unreadable tick makes the answer `ILLEGIBLE` with a warning, never "nothing ticked".
-  `ANY_OF` options are joined with `, `. Option values and the nothing-ticked value come from the mapping input.
-- **Step 6.** `CONCAT` leaves empty inputs out. `SPLIT` reads a field (not a tick group) and keeps a 0-based part after
+  `ANY_OF` values are joined with `, `. The value per tick, the nothing-ticked value and the rules are the mapping's own
+  (`TICKS`, since Phase 24).
+- **Step 6.** `CONCAT` leaves empty inputs out. `SPLIT` reads one field and keeps a 0-based part after
   splitting on a separator (the editor shows it 1-based), or the first capture group of a pattern. Patterns that repeat
   an already-repeating group (`(\d+)+`) are refused at save; patterns are compiled once per build and values over
   2,000 characters aren't matched (a cell of a form or table is far shorter). A mapped cell is `OK` when it has text; otherwise
@@ -458,10 +468,15 @@ export type FieldProposalResult = { fields: ProposedFieldDTO[]; usage; rawRespon
     `CHOICE` with its options, and a lone tick box is `MARK`. A small grid inside a form becomes one field per
     cell, `row / column`, including cells empty on this copy.
   - A **TABLE** is the ruled grid's column headers, left to right. Blanks filled once above the grid are
-    left out, and nested headers flatten to the lowest one with the parent in `note`.
+    left out. A header over sub-headers becomes one field per lowest column whose name is every level
+    from the top down joined with ` › ` (`RDT Test › Positive › A`), in `labelSource` and `labelMeaning`
+    (`template-v3`, Phase 24). `template-v1` put the header in `note`; `template-v2`, used for two
+    proposals during Phase 24, returned it in keys of its own, and stored `template-v2` proposals are
+    folded into one name when read.
   - On a page with labelled blanks and a grid, the two kinds give visibly different lists. A page with no
     grid reads much the same either way.
-- **Flat fields only** (decision 73). Groups and selection groups stay manual.
+- **Flat fields only** (decision 73), the header at the front of each name (decision 84). Which tick
+  columns answer together is not proposed; the operator combines them in a `From ticks` mapping.
 - **Schema and validation** (`lib/ai/propose.ts`): a fixed JSON schema `{ fields: [...] }`, the same
   repair-once loop as extraction, and at most 100 fields. Small problems are tidied rather than paid for
   twice: labels are trimmed, duplicate choices dropped, a `CHOICE` without choices becomes `TEXT`, and choices

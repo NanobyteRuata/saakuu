@@ -105,7 +105,7 @@ export function ReadingResult({ raw, detail, lang, photoClassName = "max-h-[50vh
               tabIndex={0}
               className="focus-visible:bg-muted hover:bg-muted flex items-baseline justify-between gap-3 px-3 py-1.5 outline-none"
             >
-              <span className="text-muted-foreground min-w-0 truncate" lang={lang}>
+              <span className="text-muted-foreground min-w-0 break-words" lang={lang}>
                 {v.path}
               </span>
               <span lang={lang} className="font-value min-w-0 truncate text-right">

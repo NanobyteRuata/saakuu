@@ -20,8 +20,7 @@ import {
 import { lockTemplate, recomputeConfigState, requireTemplateAccess, type Db } from "@/lib/templates/access";
 import { appendPosition } from "@/lib/templates/positions";
 import { MAX_FIELDS, type ConfigState } from "@/lib/templates/schemas";
-import { loadSourceTree, type SourceTree } from "@/lib/templates/source-tree";
-import { selectionOptions } from "@/lib/templates/tree";
+import { loadSourceFields } from "@/lib/templates/source-fields";
 import { parseExpression } from "@/lib/transform/expression";
 import type { DocumentFlag } from "@/lib/transform/flags";
 import { mappingProblem, tidyMapping, type MappingContext } from "@/lib/transform/mappings";
@@ -32,7 +31,7 @@ import type { ComputedCell, TransformMapping, VoidReason } from "@/lib/transform
 
 import { MAX_MAPPINGS, type DeleteMappingInput, type MappingDraft, type MappingSourceInput, type PreviewMappingsInput } from "./schemas";
 import { recomputeMappingStates } from "./state";
-import { mappingSelect, toSourceView, toTransformMapping, toTransformSource, type MappingRow, type MappingView } from "./views";
+import { mappingSelect, rowTickRules, rowToTransformMapping, toSourceView, toTransformSource, type MappingRow, type MappingView } from "./views";
 
 /**
  * Mapping CRUD, preview and rebuilds (docs/04 → Mappings). Every save is checked with the same rules
@@ -61,12 +60,12 @@ async function requireMappingAccess(userId: string, mappingId: string): Promise<
   return { id: mapping.id, templateId: mapping.templateId, bookId: mapping.template.bookId };
 }
 
-async function loadContext(db: Db, templateId: string, bookId: string): Promise<Context & { tree: SourceTree; columns: ColumnOption[] }> {
-  const { tree } = await loadSourceTree(db, templateId);
+async function loadContext(db: Db, templateId: string, bookId: string): Promise<Context & { columns: ColumnOption[] }> {
+  const fields = await loadSourceFields(db, templateId);
   const columns = await loadColumns(db, bookId);
   const deleted = await db.field.findMany({ where: { templateId, deletedAt: { not: null } }, select: { id: true, labelSource: true }, take: MAX_FIELDS });
   return {
-    tree,
+    fields,
     columns: columns.map((c) => ({ id: c.id, key: c.key, label: c.label, dataType: c.dataType, enumValues: c.enumValues })),
     liveColumnIds: new Set(columns.map((c) => c.id)),
     columnLabels: new Map(columns.map((c) => [c.id, c.label])),
@@ -75,7 +74,6 @@ async function loadContext(db: Db, templateId: string, bookId: string): Promise<
 }
 
 function toView(row: MappingRow, ctx: Context): MappingView {
-  const inputs = row.inputs.map(toSourceView);
   return {
     id: row.id,
     outputColumnId: row.outputColumnId,
@@ -87,10 +85,11 @@ function toView(row: MappingRow, ctx: Context): MappingView {
     splitRegex: row.splitRegex,
     constantValue: row.constantValue,
     expression: row.expression,
+    ticks: rowTickRules(row),
     fillDown: row.fillDown,
     position: row.position,
-    inputs,
-    problem: mappingProblem(toTransformMapping({ ...row, inputs }), ctx),
+    inputs: row.inputs.map(toSourceView),
+    problem: mappingProblem(rowToTransformMapping(row), ctx),
   };
 }
 
@@ -110,29 +109,20 @@ export async function listMappings(userId: string, templateId: string): Promise<
 const blankToNull = (v: string | null) => (v === null || v === "" ? null : v);
 
 /**
- * A draft as the transform sees it. For an expression the inputs are its `{id}` references (group
- * inputs keep their option values). Option values apply only to the group's own options; blank ones
- * mean "use the option's label".
+ * A draft as the transform sees it. For an expression the inputs are its `{id}` references. In a
+ * From ticks mapping a blank value means "write the field's own words", and a blank name means
+ * "call it by the column's label".
  */
-function resolveDraft(draft: MappingDraft, tree: SourceTree): { mapping: Omit<TransformMapping, "id">; sources: MappingSourceInput[] } {
+function resolveDraft(draft: MappingDraft): { mapping: Omit<TransformMapping, "id">; sources: MappingSourceInput[] } {
   let sources = draft.inputs;
   if (draft.kind === "EXPRESSION" && draft.expression !== null) {
     const parsed = parseExpression(draft.expression);
     if (parsed.ok) {
-      const given = new Map(draft.inputs.map((i) => [i.id, i]));
-      sources = parsed.value.refs.map(
-        (id): MappingSourceInput => given.get(id) ?? (tree.groups.has(id) ? { kind: "group", id, optionValues: {}, noneValue: null } : { kind: "field", id }),
-      );
+      sources = parsed.value.refs.map((id): MappingSourceInput => ({ id, tickValue: null }));
     }
   }
   if (draft.kind === "CONSTANT") sources = [];
-  sources = sources.map((s) => {
-    if (s.kind !== "group") return s;
-    const node = tree.groups.get(s.id);
-    const options = new Set(node ? selectionOptions(node).map((f) => f.id) : []);
-    const optionValues = Object.fromEntries(Object.entries(s.optionValues).filter(([id, v]) => options.has(id) && v.trim() !== ""));
-    return { ...s, optionValues, noneValue: blankToNull(s.noneValue) };
-  });
+  sources = sources.map((s) => ({ id: s.id, tickValue: draft.kind === "TICKS" && s.tickValue !== null && s.tickValue.trim() !== "" ? s.tickValue : null }));
   const mapping = tidyMapping({
     outputColumnId: draft.outputColumnId,
     kind: draft.kind,
@@ -142,6 +132,7 @@ function resolveDraft(draft: MappingDraft, tree: SourceTree): { mapping: Omit<Tr
     splitRegex: blankToNull(draft.splitRegex),
     constantValue: draft.constantValue,
     expression: blankToNull(draft.expression),
+    ticks: draft.ticks === null ? null : { ...draft.ticks, noneValue: blankToNull(draft.ticks.noneValue), label: blankToNull(draft.ticks.label?.trim() ?? null) },
     fillDown: draft.fillDown,
     inputs: sources.map(toTransformSource),
   });
@@ -163,11 +154,7 @@ function draftProblem(
 }
 
 function inputRows(sources: MappingSourceInput[]) {
-  return sources.map((s, position) =>
-    s.kind === "field"
-      ? { fieldId: s.id, position }
-      : { groupId: s.id, position, optionValues: s.optionValues satisfies Prisma.InputJsonValue, noneValue: s.noneValue },
-  );
+  return sources.map((s, position) => ({ fieldId: s.id, position, tickValue: s.tickValue }));
 }
 
 function mappingData(m: Omit<TransformMapping, "id">) {
@@ -181,6 +168,11 @@ function mappingData(m: Omit<TransformMapping, "id">) {
     splitRegex: m.splitRegex,
     constantValue: m.constantValue,
     expression: m.expression,
+    tickSelection: m.ticks?.selection ?? null,
+    noneMarked: m.ticks?.noneMarked ?? null,
+    multipleMarked: m.ticks?.multipleMarked ?? null,
+    noneValue: m.ticks?.noneValue ?? null,
+    tickLabel: m.ticks?.label ?? null,
     fillDown: m.fillDown,
   };
 }
@@ -192,7 +184,7 @@ export async function createMapping(userId: string, templateId: string, draft: M
     const others = await tx.mapping.findMany({ where: { templateId }, select: { id: true, outputColumnId: true, position: true }, take: MAX_MAPPINGS });
     if (others.length >= MAX_MAPPINGS) throw new AppError("VALIDATION", `A template can have up to ${MAX_MAPPINGS} mappings.`);
     const ctx = await loadContext(tx, templateId, bookId);
-    const { mapping, sources } = resolveDraft(draft, ctx.tree);
+    const { mapping, sources } = resolveDraft(draft);
     const problem = draftProblem(mapping, null, ctx, others);
     if (problem) throw new AppError("VALIDATION", problem);
     const row = await tx.mapping.create({
@@ -213,7 +205,7 @@ export async function updateMapping(userId: string, mappingId: string, draft: Ma
     const others = await tx.mapping.findMany({ where: { templateId }, select: { id: true, outputColumnId: true }, take: MAX_MAPPINGS });
     if (!others.some((m) => m.id === mappingId)) throw new AppError("NOT_FOUND", "That mapping doesn't exist or was deleted.");
     const ctx = await loadContext(tx, templateId, bookId);
-    const { mapping, sources } = resolveDraft(draft, ctx.tree);
+    const { mapping, sources } = resolveDraft(draft);
     const problem = draftProblem(mapping, mappingId, ctx, others);
     if (problem) throw new AppError("VALIDATION", problem);
     await tx.mappingInput.deleteMany({ where: { mappingId } });
@@ -248,26 +240,18 @@ export type ColumnProposal = {
 };
 
 async function buildProposal(db: Db, templateId: string, bookId: string): Promise<ColumnProposal> {
-  const { tree } = await loadSourceTree(db, templateId);
+  const fields = await loadSourceFields(db, templateId);
   const mappings = await db.mapping.findMany({
     where: { templateId },
-    select: { inputs: { select: { fieldId: true, groupId: true } } },
+    select: { inputs: { select: { fieldId: true } } },
     take: MAX_MAPPINGS,
   });
-  const mappedFieldIds = new Set<string>();
-  const mappedGroupIds = new Set<string>();
-  for (const m of mappings) {
-    for (const input of m.inputs) {
-      if (input.fieldId !== null) mappedFieldIds.add(input.fieldId);
-      if (input.groupId !== null) mappedGroupIds.add(input.groupId);
-    }
-  }
+  const mappedFieldIds = new Set(mappings.flatMap((m) => m.inputs.map((i) => i.fieldId)));
   const keys = await db.outputColumn.findMany({ where: { bookId }, select: { key: true }, take: KEY_SCAN });
   const liveColumns = await db.outputColumn.count({ where: { bookId, deletedAt: null } });
   const items = proposeColumns({
-    tree,
+    fields,
     mappedFieldIds,
-    mappedGroupIds,
     takenKeys: keys.map((k) => k.key),
     liveColumns,
   });
@@ -290,6 +274,7 @@ const EMPTY_DRAFT = {
   splitRegex: null,
   constantValue: null,
   expression: null,
+  ticks: null,
   fillDown: true,
 } satisfies Omit<MappingDraft, "outputColumnId">;
 
@@ -311,7 +296,7 @@ async function createColumn(tx: Db, bookId: string, item: ProposedColumn, positi
 }
 
 /**
- * Creates one output column and one COPY mapping per unmapped source (docs/06 Phase 10, decision 52).
+ * Creates one output column and one COPY mapping per unmapped field (docs/06 Phase 10, decision 52).
  * The proposal is recomputed inside the transaction, so a second click finds nothing left to create
  * rather than duplicating the first one's columns.
  */
@@ -348,10 +333,8 @@ export async function applyColumnProposal(userId: string, templateId: string): P
       const ctx = await loadContext(tx, templateId, bookId);
       const saved = [...others];
       for (const [i, { item, columnId }] of created.entries()) {
-        const source: MappingSourceInput =
-          item.source.kind === "field" ? { kind: "field", id: item.source.id } : { kind: "group", id: item.source.id, optionValues: {}, noneValue: null };
-        const draft = { ...EMPTY_DRAFT, outputColumnId: columnId, inputs: [source] };
-        const { mapping, sources } = resolveDraft(draft, ctx.tree);
+        const draft = { ...EMPTY_DRAFT, outputColumnId: columnId, inputs: [{ id: item.fieldId, tickValue: null }] };
+        const { mapping, sources } = resolveDraft(draft);
         const problem = draftProblem(mapping, null, ctx, saved);
         if (problem) throw new AppError("VALIDATION", `“${item.label}” can't be mapped: ${problem}`);
         const row = await tx.mapping.create({
@@ -423,7 +406,7 @@ export async function deleteMapping(userId: string, mappingId: string, input: De
 
 export type MappingValidation = { mappings: { id: string; state: "OK" | "BROKEN"; problem: string | null }[]; configState: ConfigState };
 
-/** Re-checks every mapping against the current fields, groups and columns and stores the result. */
+/** Re-checks every mapping against the current fields and columns and stores the result. */
 export async function validateMappings(userId: string, templateId: string): Promise<MappingValidation> {
   const { bookId } = await requireTemplateAccess(userId, templateId);
   return prisma.$transaction(async (tx) => {
@@ -481,7 +464,7 @@ export async function previewMappings(userId: string, templateId: string, input:
   if (input.draft) {
     const ctx = await loadContext(prisma, templateId, bookId);
     const { id, ...draft } = input.draft;
-    const { mapping } = resolveDraft(draft, ctx.tree);
+    const { mapping } = resolveDraft(draft);
     problem = draftProblem(mapping, id, ctx, context.mappings);
     if (problem === null) {
       const drafted: TransformMapping = { id: id ?? "draft", ...mapping };

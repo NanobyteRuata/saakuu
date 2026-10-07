@@ -31,9 +31,9 @@ test("phone upload → batch upload → upload-day filter and sort → status �
   await createDialog.getByLabel("Template name").fill("Clinic card");
   await createDialog.getByRole("button", { name: "Create template" }).click();
   await expect(page).toHaveURL(/\/templates\/[a-z0-9]{24}$/);
-  await page.getByLabel("New field label, as written on the paper").fill("Name");
+  await page.getByLabel("New field name, as written on the paper").fill("Name");
   await page.getByRole("button", { name: "Add field" }).click();
-  await expect(page.getByRole("list", { name: "Fields and groups in paper order" }).getByText("Name", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Fields in paper order" }).getByText("Name", { exact: true })).toBeVisible();
 
   // Taken before the first upload, so a run that crosses midnight still looks for the day they went up.
   const today = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());

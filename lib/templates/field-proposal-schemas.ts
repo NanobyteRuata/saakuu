@@ -36,7 +36,7 @@ export type ProposedFieldView = {
   dataType: FieldType;
   choices: string[];
   note: string | null;
-  /** A live field already carries this label, so the dialog starts it unticked. */
+  /** A live field already carries this name, so the dialog starts it unticked. */
   alreadyInTree: boolean;
 };
 

@@ -36,7 +36,7 @@ type Props = {
  * The header is one fixed line and the workspace is everything below it. **Template settings are a
  * disclosure, not a header**: language, model, anchors, instructions and double extraction are six
  * hundred pixels of form that is touched once per template, and leaving it open took two thirds of
- * the viewport away from the photo and the tree — the opposite of what Phase 15 is for. Collapsed,
+ * the viewport away from the photo and the field list — the opposite of what Phase 15 is for. Collapsed,
  * the line still carries the name and both badges, which is what is worth seeing while working.
  */
 export function TemplateChrome({ template, bookDefaultModel, active, onTemplate, scroll = false, children }: Props) {

@@ -9,7 +9,7 @@ import { COUNTING_DOC_TEMPLATE_SQL, countingRowWhere } from "@/lib/db/scope";
 import { lockBook, type Db } from "@/lib/documents/access";
 import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
-import { buildTree } from "@/lib/templates/tree";
+import { orderFields } from "@/lib/templates/field-list";
 import { firstWorkingMappings } from "@/lib/transform/run";
 import { loadTemplateContext } from "@/lib/transform/service";
 import { revalidate, type TouchedValue } from "@/lib/validation/revalidate";
@@ -177,10 +177,10 @@ export async function getTableMeta(userId: string, bookId: string): Promise<Tabl
     const ctx = await loadTemplateContext(prisma, t.id);
     if (!ctx) continue;
     const fields = new Map(ctx.fields.map((f) => [f.id, f]));
-    const working = firstWorkingMappings(ctx.mappings, { tree: buildTree(ctx.groups, ctx.fields), liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
+    const working = firstWorkingMappings(ctx.mappings, { fields: orderFields(ctx.fields), liveColumnIds: new Set(ctx.columns.map((c) => c.id)) });
     for (const [columnId, mapping] of working) {
       filled.add(columnId);
-      const modes = mapping.inputs.map((i) => (i.kind === "field" ? fields.get(i.fieldId)?.mode : undefined));
+      const modes = mapping.inputs.map((i) => fields.get(i.fieldId)?.mode);
       const source: ColumnSource | null = modes.length === 0 ? null : modes.every((m) => m === "MANUAL") ? "MANUAL" : modes.every((m) => m === "SKIP") ? "SKIP" : null;
       if (source) (columnSources[t.id] ??= {})[columnId] = source;
     }

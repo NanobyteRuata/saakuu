@@ -6,27 +6,12 @@ import {
   type FieldMode,
   type FieldType,
   type FieldTypeOptions,
-  type GroupSelection,
   type MarkSymbols,
-  type MultipleMarked,
-  type NoneMarked,
 } from "./schemas";
-
-export type GroupView = {
-  id: string;
-  parentGroupId: string | null;
-  labelSource: string;
-  labelMeaning: string | null;
-  position: string;
-  selection: GroupSelection;
-  noneMarked: NoneMarked;
-  multipleMarked: MultipleMarked;
-  note: string | null;
-};
 
 export type FieldView = {
   id: string;
-  groupId: string | null;
+  /** Its name: as written on the paper, with the header above it in front ("RDT Test › Positive › A"). */
   labelSource: string;
   labelMeaning: string | null;
   dataType: FieldType;
@@ -42,21 +27,8 @@ export type FieldView = {
 
 export type DeletedFieldView = FieldView & { deletedAt: string };
 
-export const groupSelect = {
-  id: true,
-  parentGroupId: true,
-  labelSource: true,
-  labelMeaning: true,
-  position: true,
-  selection: true,
-  noneMarked: true,
-  multipleMarked: true,
-  note: true,
-} satisfies Prisma.FieldGroupSelect;
-
 export const fieldSelect = {
   id: true,
-  groupId: true,
   labelSource: true,
   labelMeaning: true,
   dataType: true,

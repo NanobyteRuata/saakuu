@@ -1,22 +1,20 @@
 import { MAX_COLUMNS, type ColumnType } from "@/lib/books/schemas";
 import { slugifyKey } from "@/lib/books/slug";
-import type { SourceTree } from "@/lib/templates/source-tree";
-import { formatPath, headerPath, selectionOptions, selectionProblem, type SiblingRef } from "@/lib/templates/tree";
+import type { SourceFields } from "@/lib/templates/source-fields";
 import type { FieldView } from "@/lib/templates/views";
-import { optionLabel } from "@/lib/transform/mappings";
 
 /**
  * `Create columns from this template` (docs/06 Phase 10, decision 52). The app proposes one output
- * column per source the template reads that no mapping fills yet; the human renames and prunes. Pure:
+ * column per field the template reads that no mapping reads yet; the human renames and prunes. Pure:
  * the preview the operator confirms and the write that follows both come from here, so the counts agree.
  *
- * A selection group is one answer, so it proposes one column mapped from the group — not one column
- * per tick box (docs/03 §8 step 5a).
+ * Every tick field gets its own yes/no column. Which ticks belong together as one answer is not
+ * guessed: the operator combines them with a From ticks mapping (decision 84).
  */
 
 export type ProposedColumn = {
-  source: SiblingRef;
-  /** Where it comes from, as it reads on the paper: `RDT Test › Positive`. */
+  fieldId: string;
+  /** The field's name, as it reads on the paper: `RDT Test › Positive › A`. */
   sourcePath: string;
   label: string;
   key: string;
@@ -73,55 +71,26 @@ function columnLabel(source: string, meaning: string | null): string {
 }
 
 export type ProposalInput = {
-  tree: SourceTree;
-  /** Sources this template's mappings already read. */
+  fields: SourceFields;
+  /** Fields this template's mappings already read. */
   mappedFieldIds: ReadonlySet<string>;
-  mappedGroupIds: ReadonlySet<string>;
   /** Every key in the book, including soft-deleted columns: the unique index ignores `deletedAt`. */
   takenKeys: Iterable<string>;
   /** Columns the book already has, so a proposal can't push it past the limit. */
   liveColumns: number;
 };
 
-/**
- * One column per unmapped source, in paper order. Extract-mode fields only — Manual and Skip fields
- * are not what the AI reads — and a selection group with its own problem is left alone until that is fixed.
- */
-export function proposeColumns({ tree, mappedFieldIds, mappedGroupIds, takenKeys, liveColumns }: ProposalInput): ProposedColumn[] {
+/** One column per unmapped field, in paper order. Extract-mode fields only: Manual and Skip fields are not what the AI reads. */
+export function proposeColumns({ fields, mappedFieldIds, takenKeys, liveColumns }: ProposalInput): ProposedColumn[] {
   const taken = new Set(takenKeys);
   const items: ProposedColumn[] = [];
-
-  const add = (source: SiblingRef, label: string, shape: ColumnShape) => {
-    if (liveColumns + items.length >= MAX_COLUMNS) return;
+  for (const field of fields.list) {
+    if (field.mode !== "EXTRACT" || mappedFieldIds.has(field.id)) continue;
+    if (liveColumns + items.length >= MAX_COLUMNS) break;
+    const label = columnLabel(field.labelSource, field.labelMeaning);
     const key = slugifyKey(label, taken, items.length + 1);
     taken.add(key);
-    items.push({ source, sourcePath: formatPath(headerPath(tree, source)), label, key, ...shape });
-  };
-
-  const visit = (nodes: SourceTree["roots"]): void => {
-    for (const node of nodes) {
-      if (node.kind === "field") {
-        const { field } = node;
-        if (field.mode !== "EXTRACT" || mappedFieldIds.has(field.id)) continue;
-        add({ kind: "field", id: field.id }, columnLabel(field.labelSource, field.labelMeaning), fieldColumnType(field));
-        continue;
-      }
-      if (node.group.selection === "NONE") {
-        visit(node.children);
-        continue;
-      }
-      if (mappedGroupIds.has(node.id) || selectionProblem(tree, node.id) !== null) continue;
-      // One of answers with a single option label; Any of joins several, so it stays text.
-      const options = selectionOptions(node).map((f) => optionLabel(tree, node.id, f.id));
-      const values = node.group.selection === "ONE_OF" ? usableEnumValues(options) : null;
-      add(
-        { kind: "group", id: node.id },
-        columnLabel(node.group.labelSource, node.group.labelMeaning),
-        values ? { dataType: "ENUM", enumValues: values } : TEXT,
-      );
-    }
-  };
-
-  visit(tree.roots);
+    items.push({ fieldId: field.id, sourcePath: field.labelSource, label, key, ...fieldColumnType(field) });
+  }
   return items;
 }

@@ -24,12 +24,12 @@ export type BookCopy = BookCopySummary & { id: string; skippedMappings: number }
 const liveTemplate = { deletedAt: null } satisfies Prisma.TemplateWhereInput;
 
 /**
- * Mappings `copyTemplateInto` will copy: live column, and every input still pointing at a live field or a group.
- * A soft-deleted input field is not copied, and a deleted group leaves an input with neither id.
+ * Mappings `copyTemplateInto` will copy: live column, and every input still pointing at a live field.
+ * A soft-deleted input field is not copied.
  */
 const copyableMapping = {
   outputColumn: { deletedAt: null },
-  inputs: { none: { OR: [{ field: { deletedAt: { not: null } } }, { fieldId: null, groupId: null }] } },
+  inputs: { none: { field: { deletedAt: { not: null } } } },
 } satisfies Prisma.MappingWhereInput;
 
 const ruleSelect = { outputColumnId: true, kind: true, params: true, message: true, severity: true, enabled: true } satisfies Prisma.ValidationRuleSelect;

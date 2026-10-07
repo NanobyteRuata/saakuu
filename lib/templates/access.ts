@@ -11,7 +11,7 @@ export type Db = Prisma.TransactionClient;
 
 const TEMPLATE_NOT_FOUND = "That template doesn't exist or you don't have access to it.";
 
-/** Live books the user owns. Templates, groups and fields are reached only through these. */
+/** Live books the user owns. Templates and fields are reached only through these. */
 function ownedBook(userId: string) {
   return { userId, deletedAt: null } satisfies Prisma.BookWhereInput;
 }
@@ -29,16 +29,6 @@ export async function requireTemplateAccess(
   });
   if (!template) throw new AppError("NOT_FOUND", TEMPLATE_NOT_FOUND);
   return template;
-}
-
-export async function requireGroupAccess(userId: string | null | undefined, groupId: string): Promise<{ id: string; templateId: string }> {
-  const uid = requireUserId(userId);
-  const group = await prisma.fieldGroup.findFirst({
-    where: { id: groupId, template: { deletedAt: null, book: ownedBook(uid) } },
-    select: { id: true, templateId: true },
-  });
-  if (!group) throw new AppError("NOT_FOUND", "That group doesn't exist or was already deleted.");
-  return group;
 }
 
 /** A field on a live template the user owns. `deleted` picks live (false) or soft-deleted (true) fields. */
@@ -77,7 +67,7 @@ export async function lockTemplate(tx: Db, templateId: string): Promise<void> {
 }
 
 /**
- * Marks the part of the template a reading depends on as changed (decision 78): fields, groups, and
+ * Marks the part of the template a reading depends on as changed (decision 78): fields and
  * the settings that go into the prompt. A test reading older than this is stale. Mapping changes don't
  * call it, which is why it isn't `updatedAt`: every mapping save touches the template row.
  */

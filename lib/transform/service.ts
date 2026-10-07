@@ -16,8 +16,8 @@ import { MAX_MAPPINGS } from "@/lib/mappings/schemas";
 import { mappingSelect, rowToTransformMapping } from "@/lib/mappings/views";
 import { parseIssues } from "@/lib/validation/rules";
 import { revalidate, type TouchedValue } from "@/lib/validation/revalidate";
-import { MAX_FIELDS, MAX_GROUPS } from "@/lib/templates/schemas";
-import { fieldSelect, groupSelect, toFieldView } from "@/lib/templates/views";
+import { MAX_FIELDS } from "@/lib/templates/schemas";
+import { fieldSelect, toFieldView } from "@/lib/templates/views";
 
 import { parseDocumentFlags, type DocumentFlag } from "./flags";
 import { planMerge, type ExistingRow, type MergePlan, type RowAnchor } from "./merge";
@@ -49,7 +49,6 @@ export async function loadTemplateContext(db: Db, templateId: string): Promise<T
     select: { id: true, bookId: true, kind: true, sequenceFieldId: true, book: { select: { numeralSystem: true, dateEra: true } } },
   });
   if (!template) return null;
-  const groups = await db.fieldGroup.findMany({ where: { templateId }, select: groupSelect, take: MAX_GROUPS });
   const fields = await db.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS });
   const columns = await loadColumns(db, template.bookId);
   const mappings = await db.mapping.findMany({ where: { templateId }, select: mappingSelect, take: MAX_MAPPINGS });
@@ -58,7 +57,6 @@ export async function loadTemplateContext(db: Db, templateId: string): Promise<T
     bookId: template.bookId,
     kind: template.kind,
     sequenceFieldId: template.sequenceFieldId,
-    groups,
     fields: fields.map(toFieldView),
     columns: columns.map((c) => ({ id: c.id, key: c.key, label: c.label, dataType: c.dataType, enumValues: c.enumValues, isRequired: c.isRequired })),
     mappings: sortByPosition(mappings).map(rowToTransformMapping),

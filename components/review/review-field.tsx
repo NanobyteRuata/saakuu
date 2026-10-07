@@ -110,13 +110,13 @@ export const ReviewField = memo(function ReviewField({ column, cell, source, cel
     >
       {visual.attention !== "none" ? <span aria-hidden className={cn("absolute inset-y-0 left-0 w-[3px] rounded-l-md", `cell-bar-${visual.attention}`)} /> : null}
       <div className="flex items-baseline justify-between gap-2">
-        <div className="flex min-w-0 items-baseline gap-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <span className="truncate text-sm font-medium">
             {column.label}
             {column.isRequired ? <span className="text-muted-foreground" aria-label="required"> *</span> : null}
           </span>
           {paths.length > 0 ? (
-            <span className="text-muted-foreground truncate text-xs" title={`Read from ${paths.join(", ")}`}>
+            <span className="text-muted-foreground min-w-0 text-xs break-words" title={`Read from ${paths.join(", ")}`}>
               {paths.join(" + ")}
             </span>
           ) : null}

@@ -227,7 +227,6 @@ model Template {
   deletedAt        DateTime?    @db.Timestamptz(3)
 
   book      Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  groups    FieldGroup[]
   fields    Field[]
   mappings  Mapping[]
   documents Document[]
@@ -236,8 +235,8 @@ model Template {
   @@index([bookId, deletedAt])
 }
 
-enum GroupSelection {
-  NONE
+// How a TICKS mapping reads its tick fields: one answer, or several joined.
+enum TickSelection {
   ONE_OF
   ANY_OF
 }
@@ -251,28 +250,6 @@ enum NoneMarked {
 enum MultipleMarked {
   REVIEW
   ERROR
-}
-
-// A header on the paper. May span columns and nest (depth capped in code). Never holds raw values.
-model FieldGroup {
-  id             String         @id @default(cuid(2))
-  templateId     String
-  parentGroupId  String? // null = top level
-  labelSource    String // as written on the paper
-  labelMeaning   String? // English meaning
-  position       String // shares one order with sibling fields (same parent)
-  selection      GroupSelection @default(NONE) // tick columns encoding one / many answers
-  noneMarked     NoneMarked     @default(REVIEW) // selection group with nothing ticked
-  multipleMarked MultipleMarked @default(ERROR) // ONE_OF group with 2+ ticks
-  note           String? // instruction to the AI
-  template       Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  parent         FieldGroup?    @relation("GroupNesting", fields: [parentGroupId], references: [id], onDelete: Restrict)
-  children       FieldGroup[]   @relation("GroupNesting")
-  fields         Field[]
-  mappingInputs  MappingInput[]
-
-  @@index([templateId])
-  @@index([parentGroupId])
 }
 
 enum FieldType {
@@ -295,9 +272,8 @@ enum FieldMode {
 model Field {
   id           String    @id @default(cuid(2))
   templateId   String
-  groupId      String?
-  labelSource  String // as written on the paper, any script
-  labelMeaning String? // English meaning
+  labelSource  String // its name: as written on the paper, with the header above it in front, levels joined with " › "
+  labelMeaning String? // English meaning, in the same levels
   dataType     FieldType @default(TEXT)
   mode         FieldMode @default(EXTRACT)
   note         String? // human-language hint to the AI
@@ -310,7 +286,6 @@ model Field {
   deletedAt    DateTime? @db.Timestamptz(3) // soft delete: raw values are kept as orphans
 
   template      Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  group         FieldGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
   rawValues     RawValue[]
   mappingInputs MappingInput[]
 
@@ -325,6 +300,7 @@ enum MappingKind {
   SPLIT
   CONSTANT
   EXPRESSION
+  TICKS // Phase 24: several tick fields become one answer
 }
 
 enum MappingState {
@@ -333,18 +309,23 @@ enum MappingState {
 }
 
 model Mapping {
-  id             String       @id @default(cuid(2))
+  id             String          @id @default(cuid(2))
   templateId     String
   outputColumnId String
   kind           MappingKind
-  state          MappingState @default(OK)
+  state          MappingState    @default(OK)
   separator      String? // CONCAT, default ", "
   splitBy        String? // SPLIT: delimiter
   splitIndex     Int? // SPLIT: 0-based part
   splitRegex     String? // SPLIT: alternative, first capture group
   constantValue  String? // CONSTANT
   expression     String? // EXPRESSION
-  fillDown       Boolean      @default(true) // resolve ditto marks for this column
+  tickSelection  TickSelection? // TICKS: one answer, or several joined
+  noneMarked     NoneMarked? // TICKS: nothing ticked
+  multipleMarked MultipleMarked? // TICKS, ONE_OF with 2+ ticks
+  noneValue      String? // TICKS: exported when nothing is ticked
+  tickLabel      String? // TICKS: the name warnings use; the column's label when null
+  fillDown       Boolean         @default(true) // resolve ditto marks for this column
   position       String
 
   template     Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
@@ -355,23 +336,18 @@ model Mapping {
   @@index([outputColumnId])
 }
 
-// Exactly one of fieldId / groupId is set. A group input is a selection group resolved to its answer
-// (Phase 6); both null means its group was deleted, and the mapping is BROKEN.
+// One field a mapping reads, in input order.
 model MappingInput {
-  id           String      @id @default(cuid(2))
-  mappingId    String
-  fieldId      String?
-  groupId      String? // Phase 6
-  position     Int
-  optionValues Json? // Phase 6, group inputs: { optionFieldId: output value }
-  noneValue    String? // Phase 6, group inputs: exported when nothing is ticked
-  mapping      Mapping     @relation(fields: [mappingId], references: [id], onDelete: Cascade)
-  field        Field?      @relation(fields: [fieldId], references: [id], onDelete: Cascade)
-  group        FieldGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  id        String  @id @default(cuid(2))
+  mappingId String
+  fieldId   String
+  position  Int
+  tickValue String? // TICKS: what this tick writes; the field's meaning or name when null
+  mapping   Mapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  field     Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
 
   @@unique([mappingId, fieldId, position])
   @@index([fieldId])
-  @@index([groupId])
 }
 
 // ---------- Documents & photos ----------

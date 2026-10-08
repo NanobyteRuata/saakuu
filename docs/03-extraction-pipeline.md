@@ -288,8 +288,8 @@ transform(document, rawRecords, template, mappings, book, existingCells) -> Row[
 5. **Normalise per field type.** Deterministic, inspectable:
    - Numeral conversion (Myanmar → Latin digits) per book `numeralSystem`
    - Era conversion (BE → CE, Myanmar calendar → CE) per book `dateEra`
-   - `AGE`: parse `1 1/2` → configurable output (years+months, or total months);
-     `4/12` → 4 months. Driven by the glossary and the field note.
+   - `AGE`: parse `1 1/2` → the field's unit (years, total months, or years and months);
+     `4/12` → 4 months.
    - `FRACTION`: parse to a decimal or keep as a fraction string
    - `MARK`: apply `markSymbols` semantics
    - `CHOICE`: fuzzy-match to the declared choice list; no match → flag
@@ -384,8 +384,11 @@ Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pur
     belong to the century before. The century is a fixed constant per era (2000 / 2500 / 1300), never today's date, so
     rebuilding the same document years later gives the same date. A `TEXT` field mapped to a `DATE` column has no
     field options, so its two-digit years stay refused.
-  - `AGE`: total months. Numbers are years (`1 1/2` → 18, `4/12` → 4, `2` → 24); `1y 6m` and `1 နှစ် 6 လ` are read by
-    their units. Not driven by the glossary or field notes: the transform is deterministic, so those stay prompt text.
+  - `AGE`: numbers are years (`1 1/2`, `4/12`, `2`); `1y 6m` and `1 နှစ် 6 လ` are read by their units. The field
+    chooses how it comes out (`Field.typeOptions.age.unit`, docs/07 decision 85): `YEARS` (1.5, 2; what a new field
+    gets), `MONTHS` (18, 4, 24; also what a field with no unit means) or `YEARS_MONTHS` (text: `1y 6m`, `0y 4m`).
+    Years that aren't exact are rounded to two decimals with a warning (`4/12` → 0.33); months and years-and-months
+    are exact or unreadable, never rounded. Not driven by the glossary or field notes: the transform is deterministic, so those stay prompt text.
   - `FRACTION`: exact decimal (`1 1/2` → `1.5`), or the tidy fraction when it doesn't terminate (`1/3`).
   - `CHOICE`: exact match ignoring case, spaces and numeral script; a single-character difference matches with a
     warning; otherwise the text is kept with a warning.

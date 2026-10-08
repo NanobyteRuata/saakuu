@@ -238,6 +238,7 @@ GET    /api/groups/:id/delete-impact        -> { impactHash, groupLabel, fields,
 DELETE /api/groups/:id                      { impactHash, confirm } -> { movedFields, movedGroups }   children move up into the group's slot
 POST   /api/templates/:id/fields            groupId is the parent group (any depth); appended at the end of that parent
                                            + typeOptions?: { date: { twoDigitYear, pivotYear } }   DATE fields only (Phase 6)
+                                           + typeOptions?: { age: { unit: "YEARS" | "MONTHS" | "YEARS_MONTHS" } }   AGE fields only
 PATCH  /api/fields/:id                      move: { groupId | null, after: { kind: "field" | "group", id } | null }   replaces afterId
 POST   /api/fields/:id/restore              -> { ..., placedOutside }
 ```

@@ -279,7 +279,7 @@ model Field {
   note         String? // human-language hint to the AI
   choices      String[]  @default([]) // CHOICE
   markSymbols  Json? // MARK: { "✓": true, "✗": false, "tally": "count" }
-  typeOptions  Json? // Phase 6: settings for this field's type, e.g. DATE: { twoDigitYear, pivotYear }
+  typeOptions  Json? // Phase 6: settings for this field's type, e.g. date: { twoDigitYear, pivotYear }, age: { unit }
   isSequence   Boolean   @default(false)
   position     String
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)

@@ -33,7 +33,8 @@
       {
         "id": "fage",
         "labelSource": "အသက်",
-        "dataType": "AGE"
+        "dataType": "AGE",
+        "typeOptions": { "age": { "unit": "MONTHS" } }
       },
       {
         "id": "fnopivot",

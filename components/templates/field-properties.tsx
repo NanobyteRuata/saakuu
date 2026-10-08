@@ -31,15 +31,22 @@ import {
   FIELD_MODE_HINTS,
   FIELD_MODE_LABELS,
   FIELD_TYPE_LABELS,
+  AGE_UNIT_HINTS,
+  AGE_UNIT_LABELS,
   TWO_DIGIT_YEAR_LABELS,
   twoDigitYearHint,
 } from "@/lib/templates/labels";
 import {
+  AGE_UNITS,
   FIELD_MODES,
+  NEW_AGE_UNIT,
+  UNSET_AGE_UNIT,
   FIELD_TYPES,
   fieldShapeProblem,
   TWO_DIGIT_YEAR_RULES,
+  type AgeUnit,
   type FieldMode,
+  type FieldTypeOptions,
   type FieldType,
   type MarkSymbols,
   type TwoDigitYearRule,
@@ -69,6 +76,7 @@ export type FieldDraft = {
   marks: { symbol: string; meaning: MarkMeaning }[];
   twoDigitYear: TwoDigitYearRule;
   pivotYear: string;
+  ageUnit: AgeUnit;
 };
 
 function toDraft(f: FieldView): FieldDraft {
@@ -89,6 +97,10 @@ function toDraft(f: FieldView): FieldDraft {
       f.typeOptions.date.pivotYear === null
         ? ""
         : String(f.typeOptions.date.pivotYear),
+    ageUnit:
+      f.dataType === "AGE"
+        ? (f.typeOptions?.age?.unit ?? UNSET_AGE_UNIT)
+        : NEW_AGE_UNIT,
   };
 }
 
@@ -97,6 +109,23 @@ function pivotNumber(value: string): number | null {
   return value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 99
     ? n
     : null;
+}
+
+function typeOptionsOf(d: FieldDraft): FieldTypeOptions | null {
+  switch (d.dataType) {
+    case "DATE":
+      return {
+        date: {
+          twoDigitYear: d.twoDigitYear,
+          pivotYear:
+            d.twoDigitYear === "PIVOT" ? pivotNumber(d.pivotYear) : null,
+        },
+      };
+    case "AGE":
+      return { age: { unit: d.ageUnit } };
+    default:
+      return null;
+  }
 }
 
 function toPayload(d: FieldDraft) {
@@ -117,16 +146,7 @@ function toPayload(d: FieldDraft) {
     note: d.note.trim() || null,
     choices: d.dataType === "CHOICE" ? d.choices : [],
     markSymbols,
-    typeOptions:
-      d.dataType === "DATE"
-        ? {
-            date: {
-              twoDigitYear: d.twoDigitYear,
-              pivotYear:
-                d.twoDigitYear === "PIVOT" ? pivotNumber(d.pivotYear) : null,
-            },
-          }
-        : null,
+    typeOptions: typeOptionsOf(d),
   };
 }
 
@@ -409,6 +429,33 @@ export function FieldProperties({
             )}{" "}
             The AI always copies the date as written; this decides how it is
             read afterwards.
+          </p>
+        </div>
+      ) : null}
+
+      {draft.dataType === "AGE" ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="field-age-unit">Show age as</Label>
+          <Select
+            value={draft.ageUnit}
+            onValueChange={(v) =>
+              set({ ageUnit: pickOption(AGE_UNITS, v) ?? draft.ageUnit })
+            }
+          >
+            <SelectTrigger id="field-age-unit" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AGE_UNITS.map((unit) => (
+                <SelectItem key={unit} value={unit}>
+                  {AGE_UNIT_LABELS[unit]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-xs">
+            {AGE_UNIT_HINTS[draft.ageUnit]} The AI always copies the age as
+            written; this decides how it is shown afterwards.
           </p>
         </div>
       ) : null}

@@ -635,6 +635,8 @@ One additive migration:
   every mapping that read a tick set across with the same values and rules. This answers docs/07 Part C question 7.
 - `Field.typeOptions Json?`: settings that belong to the field's type, cleared when the type changes (like choices and
   mark symbols). `DATE`: `{ date: { twoDigitYear: "REFUSE" | "CENTURY" | "PIVOT", pivotYear } }`.
+  `AGE`: `{ age: { unit: "YEARS" | "MONTHS" | "YEARS_MONTHS" } }`. The service stamps `YEARS` on a new Age field
+  and never clears a unit; absent means `MONTHS` (a field from before the choice existed).
 - `Row.recordKey String?` and `Row.voidReason String?`.
 - `Document.transformFlags Json?`: `[{ kind, message }]` from the last transform (sequence gaps, repeats, suspected
   duplicates, unresolved ditto marks, flagged cells, unmatched edited rows, and a build that couldn't run).

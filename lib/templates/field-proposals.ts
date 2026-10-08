@@ -28,7 +28,7 @@ import type {
   ProposedFieldView,
   StartFieldProposalInput,
 } from "./field-proposal-schemas";
-import { fieldShapeProblem, FIELD_TYPES, MAX_FIELDS } from "./schemas";
+import { fieldShapeProblem, FIELD_TYPES, MAX_FIELDS, NEW_AGE_UNIT } from "./schemas";
 import { formatPath, nameKey } from "./field-list";
 import { loadSourceFields } from "./source-fields";
 
@@ -369,7 +369,7 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
       note: f.note,
       choices: f.choices,
       markSymbols: Prisma.DbNull,
-      typeOptions: Prisma.DbNull,
+      typeOptions: f.dataType === "AGE" ? { age: { unit: NEW_AGE_UNIT } } : Prisma.DbNull,
       position: positions[i] ?? "",
     }));
     await tx.field.createMany({ data });

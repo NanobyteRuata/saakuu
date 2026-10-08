@@ -5,7 +5,7 @@
     "book": { "numeralSystem": "AUTO", "dateEra": "BUDDHIST" },
     "fields": [
       { "id": "fcount", "labelSource": "အရေအတွက်", "dataType": "INTEGER" },
-      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" },
+      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE", "typeOptions": { "age": { "unit": "MONTHS" } } },
       { "id": "fdate", "labelSource": "ရက်စွဲ", "dataType": "DATE" },
       { "id": "fdose", "labelSource": "Dose", "dataType": "FRACTION" },
       { "id": "fstatus", "labelSource": "Status", "dataType": "CHOICE", "choices": ["Positive", "Negative"] },

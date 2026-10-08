@@ -176,7 +176,7 @@ async function main(): Promise<void> {
       field(f.name, "အမည်", "Name", "TEXT", order[1] ?? ""),
       field(f.m, "ကျား/မ › ကျား", "Sex › M", "MARK", order[2] ?? ""),
       field(f.fe, "ကျား/မ › မ", "Sex › F", "MARK", order[3] ?? ""),
-      field(f.age, "အသက်", "Age", "AGE", order[4] ?? ""),
+      field(f.age, "အသက်", "Age", "AGE", order[4] ?? "", { typeOptions: { age: { unit: "MONTHS" } } }),
       field(f.a, "RDT Test › Positive › A", "Rapid test › Positive, by species › P. falciparum", "MARK", order[5] ?? ""),
       field(f.b, "RDT Test › Positive › B", "Rapid test › Positive, by species › P. vivax", "MARK", order[6] ?? ""),
       field(f.c, "RDT Test › Positive › C", "Rapid test › Positive, by species › Mixed", "MARK", order[7] ?? ""),
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
       fields: {
         create: [
           { id: cf.name, labelSource: "ကလေးအမည်", labelMeaning: "Child's name", dataType: "TEXT", position: cardPositions[0] ?? "" },
-          { id: cf.age, labelSource: "အသက်", labelMeaning: "Age", dataType: "AGE", position: cardPositions[1] ?? "" },
+          { id: cf.age, labelSource: "အသက်", labelMeaning: "Age", dataType: "AGE", typeOptions: { age: { unit: "MONTHS" } }, position: cardPositions[1] ?? "" },
           { id: cf.village, labelSource: "ရွာ", labelMeaning: "Village", dataType: "TEXT", position: cardPositions[2] ?? "" },
           { id: cf.date, labelSource: "ထိုးသည့်ရက်", labelMeaning: "Vaccination date", dataType: "DATE", position: cardPositions[3] ?? "" },
         ],

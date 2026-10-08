@@ -6,7 +6,7 @@
     "fields": [
       { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
       { "id": "fname", "labelSource": "အမည်" },
-      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" }
+      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE", "typeOptions": { "age": { "unit": "MONTHS" } } }
     ],
     "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "age", "dataType": "INTEGER" }, { "key": "name" }],
     "mappings": [

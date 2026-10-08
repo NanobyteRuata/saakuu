@@ -133,8 +133,23 @@ export const dateFieldOptionsSchema = z
 
 export type DateFieldOptions = z.infer<typeof dateFieldOptionsSchema>;
 
+/**
+ * How an AGE field's value comes out: `YEARS` (`1 1/2` → 1.5), `MONTHS` (the total, 18) or `YEARS_MONTHS`
+ * (text, `1y 6m`). A new Age field is given `YEARS`, because ages on paper are in years. A field with no
+ * unit recorded is from before the choice existed and stays `MONTHS`, so losing the setting can never
+ * change a book's cells.
+ */
+export const AGE_UNITS = ["YEARS", "MONTHS", "YEARS_MONTHS"] as const;
+export type AgeUnit = (typeof AGE_UNITS)[number];
+export const NEW_AGE_UNIT: AgeUnit = "YEARS";
+export const UNSET_AGE_UNIT: AgeUnit = "MONTHS";
+
+export const ageFieldOptionsSchema = z.object({ unit: z.enum(AGE_UNITS) });
+
+export type AgeFieldOptions = z.infer<typeof ageFieldOptionsSchema>;
+
 /** Settings that belong to a field's type. Cleared when the type changes, like choices and mark symbols. */
-export const fieldTypeOptionsSchema = z.object({ date: dateFieldOptionsSchema.optional() });
+export const fieldTypeOptionsSchema = z.object({ date: dateFieldOptionsSchema.optional(), age: ageFieldOptionsSchema.optional() });
 
 export type FieldTypeOptions = z.infer<typeof fieldTypeOptionsSchema>;
 
@@ -167,6 +182,7 @@ export function fieldShapeProblem(f: {
       return "Choose the year two-digit dates split at.";
     }
   }
+  if (f.typeOptions?.age && f.dataType !== "AGE") return "Only age fields can have age options.";
   if (f.dataType === "CHOICE" && f.choices.length === 0) return "A choice field needs at least one choice.";
   if (f.dataType !== "CHOICE" && f.choices.length > 0) return "Only choice fields can have choices.";
   if (new Set(f.choices).size !== f.choices.length) return "Each choice can only be listed once.";

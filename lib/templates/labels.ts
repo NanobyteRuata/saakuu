@@ -2,6 +2,7 @@ import type { DateEra } from "@/lib/books/schemas";
 
 import type { RunSummary } from "./config-state";
 import type {
+  AgeUnit,
   ConfigState,
   FieldMode,
   FieldType,
@@ -47,6 +48,18 @@ export const TWO_DIGIT_YEAR_LABELS: Record<TwoDigitYearRule, string> = {
   REFUSE: "Flag them (default)",
   CENTURY: "Read them in this century",
   PIVOT: "Split at a year",
+};
+
+export const AGE_UNIT_LABELS: Record<AgeUnit, string> = {
+  YEARS: "Years",
+  MONTHS: "Months",
+  YEARS_MONTHS: "Years and months",
+};
+
+export const AGE_UNIT_HINTS: Record<AgeUnit, string> = {
+  YEARS: "1 1/2 comes out as 1.5 and 2 as 2. An age that isn't an exact number of years, such as 4/12, is rounded to two decimals and flagged. Send it to a Number column: a Whole number column refuses 1.5.",
+  MONTHS: "1 1/2 comes out as 18, 4/12 as 4 and 2 as 24.",
+  YEARS_MONTHS: "1 1/2 comes out as 1y 6m and 4/12 as 0y 4m. This is text, so send it to a Text column: a Number column flags every cell.",
 };
 
 /** The century a two-digit year is read in, per the book's era: 20xx, 25xx (Buddhist) or 13xx (Myanmar). */

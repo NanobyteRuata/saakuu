@@ -1,6 +1,6 @@
-import type { DateFieldOptions, MarkSymbols } from "@/lib/templates/schemas";
+import { UNSET_AGE_UNIT, type AgeUnit, type DateFieldOptions, type MarkSymbols } from "@/lib/templates/schemas";
 
-import { rationalToDecimalText } from "./decimal";
+import { divDecimal, formatDecimal, rationalToDecimalText } from "./decimal";
 import { cleanText, numericReading, parseNumberText, toLatinDigits } from "./numerals";
 import type { BookSettings, DateEra, Issue, TransformField, ValueState } from "./types";
 
@@ -125,12 +125,14 @@ const YEAR_WORDS = "y|yr|yrs|year|years|နှစ်";
 const MONTH_WORDS = "m|mo|mos|month|months|လ";
 const UNIT_AGE = new RegExp(`^(?:(\\d+(?:\\.\\d+)?) ?(?:${YEAR_WORDS}))? ?(?:(\\d+(?:\\.\\d+)?) ?(?:${MONTH_WORDS}))?$`, "u");
 
+/** Decimals kept when an age isn't an exact number of years (`4/12` → 0.33). */
+const AGE_YEAR_PLACES = 2;
+
 /**
- * An age as total months (docs/01 §11.8). Numbers are years, so `1 1/2` is 18 months, `4/12` is 4
- * months and `2` is 24 months; `1y 6m` and `1 နှစ် 6 လ` are read by their units. Null when unreadable
- * or when the months don't come out exact.
+ * An age's total months, exactly (docs/01 §11.8). Numbers are years, so `1 1/2` is 18 months, `4/12` is 4
+ * months and `2` is 24 months; `1y 6m` and `1 နှစ် 6 လ` are read by their units.
  */
-export function parseAgeMonths(value: string): string | null {
+function ageMonths(value: string): Rational | null {
   const t = compactFractionText(value).toLowerCase();
   const twelve = BigInt(12);
   const unit = UNIT_AGE.exec(t);
@@ -138,10 +140,38 @@ export function parseAgeMonths(value: string): string | null {
     const years = unit[1] === undefined ? { num: BigInt(0), den: BigInt(1) } : rationalOf(unit[1]);
     const months = unit[2] === undefined ? { num: BigInt(0), den: BigInt(1) } : rationalOf(unit[2]);
     if (!years || !months) return null;
-    return rationalToDecimalText(years.num * twelve * months.den + months.num * years.den, years.den * months.den);
+    return { num: years.num * twelve * months.den + months.num * years.den, den: years.den * months.den };
   }
   const years = parseMixedNumber(t);
-  return years ? rationalToDecimalText(years.num * twelve, years.den) : null;
+  return years ? { num: years.num * twelve, den: years.den } : null;
+}
+
+/**
+ * An age in the field's unit: years (`1 1/2` → 1.5), total months (18) or both (`1y 6m`). Years that don't
+ * come out exact are rounded to AGE_YEAR_PLACES and say so. Null when unreadable, or when the unit shows
+ * months and they don't come out exact.
+ */
+export function parseAge(value: string, unit: AgeUnit): { text: string; rounded: boolean } | null {
+  const total = ageMonths(value);
+  if (!total) return null;
+  const perYear = total.den * BigInt(12);
+  switch (unit) {
+    case "MONTHS": {
+      const months = rationalToDecimalText(total.num, total.den);
+      return months === null ? null : { text: months, rounded: false };
+    }
+    case "YEARS": {
+      const exact = rationalToDecimalText(total.num, perYear);
+      if (exact !== null) return { text: exact, rounded: false };
+      const rounded = divDecimal({ units: total.num, scale: 0 }, { units: perYear, scale: 0 }, AGE_YEAR_PLACES);
+      return rounded ? { text: formatDecimal(rounded), rounded: true } : null;
+    }
+    case "YEARS_MONTHS": {
+      const years = total.num / perYear;
+      const rest = rationalToDecimalText(total.num - years * perYear, total.den);
+      return rest === null ? null : { text: `${years}y ${rest}m`, rounded: false };
+    }
+  }
 }
 
 /** A fraction as exact decimal text (`1 1/2` → `1.5`), or the tidy fraction when it doesn't terminate (`1/3`). */
@@ -281,10 +311,12 @@ export function normaliseReading(field: TransformField, raw: RawReading, book: B
       return ok(iso ?? toLatinDigits(cleaned), issues);
     }
     case "AGE": {
-      const months = parseAgeMonths(cleaned);
-      return months === null
-        ? ok(toLatinDigits(cleaned), [warn(`“${cleaned}” isn't an age we can read, such as 1 1/2, 4/12 or 2.`)])
-        : ok(months);
+      const age = parseAge(cleaned, field.typeOptions?.age?.unit ?? UNSET_AGE_UNIT);
+      if (age === null) return ok(toLatinDigits(cleaned), [warn(`“${cleaned}” isn't an age we can read, such as 1 1/2, 4/12 or 2.`)]);
+      return ok(
+        age.text,
+        age.rounded ? [warn(`“${cleaned}” isn't an exact number of years, so it is rounded to ${age.text}. Show this age as months to keep it exact.`)] : [],
+      );
     }
     case "FRACTION": {
       const fraction = parseFraction(cleaned);

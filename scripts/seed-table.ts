@@ -103,6 +103,7 @@ async function main(): Promise<void> {
           isSequence: f.key === "no",
           position: fieldPositions[i] ?? "",
           ...(f.dataType === "MARK" ? { markSymbols: { "✓": true, "✗": false } } : {}),
+          ...(f.dataType === "AGE" ? { typeOptions: { age: { unit: "MONTHS" } } } : {}),
         })),
       },
       mappings: {

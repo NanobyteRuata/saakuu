@@ -405,6 +405,7 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 | TPL-54 | In the target book, Mapping → `Create columns from this template` | One click completes it. Proposal is empty afterwards |
 | TPL-55 | psql: count `"Mapping"` rows for the copied template before TPL-54 | Zero |
 | TPL-56 | Delete a template with documents | Counted confirmation (templates, documents, photos, rows, edited cells). Template and its documents are soft-deleted |
+| TPL-70 | Set a field's type to `Age`; switch `Show age as` between Years, Months and Years and months; save | A field just changed to Age starts on `Years`; the hint changes with the choice. After saving, the table rebuilds without a reading: `1 1/2` shows 1.5 / 18 / 1y 6m; `4/12` as years shows 0.33 with a warning. Edited cells keep their values. An Age field made before this change still says `Months`. Years into a `Whole number` column, or Years and months into a `Number` column, flags the cells (the hint names the right column type) |
 
 ---
 

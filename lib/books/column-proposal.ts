@@ -40,13 +40,14 @@ type ColumnShape = { dataType: ColumnType; enumValues: string[] };
 const TEXT: ColumnShape = { dataType: "TEXT", enumValues: [] };
 
 /**
- * The column type a field's readings fit. AGE normalises to months and FRACTION to a number, and a
+ * The column type a field's readings fit. AGE normalises to a number (text as years and months), FRACTION to a number, and a
  * MARK field that counts its symbols reads as a number rather than a yes/no (`readMark`).
  */
-export function fieldColumnType(field: Pick<FieldView, "dataType" | "choices" | "markSymbols">): ColumnShape {
+export function fieldColumnType(field: Pick<FieldView, "dataType" | "choices" | "markSymbols" | "typeOptions">): ColumnShape {
   switch (field.dataType) {
-    case "NUMBER":
     case "AGE":
+      return field.typeOptions?.age?.unit === "YEARS_MONTHS" ? TEXT : { dataType: "NUMBER", enumValues: [] };
+    case "NUMBER":
     case "FRACTION":
       return { dataType: "NUMBER", enumValues: [] };
     case "INTEGER":

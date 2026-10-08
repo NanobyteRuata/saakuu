@@ -9,7 +9,7 @@ import { requestTemplateTransform } from "@/lib/transform/triggers";
 
 import { lockTemplate, markSourceChanged, recomputeConfigState, requireFieldAccess, requireTemplateAccess } from "./access";
 import { appendPosition, positionAfter, type Positioned } from "./positions";
-import { fieldShapeProblem, MAX_FIELDS, type CreateFieldInput, type FieldTypeOptions, type MarkSymbols, type UpdateFieldInput } from "./schemas";
+import { fieldShapeProblem, MAX_FIELDS, NEW_AGE_UNIT, type CreateFieldInput, type FieldTypeOptions, type MarkSymbols, type UpdateFieldInput } from "./schemas";
 import { applyPositionRewrites, loadSourceFields } from "./source-fields";
 import { fieldSelect, toFieldView, type FieldView } from "./views";
 
@@ -32,7 +32,7 @@ export async function createField(userId: string, templateId: string, input: Cre
 
     const dataType = input.dataType ?? "TEXT";
     const markSymbols = input.markSymbols ?? null;
-    const typeOptions = input.typeOptions ?? null;
+    const typeOptions = dataType === "AGE" && !input.typeOptions?.age ? { age: { unit: NEW_AGE_UNIT } } : (input.typeOptions ?? null);
     const shape = fieldShapeProblem({ dataType, choices: input.choices, markSymbols, typeOptions });
     if (shape) throw new AppError("VALIDATION", shape);
 
@@ -83,7 +83,9 @@ export async function updateField(userId: string, fieldId: string, input: Update
     // A type change drops properties that no longer apply rather than failing on them.
     const choices = input.choices ?? (dataType === "CHOICE" ? current.choices : []);
     const markSymbols = input.markSymbols !== undefined ? input.markSymbols : dataType === "MARK" ? current.markSymbols : null;
-    const typeOptions = input.typeOptions !== undefined ? input.typeOptions : dataType === "DATE" ? current.typeOptions : null;
+    let typeOptions = input.typeOptions !== undefined ? input.typeOptions : dataType === current.dataType ? current.typeOptions : null;
+    // An age's unit is never cleared: a save without one keeps what the field has, and a field that becomes an Age gets the new default.
+    if (dataType === "AGE" && !typeOptions?.age) typeOptions = current.dataType === "AGE" ? current.typeOptions : { age: { unit: NEW_AGE_UNIT } };
     const shape = fieldShapeProblem({ dataType, choices, markSymbols, typeOptions });
     if (shape) throw new AppError("VALIDATION", shape);
     if (template.sequenceFieldId === fieldId && mode !== "EXTRACT") {

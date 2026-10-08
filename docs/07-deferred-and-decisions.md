@@ -700,6 +700,20 @@ template, put all 71 cells in the same place as the one before it. **A reading w
 header in the name tells twin columns apart has still not been compared**; if one goes wrong, the
 note is the fallback that is known to work. (Phase 24)
 
+**85. An Age field chooses its unit; years is the default.** Every Age field used to come out as total
+months, so a paper `2` became `24` in the table. The reviewer checks a cell against the photo, and a
+number that doesn't match the paper costs a calculation per cell. `Field.typeOptions.age.unit` is
+`YEARS` (default), `MONTHS` or `YEARS_MONTHS` (text such as `1y 6m`, proposed as a Text column). It is
+a transform setting, so changing it rebuilds rows without a new reading, and human edits are kept as
+on any rebuild. An age that isn't an exact number of years (`4/12`) is rounded to two decimals with a
+warning that points at Months. **A missing unit means `MONTHS`, not the default**: the service stamps
+`YEARS` when a field is created as, proposed as, or changed to an Age, and a save that carries no unit
+keeps the one the field has. So a lost setting (a browser tab from before the deploy, a migration that
+didn't run) can never turn 18 into 1.5 across a book. Migration `20261008000002_age_unit` writes
+`MONTHS` on every Age field that existed, for the record only. Known edges: a Years field sent to a
+Whole number column, or a Years and months field sent to a Number column, flags its cells — the hint
+under the setting says which column type to use; nothing blocks it. (2026-10-08)
+
 ## Part C — Open questions for later
 
 Not blocking v1, but worth revisiting once real data exists.

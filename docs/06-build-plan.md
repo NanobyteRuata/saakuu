@@ -1148,7 +1148,7 @@ been compared yet. The fields for it are now in `Test 3`.
 
 ---
 
-## Phase 25 — One hint for every number (built on a branch, not shipped)
+## Phase 25 — One hint for every number ✅ shipped
 
 First of four phases that make Fields mean one thing: what the AI is told. Conversion moves to the
 mapping in Phase 26, the types go from eight to five in Phase 27, and Phase 28 flags documents
@@ -1217,7 +1217,161 @@ fact without saving anything between them.
 
 **Tests:** none added. `v5` changes no code path the existing tests cover differently.
 
-**Docs to update when this ships:** docs/03 §3 item 9 (the type and hint sent for a number).
+---
+
+## Phases 26–28 — Fields are what the AI is told (planned, not built)
+
+**Why.** A date field was left on "flag two-digit years", a reading showed errors, the setting was
+changed, and the errors went away with no new reading. The Fields screen mixes two kinds of
+setting and says nothing about which is which: what the AI is told (changing it means a paid
+reading) and what steers the free conversion afterwards.
+
+**The rule.** A field setting exists only if it changes what the AI is told or sent. Everything
+done to a result after reading belongs to the mapping, is free, and re-runs at once.
+
+**Order.** 26, then 27, then 28, one phase to a session and one push each. 26 has to come before
+27: a setting cannot leave Fields until it has somewhere to go.
+
+**The rule every one of them is held to.** No existing book's output changes unless the change is
+listed here, counted, and rehearsed on a copy of the database, as Phase 24's was. `prisma migrate
+deploy`, never `migrate dev`.
+
+**Before any rehearsal:** migration `20261008000002_age_unit` was in the repository but not
+applied to the dev database on 2026-10-08. Until it is, every Age field there has no unit and
+behaves as Months by rule.
+
+### Phase 26 — Conversion moves to the mapping
+
+**Operator sees:** the Fields screen loses the two-digit-year rule, `Show age as`, and the meaning
+beside each mark symbol. On the Mapping tab, each field a mapping reads gains **Read as**: as
+written, number, date (with the two-digit-year rule), age (with the unit), fraction, mark (with
+what each symbol means), choice. Changing it rebuilds the rows at once, with no reading. On
+release day no cell in any book changes.
+
+**Why per field read, and not per output column.** Conversion has to happen before fields are
+combined: one real mapping reads an Age field inside an Expression and needs the age as a number.
+Mark meanings also decide whether a box counts as ticked, which `From ticks` depends on. Both
+hold only if each source carries its own conversion.
+
+**Schema (one migration).** `MappingInput.readAs` (JSON), filled from the field each input reads:
+Text → as written · Number and Whole number → number · Date → date with its rule (none recorded =
+flag) · Age → age with its unit (none recorded = Months, decision 85) · Fraction → fraction ·
+Choice → choice · Mark → mark with its symbol meanings. Inputs of soft-deleted fields are filled
+too, so a restore gives the same cells. Every source gets an explicit value, never "follow the
+field", so a later change of a field's type can flag documents but cannot change a cell.
+`Field.typeOptions` and the meanings in `Field.markSymbols` stay in place, unread, for one release.
+The migration **stops without changing anything** if a stored setting is not in the expected shape.
+
+**Code.** `normaliseReading` (`lib/transform/normalise.ts`) switches on the source's Read as
+instead of the field's type; `parseDate`, `parseAge`, `parseFraction`, the mark reader and the
+choice matcher are reused as they are. `MappingSource` (`lib/transform/types.ts`) carries it, and
+the per-record cache in `lib/transform/run.ts` is keyed by it. `coerce.ts` is untouched. A new
+mapping source takes its Read as from the field's type when the mapping is saved. Also:
+`lib/mappings/` (schemas, service, views), the mapping editor (the smallest control that works;
+the mapping redesign may restyle it), `field-properties.tsx` (three blocks out),
+`lib/templates/copy.ts` and `lib/documents/copy.ts` (Read as travels with a copied mapping),
+`lib/books/column-proposal.ts`. An old browser tab that still sends the removed options must be
+ignored, not refused.
+
+**Listed changes** (count each in the rehearsal and in production):
+1. A field with a setting and **no mapping** has nowhere to put it; the setting is dropped in
+   Phase 27. No cell changes, because an unmapped field fills nothing. Dev database on
+   2026-10-08: 30 of 39 Age fields, and the unmapped Date fields set to "this century".
+2. Duplicating a template without its mappings no longer carries conversions.
+3. `Create columns from this template` no longer proposes a Text column for a years-and-months
+   age or a Whole number column for a count mark.
+
+**Rehearsal.** Copy the database; dump every row the transform builds for every document (value,
+state, flag level, message); migrate the copy; dump again on the new code; compare. **Expected: no
+difference.** Production may hold what dev does not (typed fields inside a Join, odd stored
+settings), so count there first: mapped and unmapped Age, Fraction and Date fields with a
+setting, and the mappings that read them, by kind.
+
+**Tests.** The golden fixtures change their input shape only (Read as on each source); expected
+rows untouched. One E2E: change Read as on a mapping and the cells change with no reading.
+
+**Done when** the rehearsal shows no difference and the three listed changes are counted.
+
+### Phase 27 — Five types
+
+**Operator sees:** Type offers Text, Number, Date, Mark / tick, Choice. Fields that were Whole
+number, Age or Fraction show as Number. A Mark field lists the symbols used on the paper and
+nothing else. A line at the top of Fields says that everything on this screen is sent to the AI
+and that conversion is on the Mapping tab and free. The properties of a field are: name on the
+paper, meaning in English, type, mode, choices (Choice), marks used on this paper (Mark), note for
+the AI, use as the sequence field (tables).
+
+**Schema (one migration).** `FieldType` becomes five values (Age, Fraction, Whole number →
+Number); `Field.typeOptions` is dropped; `Field.markSymbols` becomes a plain list of symbols.
+
+**Prompts.** Extraction stays on `v5`: what the AI is sent does not change in this phase, which
+is what Phase 25 was for. The proposal prompt becomes `template-v4`, offering the five types;
+stored proposals from older versions fold to Number when read. The frozen prompts `v1`–`v5` are
+typed by the eight names and cannot be edited, so the prompt-side type list in
+`lib/ai/provider.ts` stays wide.
+
+**Manual fields** keep a type. It is never sent, but a Manual Mark field can be read by `From
+ticks`, and the type picks the default Read as. Their typed values are converted by the mapping's
+Read as, like read values. The Type control says "Not sent to the AI" for them.
+
+**Rehearsal.** The same row comparison, expected empty; and each field's path, type and hint as
+sent to the AI before and after, expected identical.
+
+**Tests.** Type names change in the existing specs. One E2E: add a Number field, map it, read it
+as an age.
+
+**Done when** both comparisons are empty.
+
+### Phase 28 — Read before your field changes
+
+**Operator sees:**
+- **Documents list:** a chip, *fields changed since read*, and a filter for it. The chip that
+  exists today is about pages and is reworded *pages changed since read*.
+- **Document drawer:** the same line, with **Read again** (the Extract dialog, with its estimate)
+  and **Keep this reading**.
+- **Template screen:** "38 of 120 documents were read before your latest field changes", with
+  **Read them again…** and **Keep these readings**. Keep confirms with the exact count and costs
+  nothing.
+- It only flags. Nothing is read again by itself. Undoing the edit clears the flag by itself.
+
+**How.** A fingerprint of exactly what the AI is sent for a template, computed from
+`buildTemplateSnapshot` (`lib/ai/snapshot.ts`), the one place that decides it; so the flag cannot
+drift from the prompt. Each document remembers the fingerprint it was read with. Different means
+flagged. This replaces `Template.fieldsChangedAt`, which every field save moves (a reorder, the
+English meaning, a conversion setting) and which only the test-reading pane ever showed.
+
+**Raises the flag:** a field's name or meaning, type, note, choices, mark symbols; Extract ↔
+Skip; a field moved into or out of Manual; adding, deleting, restoring or reordering a read or
+skipped field; the sequence field; the template's language hint and instructions. A rename flags
+on purpose: the name is the main thing the AI finds a column by. **Keep these readings** is what
+makes a typo fix cost one click.
+
+**Does not:** anything on the Mapping tab; an edit to a field that is and stays Manual; anchors;
+the template's name; the model. Book settings that reach the AI (glossary, numerals, era) do not
+flag either: the glossary grows during review and would flag the whole book each time.
+
+**Schema (one migration).** `Template.readingKey`, `Document.readWithKey`,
+`ExtractionRun.readingKey` (what that run was really sent; Keep never rewrites it). **Existing
+readings start clean:** every template and every read document get the same placeholder, so
+nothing is flagged on release day and the first real edit flags. A document read before an old,
+real field change is therefore not flagged; the old stamp could not tell those apart.
+
+**Tests.** One unit test of which edits change the fingerprint (a wrong one hides a mismatch
+silently). One E2E: edit a note, the documents flag, Keep clears it, no run is created.
+
+**Done when** the chip, the filter and the template count agree after an edit, and an undone edit
+clears all three.
+
+### Left for the mapping redesign
+
+- **Cleaning the running number.** The gap check strips `.` and spaces but not `။`, so `၁။` counts
+  as unreadable. The fix is one shared number-cleaning rule, but the cleaned number is also a
+  row's identity between rebuilds, and an edited row whose identity changes is kept as an orphan
+  beside a new one. It needs its own count and rehearsal. Dev database: no running number
+  contains `။`.
+- **As written, under the converted cell, in review.** Review shows the converted value beside the
+  photo; the as-written text is used only to offer a glossary term. Showing both would have
+  exposed the date incident at once.
 
 ---
 
@@ -1279,6 +1433,10 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 82 | How long the model thinks is one deployment setting, recorded on every reading; it is not a prompt version. ✅ written up |
 | 83 | In a table answer a cell left out is blank; fields are named by alias. Prompts `v2` to `v4`. ✅ written up |
 | 84 | A field is one box; the header is part of its name; ticks are combined in a `From ticks` mapping. Supersedes 28 (in part), 30, 31, 33. ✅ written up |
+| 86 | Fields are what the AI is told; conversion belongs to each field a mapping reads. Supersedes 36 and where 85 keeps the age unit. Phase 26; to write up when it ships. |
+| 87 | Five field types; one hint for every number (prompt `v5`, `template-v4`), on Phase 25's readings. Phases 25 and 27; to write up. |
+| 88 | "Fields changed since read" is a fingerprint of what the AI was sent; it only flags, and keeping a reading is a human action. Amends 78. Phase 28; to write up. |
+| 89 | Readings made before the fingerprint start clean. Phase 28; to write up. |
 
 ---
 

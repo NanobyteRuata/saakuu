@@ -84,8 +84,9 @@ ID list in the prompt and instruct the model to use exactly those IDs.
 - `altValueText` is written only when there was a correction. Everything else about a listed value
   is required, `isDitto` and `bbox` included: `v2` made those two optional and, on its one real
   reading, the model flagged none of 18 ditto marks and boxed 18 of 78 values. `v3` put them back,
-  and `v4` requires `confidence` as well (one `v3` reading left it off every value). `v4` is what
-  new runs use; `v2` and `v3` were never shipped.
+  and `v4` requires `confidence` as well (one `v3` reading left it off every value). `v2` and `v3`
+  were never shipped. `v5` (Phase 25) is `v4` with one hint for every number, and is what new runs
+  use.
 
 ## 3. Prompt structure
 
@@ -125,7 +126,13 @@ records its `promptVersion`.
      where set. A field has one name since Phase 24 (`RDT Test › Positive › A`); the snapshot
      splits it on ` › ` back into these elements, so a template that used to be nested sends the
      same `path` as before. The meaning is paired level by level when it has as many levels as the
-     name; otherwise it goes on the last element. The prompt builder is unchanged: still `v4`.
+     name; otherwise it goes on the last element. The prompt builder is unchanged by Phase 24.
+   - **One type and one hint for every number (`v5`, Phase 25).** Number, Whole number, Age and
+     Fraction fields are all sent as type `NUMBER` with the same hint, which tells the model to
+     copy the cell exactly as written and names what has to survive: digits in their own script,
+     decimal points, commas, the slash of a fraction, the space inside a mixed number, and unit
+     words (`1 1/2`, `4/12`, `၁ နှစ် ၆ လ`, `2y 3m`). The field keeps its own type for conversion
+     (§8 step 5). The test readings are in docs/06, Phase 25.
    - For TABLE templates, `SKIP` columns stay **in their paper position**, marked
      `"mode": "SKIP"` with an ignore instruction, instead of being moved to a separate heading, so
      the header list still anchors every column boundary.

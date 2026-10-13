@@ -71,24 +71,19 @@ type Fixture = {
   };
 };
 
-/** A field read with no settings: what its mapping source was given when Read as moved to the mapping. An age always says its unit. */
+/** A field read with no settings: what a new mapping source gets from its field's type. An age or a fraction is said on the input (`readAs`). */
 function plainReadAs(dataType: TransformField["dataType"]): ReadAs {
   switch (dataType) {
     case "TEXT":
       return { kind: "TEXT" };
     case "NUMBER":
-    case "INTEGER":
       return { kind: "NUMBER" };
     case "DATE":
       return { kind: "DATE", twoDigitYear: "REFUSE", pivotYear: null };
-    case "FRACTION":
-      return { kind: "FRACTION" };
     case "CHOICE":
       return { kind: "CHOICE" };
     case "MARK":
       return { kind: "MARK", symbols: {} };
-    case "AGE":
-      throw new Error("A fixture that reads an Age field says which unit: give the input a readAs.");
   }
 }
 

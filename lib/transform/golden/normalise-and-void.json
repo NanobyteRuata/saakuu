@@ -4,10 +4,10 @@
     "kind": "TABLE",
     "book": { "numeralSystem": "AUTO", "dateEra": "BUDDHIST" },
     "fields": [
-      { "id": "fcount", "labelSource": "အရေအတွက်", "dataType": "INTEGER" },
-      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" },
+      { "id": "fcount", "labelSource": "အရေအတွက်", "dataType": "NUMBER" },
+      { "id": "fage", "labelSource": "အသက်", "dataType": "NUMBER" },
       { "id": "fdate", "labelSource": "ရက်စွဲ", "dataType": "DATE" },
-      { "id": "fdose", "labelSource": "Dose", "dataType": "FRACTION" },
+      { "id": "fdose", "labelSource": "Dose", "dataType": "NUMBER" },
       { "id": "fstatus", "labelSource": "Status", "dataType": "CHOICE", "choices": ["Positive", "Negative"] },
       { "id": "ftick", "labelSource": "ကာကွယ်ဆေး", "dataType": "MARK" }
     ],
@@ -23,7 +23,7 @@
       { "column": "count", "inputs": ["fcount"] },
       { "column": "age_months", "inputs": [{ "field": "fage", "readAs": { "kind": "AGE", "unit": "MONTHS" } }] },
       { "column": "visit", "inputs": ["fdate"] },
-      { "column": "dose", "inputs": ["fdose"] },
+      { "column": "dose", "inputs": [{ "field": "fdose", "readAs": { "kind": "FRACTION" } }] },
       { "column": "status", "inputs": ["fstatus"] },
       { "column": "vaccinated", "inputs": [{ "field": "ftick", "readAs": { "kind": "MARK", "symbols": { "✓": true, "✗": false } } }] }
     ],

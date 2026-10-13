@@ -1,5 +1,4 @@
 import { createId } from "@paralleldrive/cuid2";
-import { Prisma } from "@prisma/client";
 
 import { parseReadAs } from "@/lib/mappings/read-as";
 import { MAX_MAPPINGS } from "@/lib/mappings/schemas";
@@ -88,8 +87,7 @@ export async function copyTemplateInto(
         mode: f.mode,
         note: f.note,
         choices: f.choices,
-        markSymbols: f.markSymbols === null ? Prisma.DbNull : f.markSymbols,
-        typeOptions: f.typeOptions === null ? Prisma.DbNull : f.typeOptions,
+        markSymbols: f.markSymbols,
         isSequence: id === sequenceFieldId,
         position: f.position,
       };

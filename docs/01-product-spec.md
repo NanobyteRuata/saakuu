@@ -387,9 +387,12 @@ Two supporting rules make destruction survivable:
 
 **Output column types:** `TEXT`, `NUMBER`, `INTEGER`, `DATE`, `BOOLEAN`, `ENUM`.
 
-**Field types:** `TEXT`, `NUMBER`, `INTEGER`, `DATE`, `MARK` (checkbox/tick/cross/
-circle/tally), `CHOICE` (one of a declared set), `AGE` (the `1 1/2`, `4/12` case),
-`FRACTION`.
+**Field types:** `TEXT`, `NUMBER`, `DATE`, `MARK` (checkbox/tick/cross/circle/tally),
+`CHOICE` (one of a declared set). Five since Phase 27 (decision 87): a type is what the AI
+is told to expect, and it is told one thing about every number. Whether a number is a
+count, an age (the `1 1/2`, `4/12` case) or a fraction is chosen where the field is
+mapped, under **Read as**, which costs no reading to change. Fields that were Whole
+number, Age or Fraction are Number.
 
 Field type drives the prompt fragment for that field and the available normalisers.
 A field type mismatching its mapped column type is a warning, not an error — the

@@ -25,7 +25,7 @@ export function buildTemplateSnapshot(
       mode: f.mode,
       note: f.note,
       choices: f.choices,
-      markSymbols: f.markSymbols,
+      markSymbols: f.markSymbols.length > 0 ? Object.fromEntries(f.markSymbols.map((s) => [s, true as const])) : null,
       isSequence: template.kind === "TABLE" && f.isSequence,
     });
   }

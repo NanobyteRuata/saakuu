@@ -41,18 +41,14 @@ const TEXT: ColumnShape = { dataType: "TEXT", enumValues: [] };
 
 /**
  * The column type a field's readings fit, read the way a new mapping reads them (`defaultReadAs`):
- * an age in years and a fraction are numbers, and a mark is a yes/no. A mapping set to read
- * differently afterwards (an age as years and months, a mark that counts) needs its column changed
- * by hand.
+ * a number is a number and a mark is a yes/no. A mapping set to read differently afterwards (an age
+ * as years and months, a mark that counts) needs its column changed by hand, as does a count that
+ * should refuse decimals (a Whole number column).
  */
 export function fieldColumnType(field: Pick<FieldView, "dataType" | "choices">): ColumnShape {
   switch (field.dataType) {
-    case "AGE":
     case "NUMBER":
-    case "FRACTION":
       return { dataType: "NUMBER", enumValues: [] };
-    case "INTEGER":
-      return { dataType: "INTEGER", enumValues: [] };
     case "DATE":
       return { dataType: "DATE", enumValues: [] };
     case "MARK":

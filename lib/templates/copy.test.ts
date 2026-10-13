@@ -46,8 +46,7 @@ const field = (id: string, position: string) => ({
   mode: "EXTRACT",
   note: null,
   choices: [],
-  markSymbols: null,
-  typeOptions: null,
+  markSymbols: [],
   isSequence: false,
   position,
 });

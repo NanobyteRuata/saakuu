@@ -21,7 +21,7 @@
       {
         "id": "fage",
         "labelSource": "အသက်",
-        "dataType": "AGE"
+        "dataType": "NUMBER"
       },
       {
         "id": "fnopivot",

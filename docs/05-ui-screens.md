@@ -353,6 +353,12 @@ Field properties panel: **Name on the paper** (grows with the text, with the hea
 same-name warning under it), meaning in English, data type, mode, note (multiline,
 with a hint explaining it is an instruction to the AI and an example), choices editor
 for CHOICE, **Marks used on this paper** for MARK (the symbols only), `use as sequence` toggle for table templates.
+**Type** offers Text, Number, Date, Mark / tick, Choice (Phase 27, decision 87); fields that were Whole number, Age
+or Fraction show as Number. The marks are a chip list, like choices: type a mark and press Enter, or `Add ✓ and ✗`
+when there are none. On a Manual field, under Type: *"Not sent to the AI. It decides how a new mapping reads what
+you type."* Above the list, under the add bar, one line says what this screen is: *"Everything on this screen is
+what the AI is told, so a change here needs a new reading to take effect. How a reading is converted (a date, an
+age, what a tick means) is set on the Mapping tab under Read as, and is free to change."*
 Since Phase 26 (decision 86) this panel holds only what the AI is told. The two-digit-year rule (Phase 6),
 `Show age as` and the meaning beside each mark symbol are gone from it: they are **Read as** on the Mapping tab.
 Under the mark list: *"The AI is told these are the marks to expect. What each one means is set on the Mapping tab,

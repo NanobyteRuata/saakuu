@@ -78,7 +78,7 @@ const FAKE_FORM_FIELDS: ProposedFieldDTO[] = [
   field("အမည်", "Name", "TEXT"),
   field("အဖအမည်", "Father's name", "TEXT"),
   field("မွေးသက္ကရာဇ်", "Date of birth", "DATE"),
-  field("အသက်", "Age", "AGE"),
+  field("အသက်", "Age", "NUMBER"),
   field("ကျား/မ", "Sex", "CHOICE", ["ကျား", "မ"]),
   field("မှတ်ပုံတင်အမှတ်", "Registration number", "TEXT"),
   field("ကျေးရွာ", "Village", "TEXT"),
@@ -91,9 +91,9 @@ const FAKE_FORM_FIELDS: ProposedFieldDTO[] = [
 
 /** A six-column register, left to right. */
 const FAKE_TABLE_FIELDS: ProposedFieldDTO[] = [
-  field("စဉ်", "Serial number", "INTEGER"),
+  field("စဉ်", "Serial number", "NUMBER"),
   field("အမည်", "Name", "TEXT"),
-  field("အသက်", "Age", "AGE"),
+  field("အသက်", "Age", "NUMBER"),
   field("နေရပ်", "Address", "TEXT"),
   field("အပြုသဘော", "Positive", "MARK"),
   field("မှတ်ချက်", "Remarks", "TEXT"),

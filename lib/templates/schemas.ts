@@ -13,8 +13,21 @@ export const MAX_TEMPLATES = 200;
 export const TEMPLATE_KINDS = ["FORM", "TABLE"] as const;
 export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
 
-export const FIELD_TYPES = ["TEXT", "NUMBER", "INTEGER", "DATE", "MARK", "CHOICE", "AGE", "FRACTION"] as const;
+/**
+ * The five types a field can have (Phase 27, decision 87). A type is what the AI is told to expect.
+ * How a reading is converted afterwards (a number as an age, a fraction, a count) is the mapping's
+ * Read as.
+ */
+export const FIELD_TYPES = ["TEXT", "NUMBER", "DATE", "MARK", "CHOICE"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
+
+/** The three types that became Number in Phase 27. Still found in stored proposals and sent by a browser tab from before it. */
+const FORMER_NUMBER_TYPES: readonly string[] = ["INTEGER", "AGE", "FRACTION"];
+
+/** A type name from before Phase 27 as the type it is now; anything else is returned as it came. */
+export function foldFieldType(value: unknown): unknown {
+  return typeof value === "string" && FORMER_NUMBER_TYPES.includes(value) ? "NUMBER" : value;
+}
 
 export const FIELD_MODES = ["EXTRACT", "SKIP", "MANUAL"] as const;
 export type FieldMode = (typeof FIELD_MODES)[number];
@@ -110,11 +123,23 @@ export type MultipleMarked = (typeof MULTIPLE_MARKED)[number];
 
 // ---------- Fields ----------
 
+/** What each mark symbol means, on a mapping's Read as (decision 86): ticked, not ticked, or counted. */
 export const markSymbolsSchema = z
   .record(z.string().trim().min(1).max(20), z.union([z.boolean(), z.literal("count")]))
   .refine((m) => Object.keys(m).length <= MAX_MARK_SYMBOLS, { error: `Up to ${MAX_MARK_SYMBOLS} symbols.` });
 
 export type MarkSymbols = z.infer<typeof markSymbolsSchema>;
+
+/**
+ * The marks used on the paper, as a Mark field lists them for the AI. A browser tab from before
+ * Phase 27 sends the symbols as the keys of an object, or null for none; both are read as the list.
+ */
+export const markSymbolListSchema = z.preprocess(
+  (v) => (v === null ? [] : typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : v),
+  z
+    .array(z.string().trim().min(1, { error: "Mark symbols can't be blank." }).max(20))
+    .max(MAX_MARK_SYMBOLS, { error: `Up to ${MAX_MARK_SYMBOLS} symbols.` }),
+);
 
 /**
  * What a two-digit year means for one date a mapping reads (Phase 6; on the mapping's Read as since
@@ -143,18 +168,6 @@ export const AGE_UNITS = ["YEARS", "MONTHS", "YEARS_MONTHS"] as const;
 export type AgeUnit = (typeof AGE_UNITS)[number];
 export const NEW_AGE_UNIT: AgeUnit = "YEARS";
 
-export const ageFieldOptionsSchema = z.object({ unit: z.enum(AGE_UNITS) });
-
-export type AgeFieldOptions = z.infer<typeof ageFieldOptionsSchema>;
-
-/**
- * Where conversion settings lived before Phase 26. `Field.typeOptions` is kept, unread, for one
- * release; the field API still accepts this shape from an old browser tab and ignores it.
- */
-export const fieldTypeOptionsSchema = z.object({ date: dateFieldOptionsSchema.optional(), age: ageFieldOptionsSchema.optional() });
-
-export type FieldTypeOptions = z.infer<typeof fieldTypeOptionsSchema>;
-
 export const choicesSchema = z
   .array(z.string().trim().min(1, { error: "Choices can't be blank." }).max(200))
   .max(MAX_CHOICES, { error: `Up to ${MAX_CHOICES} choices.` });
@@ -163,22 +176,21 @@ const fieldProps = {
   /** The field's name. A header above it on the paper goes in front: "RDT Test › Positive › A". */
   labelSource: z.string().trim().min(1, { error: "Enter the name as it is written on the paper." }).max(MAX_FIELD_NAME),
   labelMeaning: optionalText(MAX_FIELD_NAME),
-  dataType: z.enum(FIELD_TYPES),
+  /** A tab from before Phase 27 may still send Whole number, Age or Fraction: each is Number now. */
+  dataType: z.preprocess(foldFieldType, z.enum(FIELD_TYPES)),
   mode: z.enum(FIELD_MODES),
   note: optionalText(2000),
   choices: choicesSchema,
-  markSymbols: markSymbolsSchema.nullable(),
-  typeOptions: fieldTypeOptionsSchema.nullable(),
+  markSymbols: markSymbolListSchema,
 };
 
 /** Rules on a field's final shape. Returns a plain-language problem or null. */
-export function fieldShapeProblem(f: { dataType: FieldType; choices: string[]; markSymbols: MarkSymbols | null }): string | null {
+export function fieldShapeProblem(f: { dataType: FieldType; choices: string[]; markSymbols: string[] }): string | null {
   if (f.dataType === "CHOICE" && f.choices.length === 0) return "A choice field needs at least one choice.";
   if (f.dataType !== "CHOICE" && f.choices.length > 0) return "Only choice fields can have choices.";
   if (new Set(f.choices).size !== f.choices.length) return "Each choice can only be listed once.";
-  if (f.dataType !== "MARK" && f.markSymbols !== null && Object.keys(f.markSymbols).length > 0) {
-    return "Only mark fields can have symbol meanings.";
-  }
+  if (f.dataType !== "MARK" && f.markSymbols.length > 0) return "Only mark fields can list mark symbols.";
+  if (new Set(f.markSymbols).size !== f.markSymbols.length) return "Each mark symbol can only be listed once.";
   return null;
 }
 
@@ -194,7 +206,6 @@ export const createFieldSchema = z.object({
   after: idSchema.nullable().optional(),
   choices: fieldProps.choices.default([]),
   markSymbols: fieldProps.markSymbols.optional(),
-  typeOptions: fieldProps.typeOptions.optional(),
 });
 
 export type CreateFieldInput = z.infer<typeof createFieldSchema>;
@@ -208,7 +219,6 @@ export const updateFieldSchema = z
     note: fieldProps.note.optional(),
     choices: fieldProps.choices.optional(),
     markSymbols: fieldProps.markSymbols.optional(),
-    typeOptions: fieldProps.typeOptions.optional(),
     /** Move: the field to place it after (null = first). */
     move: z.object({ after: idSchema.nullable() }).optional(),
   })

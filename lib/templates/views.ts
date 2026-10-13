@@ -1,13 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
-import {
-  fieldTypeOptionsSchema,
-  markSymbolsSchema,
-  type FieldMode,
-  type FieldType,
-  type FieldTypeOptions,
-  type MarkSymbols,
-} from "./schemas";
+import type { FieldMode, FieldType } from "./schemas";
 
 export type FieldView = {
   id: string;
@@ -18,9 +11,8 @@ export type FieldView = {
   mode: FieldMode;
   note: string | null;
   choices: string[];
-  markSymbols: MarkSymbols | null;
-  /** Settings for this field's type, e.g. how a date field reads two-digit years. */
-  typeOptions: FieldTypeOptions | null;
+  /** Mark fields: the symbols used on the paper, as the AI is told them. What each means is the mapping's Read as. */
+  markSymbols: string[];
   isSequence: boolean;
   position: string;
 };
@@ -36,7 +28,6 @@ export const fieldSelect = {
   note: true,
   choices: true,
   markSymbols: true,
-  typeOptions: true,
   isSequence: true,
   position: true,
 } satisfies Prisma.FieldSelect;
@@ -44,7 +35,5 @@ export const fieldSelect = {
 type FieldRow = Prisma.FieldGetPayload<{ select: typeof fieldSelect }>;
 
 export function toFieldView(row: FieldRow): FieldView {
-  const marks = markSymbolsSchema.safeParse(row.markSymbols);
-  const options = fieldTypeOptionsSchema.safeParse(row.typeOptions);
-  return { ...row, markSymbols: marks.success ? marks.data : null, typeOptions: options.success ? options.data : null };
+  return row;
 }

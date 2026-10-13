@@ -1,5 +1,4 @@
 import { createId } from "@paralleldrive/cuid2";
-import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
@@ -9,7 +8,7 @@ import { requestTemplateTransform } from "@/lib/transform/triggers";
 
 import { lockTemplate, markSourceChanged, recomputeConfigState, requireFieldAccess, requireTemplateAccess } from "./access";
 import { appendPosition, positionAfter, type Positioned } from "./positions";
-import { fieldShapeProblem, MAX_FIELDS, type CreateFieldInput, type MarkSymbols, type UpdateFieldInput } from "./schemas";
+import { fieldShapeProblem, MAX_FIELDS, type CreateFieldInput, type UpdateFieldInput } from "./schemas";
 import { applyPositionRewrites, loadSourceFields } from "./source-fields";
 import { fieldSelect, toFieldView, type FieldView } from "./views";
 
@@ -19,10 +18,6 @@ import { fieldSelect, toFieldView, type FieldView } from "./views";
  * here refuses (decision 84).
  */
 
-function jsonOrNull(value: MarkSymbols | null): Prisma.InputJsonValue | typeof Prisma.DbNull {
-  return value === null ? Prisma.DbNull : value;
-}
-
 export async function createField(userId: string, templateId: string, input: CreateFieldInput): Promise<FieldView> {
   await requireTemplateAccess(userId, templateId);
   return prisma.$transaction(async (tx) => {
@@ -31,9 +26,7 @@ export async function createField(userId: string, templateId: string, input: Cre
     if (source.list.length >= MAX_FIELDS) throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields.`);
 
     const dataType = input.dataType ?? "TEXT";
-    const markSymbols = input.markSymbols ?? null;
-    // Conversion settings belong to the mapping since Phase 26 (decision 86): `typeOptions` is accepted
-    // from a browser tab that still sends it and ignored, and nothing new is stored there.
+    const markSymbols = input.markSymbols ?? [];
     const shape = fieldShapeProblem({ dataType, choices: input.choices, markSymbols });
     if (shape) throw new AppError("VALIDATION", shape);
 
@@ -48,14 +41,13 @@ export async function createField(userId: string, templateId: string, input: Cre
       note: input.note ?? null,
       choices: input.choices,
       markSymbols,
-      typeOptions: null,
       isSequence: false,
       position: placed.position,
     };
 
     await applyPositionRewrites(tx, placed.rewrites);
     const field = await tx.field.create({
-      data: { ...draft, templateId, markSymbols: jsonOrNull(markSymbols), typeOptions: Prisma.DbNull },
+      data: { ...draft, templateId },
       select: fieldSelect,
     });
     await markSourceChanged(tx, templateId);
@@ -67,7 +59,7 @@ export async function createField(userId: string, templateId: string, input: Cre
 
 /** What about a field reaches rows: everything but its note and its place in the list. */
 function fieldOutputKey(f: FieldView): string {
-  return JSON.stringify([f.labelSource, f.labelMeaning, f.dataType, f.mode, f.choices, f.markSymbols, f.typeOptions]);
+  return JSON.stringify([f.labelSource, f.labelMeaning, f.dataType, f.mode, f.choices, f.markSymbols]);
 }
 
 export async function updateField(userId: string, fieldId: string, input: UpdateFieldInput): Promise<FieldView> {
@@ -83,8 +75,7 @@ export async function updateField(userId: string, fieldId: string, input: Update
     const mode = input.mode ?? current.mode;
     // A type change drops properties that no longer apply rather than failing on them.
     const choices = input.choices ?? (dataType === "CHOICE" ? current.choices : []);
-    const markSymbols = input.markSymbols !== undefined ? input.markSymbols : dataType === "MARK" ? current.markSymbols : null;
-    // `typeOptions` stays as stored, unread, for one release (decision 86): a tab that still sends it changes nothing.
+    const markSymbols = input.markSymbols !== undefined ? input.markSymbols : dataType === "MARK" ? current.markSymbols : [];
     const shape = fieldShapeProblem({ dataType, choices, markSymbols });
     if (shape) throw new AppError("VALIDATION", shape);
     if (template.sequenceFieldId === fieldId && mode !== "EXTRACT") {
@@ -116,7 +107,7 @@ export async function updateField(userId: string, fieldId: string, input: Update
         dataType,
         mode,
         choices,
-        markSymbols: jsonOrNull(markSymbols),
+        markSymbols,
         position: next.position,
       },
       select: fieldSelect,

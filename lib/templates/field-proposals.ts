@@ -28,7 +28,7 @@ import type {
   ProposedFieldView,
   StartFieldProposalInput,
 } from "./field-proposal-schemas";
-import { fieldShapeProblem, FIELD_TYPES, MAX_FIELDS } from "./schemas";
+import { fieldShapeProblem, FIELD_TYPES, foldFieldType, MAX_FIELDS } from "./schemas";
 import { formatPath, nameKey } from "./field-list";
 import { loadSourceFields } from "./source-fields";
 
@@ -215,7 +215,9 @@ export function parseProposalItems(json: Prisma.JsonValue | null): ProposedField
   return json.flatMap((raw): ProposedFieldDTO[] => {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return [];
     // `template-v2` proposals carry the header apart from the label; it is the front of the name now.
-    const { headerSource, headerMeaning, labelSource, labelMeaning, dataType, choices, note } = raw;
+    const { headerSource, headerMeaning, labelSource, labelMeaning, choices, note } = raw;
+    // Proposals from before `template-v4` name eight types; Whole number, Age and Fraction are Number now.
+    const dataType = foldFieldType(raw.dataType);
     const header = typeof headerSource === "string" && headerSource.trim() !== "" ? headerSource.trim() : null;
     const headerEnglish = typeof headerMeaning === "string" && headerMeaning.trim() !== "" ? headerMeaning.trim() : null;
     const meaning = typeof labelMeaning === "string" ? labelMeaning : null;
@@ -353,7 +355,7 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
       throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields; this would make ${source.list.length + chosen.length}.`);
     }
     for (const f of chosen) {
-      const shape = fieldShapeProblem({ dataType: f.dataType, choices: f.choices, markSymbols: null });
+      const shape = fieldShapeProblem({ dataType: f.dataType, choices: f.choices, markSymbols: [] });
       if (shape) throw new AppError("VALIDATION", `“${f.labelSource}”: ${shape}`);
     }
 
@@ -368,8 +370,6 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
       mode: "EXTRACT" as const,
       note: f.note,
       choices: f.choices,
-      markSymbols: Prisma.DbNull,
-      typeOptions: Prisma.DbNull,
       position: positions[i] ?? "",
     }));
     await tx.field.createMany({ data });

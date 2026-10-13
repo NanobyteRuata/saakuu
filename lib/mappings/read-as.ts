@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AGE_UNITS, markSymbolsSchema, NEW_AGE_UNIT, TWO_DIGIT_YEAR_RULES, type FieldType, type MarkSymbols } from "@/lib/templates/schemas";
+import { AGE_UNITS, markSymbolsSchema, NEW_AGE_UNIT, TWO_DIGIT_YEAR_RULES, type FieldType } from "@/lib/templates/schemas";
 
 /**
  * Read as (Phase 26, decision 86): how one field a mapping reads is converted before the mapping
@@ -59,38 +59,34 @@ export function defaultSymbolMeaning(symbol: string): boolean {
 /**
  * What a source reads as when nothing says otherwise: decided by the field's type, once, when the
  * source is first added. A mark's listed symbols are given a yes or no; counting is never assumed.
+ * A Number field reads as a number: an age or a fraction is chosen by the operator (Phase 27).
  */
-export function defaultReadAs(field: { dataType: FieldType; markSymbols: MarkSymbols | null }): ReadAs {
+export function defaultReadAs(field: { dataType: FieldType; markSymbols: string[] }): ReadAs {
   switch (field.dataType) {
     case "TEXT":
       return AS_WRITTEN;
     case "NUMBER":
-    case "INTEGER":
       return { kind: "NUMBER" };
     case "DATE":
       return { kind: "DATE", twoDigitYear: "REFUSE", pivotYear: null };
-    case "AGE":
-      return { kind: "AGE", unit: NEW_AGE_UNIT };
-    case "FRACTION":
-      return { kind: "FRACTION" };
     case "CHOICE":
       return { kind: "CHOICE" };
     case "MARK":
-      return { kind: "MARK", symbols: Object.fromEntries(Object.keys(field.markSymbols ?? {}).map((s) => [s, defaultSymbolMeaning(s)])) };
+      return { kind: "MARK", symbols: Object.fromEntries(field.markSymbols.map((s) => [s, defaultSymbolMeaning(s)])) };
   }
 }
 
 /** The same kind with that kind's starting options, for when the operator picks another kind. */
-export function readAsOfKind(kind: ReadAsKind, field: { markSymbols: MarkSymbols | null }): ReadAs {
+export function readAsOfKind(kind: ReadAsKind, field: { markSymbols: string[] }): ReadAs {
   switch (kind) {
     case "TEXT":
       return AS_WRITTEN;
     case "NUMBER":
       return { kind };
     case "DATE":
-      return defaultReadAs({ dataType: "DATE", markSymbols: null });
+      return defaultReadAs({ dataType: "DATE", markSymbols: [] });
     case "AGE":
-      return defaultReadAs({ dataType: "AGE", markSymbols: null });
+      return { kind, unit: NEW_AGE_UNIT };
     case "FRACTION":
       return { kind };
     case "CHOICE":

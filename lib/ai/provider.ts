@@ -1,4 +1,4 @@
-import type { FieldType, TickSelection, MarkSymbols, TemplateKind } from "@/lib/templates/schemas";
+import type { FieldType, TickSelection, TemplateKind } from "@/lib/templates/schemas";
 
 import type { AIModelId } from "./models";
 
@@ -49,16 +49,24 @@ export function addUsage(total: TokenUsage, call: TokenUsage): void {
 /** One header on the paper, from the top down: the label as written and its English meaning. */
 export type PathLabel = { label: string; meaning: string | null };
 
+/**
+ * The type names the extraction prompts are written in. A field has five types since Phase 27, but
+ * the frozen prompts `v1`–`v5` are typed by the eight there were and cannot be edited, so this list
+ * stays wide. A snapshot built today only ever carries the five.
+ */
+export type PromptFieldType = FieldType | "INTEGER" | "AGE" | "FRACTION";
+
 export type SnapshotField = {
   id: string;
   /** The headers above the field from the top down (when it has any), then the field itself. */
   path: PathLabel[];
-  dataType: FieldType;
+  dataType: PromptFieldType;
   /** MANUAL fields are never part of a snapshot. */
   mode: "EXTRACT" | "SKIP";
   note: string | null;
   choices: string[];
-  markSymbols: MarkSymbols | null;
+  /** The symbols a Mark field lists, as keys: the shape the frozen prompts read. The values are not used. */
+  markSymbols: Record<string, true> | null;
   isSequence: boolean;
 };
 

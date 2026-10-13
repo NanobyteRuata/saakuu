@@ -5,7 +5,7 @@
     "sequenceFieldId": "fno",
     "book": { "numeralSystem": "AUTO", "dateEra": "BUDDHIST" },
     "fields": [
-      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fno", "labelSource": "No.", "dataType": "NUMBER" },
       { "id": "fvisit", "labelSource": "ရက်စွဲ", "dataType": "DATE" },
       { "id": "fnoted", "labelSource": "Noted" },
       { "id": "fname", "labelSource": "အမည်" }

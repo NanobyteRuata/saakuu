@@ -4,7 +4,7 @@
     "kind": "TABLE",
     "sequenceFieldId": "fno",
     "fields": [
-      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fno", "labelSource": "No.", "dataType": "NUMBER" },
       { "id": "fm", "labelSource": "လိင် › ကျား", "labelMeaning": "Sex › M", "dataType": "MARK" },
       { "id": "ff", "labelSource": "လိင် › မ", "labelMeaning": "Sex › F", "dataType": "MARK" },
       { "id": "fa", "labelSource": "RDT Test › Positive › A", "dataType": "MARK" },

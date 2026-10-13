@@ -406,6 +406,10 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 | TPL-55 | psql: count `"Mapping"` rows for the copied template before TPL-54 | Zero |
 | TPL-56 | Delete a template with documents | Counted confirmation (templates, documents, photos, rows, edited cells). Template and its documents are soft-deleted |
 | TPL-70 | (Phase 26: `Show age as` is on the Mapping tab, under Read as, for each mapping that reads the age; the Fields tab no longer shows it. A mapping made before Phase 26 kept its field's unit; one made after starts on Years.) Edit a mapping that reads an Age field; switch `Show age as` between Years, Months and Years and months; save | A field just changed to Age starts on `Years`; the hint changes with the choice. After saving, the table rebuilds without a reading: `1 1/2` shows 1.5 / 18 / 1y 6m; `4/12` as years shows 0.33 with a warning. Edited cells keep their values. An Age field made before this change still says `Months`. Years into a `Whole number` column, or Years and months into a `Number` column, flags the cells (the hint names the right column type) |
+| TPL-71 | (Phase 27) Fields tab: open the Type list in the add bar and on a field | Text, Number, Date, Mark / tick, Choice and nothing else. A field that was Whole number, Age or Fraction shows `Number`; its cells are unchanged and its mapping still says Age or Fraction under Read as |
+| TPL-72 | Add a Number field, `Create columns from this template`, edit its mapping | A Number column; Read as starts on `Number`. Choose `Age`: it starts on Years, and saving rebuilds the cells with no reading |
+| TPL-73 | A Mark field: add and remove marks | A chip list with no meanings beside the marks. `Add ✓ and ✗` appears only when the list is empty. A mark added here is offered on the Mapping tab until it is given a meaning |
+| TPL-74 | Set a field to Manual | Under Type: `Not sent to the AI. It decides how a new mapping reads what you type.` |
 
 ---
 

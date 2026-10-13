@@ -747,10 +747,38 @@ two-digit-year rule, the age unit, what each mark symbol means) moved to **Read 
   (docs/06 Phase 26 has the numbers).
 - *What was given up.* A field no mapping read had nowhere to put its setting: mapped later, it
   starts from the defaults. Duplicating a template without its mappings no longer carries
-  conversions. `Field.typeOptions` and the meanings in `Field.markSymbols` stay, unread, for one
-  release, and go in Phase 27.
+  conversions. `Field.typeOptions` and the meanings in `Field.markSymbols` stayed, unread, for one
+  release, and went in Phase 27 (decision 87).
 - *The honest limit.* A field's **type** is still told to the AI *and* picks the default Read as for a
   new source. It is one setting with two effects; only the first costs a reading. (Phase 26)
+
+**87. A field has five types, and the AI is told one thing about every number.** Text, Number, Date,
+Mark / tick, Choice. Whole number, Age and Fraction were types only because each had its own
+conversion, and since decision 86 conversion is not a field's business. What was left of them on the
+Fields screen was a difference in what the AI was told, and that difference was tested before it was
+removed.
+- *The evidence.* Prompt `v5` (Phase 25) sends all four as type `NUMBER` with one hint that names what
+  has to survive: digits in their own script, decimal points, commas, the slash of a fraction, the
+  space inside a mixed number, unit words. Four `v5` readings of two pages lost nothing against `v4`
+  (docs/06, Phase 25). The evidence is small and says so; a sixth type, "Number with fraction or unit",
+  was the fallback and was not needed.
+- *Why the database follows.* A type the AI cannot tell apart is a choice with no effect on a reading
+  and, since every mapping source carries its own Read as, none on a cell. Keeping it would have kept
+  the confusion decision 86 set out to remove.
+- *What an age is now.* A Number field whose mapping reads it as an age. A mapping that existed keeps
+  its Read as, so nothing moved; a former Age or Fraction field mapped for the first time afterwards
+  starts as a number, and the operator chooses. `Create columns` proposes a Number column for every
+  number; a count that should refuse decimals is given a Whole number column by hand.
+- *The frozen prompts are not edited.* `v1`–`v5` are typed by the eight names and read mark symbols as
+  an object. The boundary keeps both shapes (`PromptFieldType`, and the snapshot's object of symbols),
+  so the old files compile and the current one is sent the same text, character for character. That
+  was checked for every template, beside the row comparison (docs/06, Phase 27).
+- *Proposals.* `template-v4` offers five types. Stored proposals from older versions are folded when
+  read, never rewritten.
+- *What was given up.* The settings Phase 26 left on fields with no mapping are gone with
+  `Field.typeOptions`. The migration cannot be undone by deploying the image before it. A Manual
+  field still has a type though it is never sent: it picks the default Read as, and a Manual Mark can
+  be read by `From ticks`; the screen says so. (Phases 25 and 27)
 
 ## Part C — Open questions for later
 

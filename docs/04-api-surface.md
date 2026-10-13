@@ -272,6 +272,10 @@ PATCH  /api/fields/:id                      any of the above except after, + mov
   from it and what a field already holds is left as it is. A browser tab from before the release keeps saving.
   `markSymbols` is the list of symbols sent to the AI; the meaning beside each is stored but no longer read.
   What a date's two-digit year, an age's unit and a mark's symbols mean is set per mapping source (`readAs`, below).
+- **Phase 27** (decision 87): `dataType` is one of `TEXT`, `NUMBER`, `DATE`, `MARK`, `CHOICE`. `markSymbols` is a
+  list of symbols (`string[]`, at most 20, each once; only on a `MARK` field). `typeOptions` is gone; sent, it is
+  dropped unread. For one release a browser tab from before it keeps saving: `INTEGER`, `AGE` and `FRACTION` are
+  taken as `NUMBER`, and `markSymbols` sent as an object (or `null`) is taken as its symbols (or none).
 - Fields are one list per template. `after` names the field it goes after (`null` = first; absent
   on create = the end of the list). A move writes one row.
 - `labelSource` is the field's whole name, the header above it in front, levels joined with ` › `

@@ -255,12 +255,9 @@ enum MultipleMarked {
 enum FieldType {
   TEXT
   NUMBER
-  INTEGER
   DATE
   MARK
   CHOICE
-  AGE
-  FRACTION
 }
 
 enum FieldMode {
@@ -278,8 +275,7 @@ model Field {
   mode         FieldMode @default(EXTRACT)
   note         String? // human-language hint to the AI
   choices      String[]  @default([]) // CHOICE
-  markSymbols  Json? // MARK: the symbols used on the paper, as keys. Their meanings are unread since Phase 26 (MappingInput.readAs)
-  typeOptions  Json? // unread since Phase 26; kept for one release. Was date: { twoDigitYear, pivotYear }, age: { unit }
+  markSymbols  String[]  @default([]) // MARK: the symbols used on the paper. What each means is on MappingInput.readAs
   isSequence   Boolean   @default(false)
   position     String
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)

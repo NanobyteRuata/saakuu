@@ -72,16 +72,16 @@ async function main(): Promise<void> {
     return c.id;
   };
 
-  const MARKS = { "✓": true, "✗": false };
+  const MARKS = ["✓", "✗"];
   /** How each seeded mapping reads its field. The age column holds months, so the age is read as months. */
-  const readAsFor = (dataType: (typeof fieldDefs)[number]["dataType"]): ReadAs =>
-    dataType === "AGE" ? { kind: "AGE", unit: "MONTHS" } : defaultReadAs({ dataType, markSymbols: dataType === "MARK" ? MARKS : null });
+  const readAsFor = (f: (typeof fieldDefs)[number]): ReadAs =>
+    f.key === "age_months" ? { kind: "AGE", unit: "MONTHS" } : defaultReadAs({ dataType: f.dataType, markSymbols: f.dataType === "MARK" ? MARKS : [] });
 
   const fieldDefs = [
-    { key: "no", labelSource: "စဉ်", labelMeaning: "No.", dataType: "INTEGER", mode: "EXTRACT" },
+    { key: "no", labelSource: "စဉ်", labelMeaning: "No.", dataType: "NUMBER", mode: "EXTRACT" },
     { key: "name", labelSource: "အမည်", labelMeaning: "Name", dataType: "TEXT", mode: "EXTRACT" },
     { key: "sex", labelSource: "ကျား/မ", labelMeaning: "Sex", dataType: "TEXT", mode: "EXTRACT" },
-    { key: "age_months", labelSource: "အသက်", labelMeaning: "Age", dataType: "AGE", mode: "EXTRACT" },
+    { key: "age_months", labelSource: "အသက်", labelMeaning: "Age", dataType: "NUMBER", mode: "EXTRACT" },
     { key: "visit_date", labelSource: "ရက်စွဲ", labelMeaning: "Date", dataType: "DATE", mode: "EXTRACT" },
     { key: "village", labelSource: "ရွာ", labelMeaning: "Village", dataType: "TEXT", mode: "MANUAL" },
     { key: "fever", labelSource: "ဖျား", labelMeaning: "Fever", dataType: "MARK", mode: "EXTRACT" },
@@ -116,7 +116,7 @@ async function main(): Promise<void> {
           outputColumnId: column(f.key),
           kind: "COPY",
           position: fieldPositions[i] ?? "",
-          inputs: { create: [{ fieldId: fieldIds[f.key], position: 0, readAs: readAsFor(f.dataType) }] },
+          inputs: { create: [{ fieldId: fieldIds[f.key], position: 0, readAs: readAsFor(f) }] },
         })),
       },
     },

@@ -260,6 +260,11 @@ export function FieldList({ template, list, setTemplate, selectedId, onSelect, r
           </span>
           .
         </p>
+        <p className="text-muted-foreground text-xs">
+          Everything on this screen is what the AI is told, so a change here needs a new reading to take effect. How a reading is converted
+          (a date, an age, what a tick means) is set on the Mapping tab under <span className="font-medium">Read as</span>, and is free to
+          change.
+        </p>
         {error ? <FormMessage tone="error">{error}</FormMessage> : null}
         {duplicates.size > 0 ? (
           <FormMessage tone="info">

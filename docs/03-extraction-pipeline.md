@@ -131,8 +131,13 @@ records its `promptVersion`.
      Fraction fields are all sent as type `NUMBER` with the same hint, which tells the model to
      copy the cell exactly as written and names what has to survive: digits in their own script,
      decimal points, commas, the slash of a fraction, the space inside a mixed number, and unit
-     words (`1 1/2`, `4/12`, `၁ နှစ် ၆ လ`, `2y 3m`). The field keeps its own type for conversion
-     (§8 step 5). The test readings are in docs/06, Phase 25.
+     words (`1 1/2`, `4/12`, `၁ နှစ် ၆ လ`, `2y 3m`). The test readings are in docs/06, Phase 25.
+     Since Phase 27 a field has only the five types the model is told about, so those four are one
+     type, Number, in the database too. The frozen prompts `v1`–`v5` are typed by the eight names
+     and are not edited: `SnapshotField.dataType` is `PromptFieldType` (`lib/ai/provider.ts`), the
+     five plus the three old names, and `markSymbols` reaches them as an object keyed by symbol,
+     built by `buildTemplateSnapshot` from the field's list. What is sent is the same, character
+     for character (docs/06, Phase 27).
    - For TABLE templates, `SKIP` columns stay **in their paper position**, marked
      `"mode": "SKIP"` with an ignore instruction, instead of being moved to a separate heading, so
      the header list still anchors every column boundary.
@@ -487,6 +492,10 @@ export type FieldProposalResult = { fields: ProposedFieldDTO[]; usage; rawRespon
     (`template-v3`, Phase 24). `template-v1` put the header in `note`; `template-v2`, used for two
     proposals during Phase 24, returned it in keys of its own, and stored `template-v2` proposals are
     folded into one name when read.
+  - **Five types (`template-v4`, Phase 27).** The model chooses from `TEXT`, `NUMBER`, `DATE`, `MARK`,
+    `CHOICE`; counts, running numbers, ages and fractions are all `NUMBER`. Stored proposals from
+    `template-v1`–`v3` name eight: `INTEGER`, `AGE` and `FRACTION` are folded to `NUMBER` when read
+    (`parseProposalItems`), never rewritten.
   - On a page with labelled blanks and a grid, the two kinds give visibly different lists. A page with no
     grid reads much the same either way.
 - **Flat fields only** (decision 73), the header at the front of each name (decision 84). Which tick

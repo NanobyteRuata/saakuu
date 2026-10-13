@@ -1219,7 +1219,7 @@ fact without saving anything between them.
 
 ---
 
-## Phases 26–28 — Fields are what the AI is told (26 built; 27 and 28 planned)
+## Phases 26–28 — Fields are what the AI is told (26 shipped; 27 built; 28 planned)
 
 **Why.** A date field was left on "flag two-digit years", a reading showed errors, the setting was
 changed, and the errors went away with no new reading. The Fields screen mixes two kinds of
@@ -1240,7 +1240,7 @@ deploy`, never `migrate dev`.
 applied to the dev database on 2026-10-08. Do not apply it there as written: see Phase 26 for why
 and for what was done instead.
 
-### Phase 26 — Conversion moves to the mapping (built, not shipped)
+### Phase 26 — Conversion moves to the mapping ✅ shipped
 
 **Operator sees:** the Fields screen loses the two-digit-year rule, `Show age as`, and the meaning
 beside each mark symbol; a Mark field keeps the list of symbols used on the paper. On the Mapping
@@ -1360,35 +1360,112 @@ balance is what the one reading left.
 
 **Done when** the rehearsal shows no difference and the three listed changes are counted.
 
-### Phase 27 — Five types
+### Phase 27 — Five types (built, not shipped)
 
 **Operator sees:** Type offers Text, Number, Date, Mark / tick, Choice. Fields that were Whole
-number, Age or Fraction show as Number. A Mark field lists the symbols used on the paper and
-nothing else. A line at the top of Fields says that everything on this screen is sent to the AI
-and that conversion is on the Mapping tab and free. The properties of a field are: name on the
-paper, meaning in English, type, mode, choices (Choice), marks used on this paper (Mark), note for
-the AI, use as the sequence field (tables).
+number, Age or Fraction show as Number. A Mark field lists the symbols used on the paper, as chips,
+and nothing else. A line at the top of Fields says that everything on this screen is what the AI is
+told, and that conversion is on the Mapping tab, under Read as, and free. The properties of a field
+are: name on the paper, meaning in English, type, mode, choices (Choice), marks used on this paper
+(Mark), note for the AI, use as the sequence field (tables). On release day no cell in any book
+changes, and the AI is sent what it was sent the day before.
 
-**Schema (one migration).** `FieldType` becomes five values (Age, Fraction, Whole number →
-Number); `Field.typeOptions` is dropped; `Field.markSymbols` becomes a plain list of symbols.
+**Schema (one migration).** `20261013100000_phase_27_five_types`: `FieldType` has five values
+(Whole number, Age, Fraction → Number); `Field.typeOptions` is dropped; `Field.markSymbols` is a
+plain list of symbols, written in the order they are sent today.
+- It **stops without changing anything** if any field holds mark symbols that are not an object of
+  at most 20 trimmed, non-blank symbols.
+- It is **one-way.** The Phase 26 image reads the dropped column, so going back means restoring the
+  database backup, not redeploying the older image. Take a backup before the push.
 
-**Prompts.** Extraction stays on `v5`: what the AI is sent does not change in this phase, which
-is what Phase 25 was for. The proposal prompt becomes `template-v4`, offering the five types;
-stored proposals from older versions fold to Number when read. The frozen prompts `v1`–`v5` are
-typed by the eight names and cannot be edited, so the prompt-side type list in
-`lib/ai/provider.ts` stays wide.
+**What ships**
+- `lib/templates/schemas.ts`: `FIELD_TYPES` is the five; `markSymbolListSchema` is the field's
+  list; `fieldTypeOptionsSchema` is gone. `foldFieldType` turns an old type name into Number.
+- The AI boundary keeps the old shapes for the frozen prompts. `PromptFieldType`
+  (`lib/ai/provider.ts`) is the five types plus the three old names, and `buildTemplateSnapshot`
+  hands mark symbols to the prompts as an object keyed by symbol, which is how `v1`–`v5` read them.
+  No prompt file from `v1`–`v5` or `template-v1`–`v3` was edited.
+- `template-v4` (`lib/ai/prompts/template-v4.ts`) offers the five types. Stored proposals from
+  older versions fold Whole number, Age and Fraction to Number when read (`parseProposalItems`).
+- A new mapping source of a Number field reads as a number (`defaultReadAs`); `Create columns`
+  proposes a Number column for it. Read as still offers all seven kinds, age and fraction included.
+- Fields editor: five types, the marks as a chip list, "Not sent to the AI" under Type on a Manual
+  field, and the line at the top of the list.
+- For one release the field API takes what a browser tab from before the release sends: an old type
+  name becomes Number, mark symbols sent as an object become its symbols, `typeOptions` is dropped.
+- `scripts/dump-sent-fields.ts` (read-only): the field list as the current prompt writes it, for
+  every template, with a fingerprint of the whole instruction text. Kept for Phase 28.
+
+**What did not match the plan above when it was built (2026-10-13).**
+- "The prompt-side type list stays wide" was not a note but a new type: the snapshot borrowed the
+  Fields type list, so shrinking that list would have stopped the frozen prompts compiling.
+- The frozen prompts read mark symbols as an object, not a list. The database holds the list; the
+  snapshot rebuilds the object.
+- Stored proposals did not fold: an item with an unknown type was dropped. Without the fold, 72
+  stored items on dev (29 Whole number, 42 Age, 1 Fraction) would have vanished from old proposals.
+- There was no tool for the second comparison. `dump-sent-fields.ts` is it.
+- A fixture that read a Fraction field with no Read as now says so on its input, as Age fixtures
+  already did; no expected row changed.
+- `prisma migrate diff` on dev also reports `imageDetail` on `ExtractionRun` and `FieldProposal`:
+  two columns from the unshipped Phase 23 branch that the dev database still has. Not this phase's;
+  left alone.
+
+**Listed changes** (dev database, 2026-10-13):
+1. **Settings on unmapped fields are gone** (Phase 26's listed change 1 takes effect). No cell
+   changes. 31 Age fields, 2 Date fields on "this century", 4 Mark fields with symbol meanings.
+2. **A former Age or Fraction field mapped for the first time later starts as Read as: number**, not
+   an age in years or a fraction; the operator chooses Age or Fraction under Read as. Mappings that
+   exist are untouched. **31 unmapped Age fields, 1 unmapped Fraction field.**
+3. **`Create columns from this template` proposes a Number column** for a former Whole number field,
+   not a Whole number column. **13 unmapped Whole number fields.**
+4. **On screen only:** type chips and old proposals say Number where they said Whole number, Age or
+   Fraction (61 fields: 18, 41 and 2; 72 proposal items).
+5. **One-way migration** (above).
+
+**Rehearsal (2026-10-13).** The dev database was copied (`saakuu_p27`: 839 fields, 291 mapping
+sources, 4,206 raw values) and two files were written on the Phase 26 code: every row the transform
+builds (**176 documents, 557 rows, 3,957 cells, 51 flagged**) and what the AI is sent for every
+template (**268 templates, 814 fields**: each field's path, type, hint, note, choices, symbols,
+sequence and skip, in order, plus a fingerprint of the whole instruction text under `v5`). The copy
+was migrated and both were written again on the new code. **No difference in either**: each pair of
+files is byte for byte the same. After the migration the copy held 542 Text, 95 Number, 38 Date,
+142 Mark and 22 Choice fields; 19 Mark fields list symbols (11 `✓ ✗`, 8 `✓`).
+- *The comparisons are not blind:* on the copy, reversing the two-symbol lists and turning one
+  mapped Number field to Text changed what is sent for 6 templates; turning the 9 month ages to
+  years changed the rows of 29 documents and raised the flagged cells from 51 to 113. Put back,
+  both files were identical to the baseline again.
+- *Not covered by dev data:* a Mark field with more than two symbols, or with a symbol that is a
+  whole number (JavaScript lists such keys first; the snapshot keeps that order, but no data
+  exercises it). Production at Phase 26 had five Mark fields, each `✓` only.
+
+**Applied to the dev database (2026-10-13)** after the rehearsal. Both files were written again
+from dev and compared with the baseline: **no difference**.
+
+**Production, counted before the push (2026-10-13, read-only).** 29 fields, 17 of them live; 17
+mapping sources, **none without a Read as** (3 as written, 3 number, 1 date, 5 mark, 4 choice, 1
+age in months). `20261013000000_phase_26_read_as` is the last migration applied. No reading or
+proposal running.
+- **Nothing the migration stops on:** the only mark symbols stored are `{"✓": true}`, on 5 fields.
+  One symbol, so there is no order to get wrong.
+- **Fields that become Number:** 4 Whole number (3 live, 1 deleted) and 2 Age (1 live, 1 deleted).
+  No Fraction field. No Manual field.
+- Listed change 1: no live field loses a setting. Two deleted, unmapped fields hold one (a Date on
+  "this century", an Age in months), as counted at Phase 26.
+- Listed changes 2 and 3: **0 and 0** live unmapped fields. The deleted Age field has no mapping:
+  restored and mapped later, it starts as a number.
+- Listed change 4: 4 live fields show Number (3 Whole number, 1 Age). 7 stored proposals (6
+  `template-v1`, 1 `template-v3`) hold 10 items that fold to Number (6 Whole number, 4 Age).
 
 **Manual fields** keep a type. It is never sent, but a Manual Mark field can be read by `From
 ticks`, and the type picks the default Read as. Their typed values are converted by the mapping's
-Read as, like read values. The Type control says "Not sent to the AI" for them.
+Read as, like read values. Dev has 18, all Text; production had none.
 
-**Rehearsal.** The same row comparison, expected empty; and each field's path, type and hint as
-sent to the AI before and after, expected identical.
+**Tests.** Type names changed in the existing tests, fixtures and seed scripts. One E2E,
+`e2e/five-types.spec.ts`: the Type list has no Whole number, Age or Fraction; a Number field named
+`37/` is mapped, its Read as starts on Number and is set to Age, and the cell reads `37` where the
+page said `37/ 1`. All 12 E2E and 144 unit tests pass.
 
-**Tests.** Type names change in the existing specs. One E2E: add a Number field, map it, read it
-as an age.
-
-**Done when** both comparisons are empty.
+**Done when** both comparisons are empty. They are, on the copy and on dev.
 
 ### Phase 28 — Read before your field changes
 
@@ -1510,7 +1587,7 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 83 | In a table answer a cell left out is blank; fields are named by alias. Prompts `v2` to `v4`. ✅ written up |
 | 84 | A field is one box; the header is part of its name; ticks are combined in a `From ticks` mapping. Supersedes 28 (in part), 30, 31, 33. ✅ written up |
 | 86 | Fields are what the AI is told; conversion belongs to each field a mapping reads. Supersedes 36 and where 85 keeps the age unit. Phase 26. ✅ written up |
-| 87 | Five field types; one hint for every number (prompt `v5`, `template-v4`), on Phase 25's readings. Phases 25 and 27; to write up. |
+| 87 | Five field types; one hint for every number (prompt `v5`, `template-v4`), on Phase 25's readings. Phases 25 and 27. ✅ written up |
 | 88 | "Fields changed since read" is a fingerprint of what the AI was sent; it only flags, and keeping a reading is a human action. Amends 78. Phase 28; to write up. |
 | 89 | Readings made before the fingerprint start clean. Phase 28; to write up. |
 

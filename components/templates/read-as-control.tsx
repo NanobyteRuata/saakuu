@@ -40,7 +40,7 @@ type Props = {
   name: string;
   value: ReadAs;
   /** The field being read: its listed symbols and whether it has choices. Null when it was deleted. */
-  field: { markSymbols: MarkSymbols | null; choices: string[] } | null;
+  field: { markSymbols: string[]; choices: string[] } | null;
   /** The book's date era: two-digit years are read in that era's century. */
   era: DateEra;
   lang: string | undefined;
@@ -62,7 +62,7 @@ export function ReadAsControl({ id, name, value, field, era, lang, marksOnly = f
     onChange({ kind: "MARK", symbols: symbolsOf(next) });
   };
   const setKind = (kind: ReadAs["kind"]) => {
-    const next = readAsOfKind(kind, { markSymbols: field?.markSymbols ?? null });
+    const next = readAsOfKind(kind, { markSymbols: field?.markSymbols ?? [] });
     setRows(rowsOf(next));
     setPivot("");
     onChange(next);
@@ -74,7 +74,7 @@ export function ReadAsControl({ id, name, value, field, era, lang, marksOnly = f
 
   const kinds = READ_AS_KINDS.filter((k) => k !== "CHOICE" || value.kind === "CHOICE" || (field?.choices.length ?? 0) > 0);
   const listed = rows.map((r) => r.symbol.trim());
-  const notSet = Object.keys(field?.markSymbols ?? {}).filter((s) => !listed.includes(s));
+  const notSet = (field?.markSymbols ?? []).filter((s) => !listed.includes(s));
 
   return (
     <div className="border-muted flex flex-col gap-2 border-l-2 pl-3">

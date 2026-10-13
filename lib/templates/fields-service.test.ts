@@ -27,11 +27,11 @@ const seqField = {
   id: "f_seq",
   labelSource: "စဉ်",
   labelMeaning: "No.",
-  dataType: "INTEGER",
+  dataType: "NUMBER",
   mode: "EXTRACT",
   note: null,
   choices: [],
-  markSymbols: null,
+  markSymbols: [],
   isSequence: true,
   position: "a0",
 };

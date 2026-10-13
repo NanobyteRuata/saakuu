@@ -4,7 +4,7 @@
     "kind": "TABLE",
     "sequenceFieldId": "fno",
     "fields": [
-      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fno", "labelSource": "No.", "dataType": "NUMBER" },
       { "id": "fname", "labelSource": "အမည်" },
       { "id": "fresult", "labelSource": "Result" }
     ],

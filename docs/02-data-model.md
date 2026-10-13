@@ -191,7 +191,7 @@ enum TickSelection  { ONE_OF  ANY_OF }         // one answer, or several joined
 enum NoneMarked     { BLANK  REVIEW  ERROR }   // nothing ticked
 enum MultipleMarked { REVIEW  ERROR }          // ONE_OF with 2+ ticks
 
-enum FieldType { TEXT NUMBER INTEGER DATE MARK CHOICE AGE FRACTION }
+enum FieldType { TEXT NUMBER DATE MARK CHOICE }   // five since Phase 27; INTEGER, AGE and FRACTION became NUMBER
 enum FieldMode { EXTRACT SKIP MANUAL }
 
 model Field {
@@ -203,8 +203,7 @@ model Field {
   mode         FieldMode @default(EXTRACT)
   note         String?   // human-language hint to the AI
   choices      String[]  @default([])   // CHOICE
-  markSymbols  Json?     // MARK: the symbols used on the paper, as keys. The meanings beside them are unread since Phase 26
-  typeOptions  Json?     // unread since Phase 26, kept for one release (was date: { twoDigitYear, pivotYear }, age: { unit })
+  markSymbols  String[]  @default([])   // MARK: the symbols used on the paper, as the AI is told them. What each means is MappingInput.readAs
   isSequence   Boolean   @default(false)
   position     String
   createdAt    DateTime  @default(now())
@@ -638,8 +637,14 @@ One additive migration:
 - `Field.typeOptions Json?`: as built, settings that belonged to the field's type. `DATE`:
   `{ date: { twoDigitYear: "REFUSE" | "CENTURY" | "PIVOT", pivotYear } }`. `AGE`:
   `{ age: { unit: "YEARS" | "MONTHS" | "YEARS_MONTHS" } }`. **Phase 26 moved both, and the meaning of each mark
-  symbol, to `MappingInput.readAs`** (below). The column and the stored meanings stay in place, unread and no longer
-  written, for one release.
+  symbol, to `MappingInput.readAs`** (below). The column and the stored meanings stayed in place, unread, for one
+  release. **Phase 27 removed them** (decision 87, migration `20261013100000_phase_27_five_types`): `typeOptions` is
+  dropped; `markSymbols` is a `String[]` of the symbols, written in the order the object held them, which is the
+  order the prompt lists them in; and `FieldType` has five values, `INTEGER`, `AGE` and `FRACTION` rows becoming
+  `NUMBER`. No `MappingInput.readAs` is touched, so no cell changes; prompt `v5` already sent all four as `NUMBER`,
+  so what the AI is told does not change either. The migration stops, changing nothing, if any field holds mark
+  symbols that are not an object of at most 20 trimmed symbols. It cannot be undone by deploying the image before
+  it: that image reads the dropped column.
 - `Row.recordKey String?` and `Row.voidReason String?`.
 - `Document.transformFlags Json?`: `[{ kind, message }]` from the last transform (sequence gaps, repeats, suspected
   duplicates, unresolved ditto marks, flagged cells, unmatched edited rows, and a build that couldn't run).

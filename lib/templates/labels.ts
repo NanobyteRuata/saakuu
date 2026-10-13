@@ -21,12 +21,9 @@ export const CONFIG_STATE_LABELS: Record<ConfigState, string> = {
 export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   TEXT: "Text",
   NUMBER: "Number",
-  INTEGER: "Whole number",
   DATE: "Date",
   MARK: "Mark / tick",
   CHOICE: "Choice",
-  AGE: "Age",
-  FRACTION: "Fraction",
 };
 
 export const FIELD_MODE_LABELS: Record<FieldMode, string> = { EXTRACT: "Extract", SKIP: "Skip", MANUAL: "Manual" };

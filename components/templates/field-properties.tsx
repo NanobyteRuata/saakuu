@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -38,7 +38,6 @@ import {
   MAX_MARK_SYMBOLS,
   type FieldMode,
   type FieldType,
-  type MarkSymbols,
 } from "@/lib/templates/schemas";
 import type { TemplateDetail } from "@/lib/templates/service";
 import type { FieldView } from "@/lib/templates/views";
@@ -47,13 +46,6 @@ import { useAutosaveForm, type Flush } from "./autosave";
 import { ChipListEditor } from "./chip-list-editor";
 import { duplicateNameWarning } from "./field-list";
 
-/**
- * What a symbol means is set where the field is mapped (Read as, decision 86). The meaning stored
- * beside each symbol is from before that and is no longer read; it is carried through unchanged so
- * a save here rewrites nothing, and a symbol added here is stored as "ticked".
- */
-type StoredMeaning = MarkSymbols[string];
-
 export type FieldDraft = {
   labelSource: string;
   labelMeaning: string;
@@ -61,7 +53,8 @@ export type FieldDraft = {
   mode: FieldMode;
   note: string;
   choices: string[];
-  marks: { symbol: string; stored: StoredMeaning }[];
+  /** Mark fields: the symbols used on the paper. What each means is the mapping's Read as (decision 86). */
+  marks: string[];
 };
 
 function toDraft(f: FieldView): FieldDraft {
@@ -72,20 +65,11 @@ function toDraft(f: FieldView): FieldDraft {
     mode: f.mode,
     note: f.note ?? "",
     choices: f.choices,
-    marks: Object.entries(f.markSymbols ?? {}).map(([symbol, stored]) => ({
-      symbol,
-      stored,
-    })),
+    marks: f.markSymbols,
   };
 }
 
 function toPayload(d: FieldDraft) {
-  const markSymbols: MarkSymbols | null =
-    d.dataType === "MARK" && d.marks.length > 0
-      ? Object.fromEntries(
-          d.marks.map((m) => [m.symbol.trim(), m.stored]),
-        )
-      : null;
   return {
     labelSource: d.labelSource.trim(),
     labelMeaning: d.labelMeaning.trim() || null,
@@ -93,20 +77,13 @@ function toPayload(d: FieldDraft) {
     mode: d.mode,
     note: d.note.trim() || null,
     choices: d.dataType === "CHOICE" ? d.choices : [],
-    markSymbols,
+    markSymbols: d.dataType === "MARK" ? d.marks : [],
   };
 }
 
 function draftProblem(d: FieldDraft): string | null {
   if (!d.labelSource.trim())
     return "Enter the name as it's written on the paper.";
-  if (d.dataType === "MARK") {
-    const symbols = d.marks.map((m) => m.symbol.trim());
-    if (symbols.some((s) => s === ""))
-      return "Fill in every mark symbol, or remove the empty row.";
-    if (new Set(symbols).size !== symbols.length)
-      return "Each mark symbol can only be listed once.";
-  }
   return fieldShapeProblem(toPayload(d));
 }
 
@@ -276,6 +253,12 @@ export function FieldProperties({
               ))}
             </SelectContent>
           </Select>
+          {draft.mode === "MANUAL" ? (
+            <p className="text-muted-foreground text-xs">
+              Not sent to the AI. It decides how a new mapping reads what you
+              type.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="field-mode">Mode</Label>
@@ -325,74 +308,25 @@ export function FieldProperties({
           <legend className="mb-2 text-sm font-medium">
             Marks used on this paper
           </legend>
+          <ChipListEditor
+            label="Add a mark"
+            placeholder="A mark such as ✓, then press Enter"
+            values={draft.marks}
+            onChange={(marks) => set({ marks: marks.slice(0, MAX_MARK_SYMBOLS) })}
+            lang={lang}
+          />
           {draft.marks.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No symbols yet. Add the ticks, crosses or tallies used on this
-              form.
-            </p>
-          ) : null}
-          {draft.marks.map((mark, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input
-                aria-label={`Mark ${i + 1} symbol`}
-                className="font-value w-24"
-                placeholder="✓"
-                value={mark.symbol}
-                onChange={(e) =>
-                  set({
-                    marks: draft.marks.map((m, j) =>
-                      j === i ? { ...m, symbol: e.target.value } : m,
-                    ),
-                  })
-                }
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Remove mark ${i + 1}`}
-                onClick={() =>
-                  set({ marks: draft.marks.filter((_, j) => j !== i) })
-                }
-              >
-                <Trash2 />
-              </Button>
-            </div>
-          ))}
-          <div className="flex gap-2">
-            {draft.marks.length < MAX_MARK_SYMBOLS ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  set({
-                    marks: [...draft.marks, { symbol: "", stored: true }],
-                  })
-                }
-              >
-                <Plus />
-                Add a symbol
-              </Button>
-            ) : null}
-            {draft.marks.length === 0 ? (
+            <div>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() =>
-                  set({
-                    marks: [
-                      { symbol: "✓", stored: true },
-                      { symbol: "✗", stored: false },
-                    ],
-                  })
-                }
+                onClick={() => set({ marks: ["✓", "✗"] })}
               >
                 Add ✓ and ✗
               </Button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           <p className="text-muted-foreground text-xs">
             The AI is told these are the marks to expect. What each one means
             is set on the Mapping tab, under Read as, and costs no reading to

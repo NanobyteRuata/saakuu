@@ -4,9 +4,9 @@
     "kind": "TABLE",
     "sequenceFieldId": "fno",
     "fields": [
-      { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
+      { "id": "fno", "labelSource": "No.", "dataType": "NUMBER" },
       { "id": "fname", "labelSource": "အမည်" },
-      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" }
+      { "id": "fage", "labelSource": "အသက်", "dataType": "NUMBER" }
     ],
     "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "age", "dataType": "INTEGER" }, { "key": "name" }],
     "mappings": [

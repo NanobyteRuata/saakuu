@@ -40,13 +40,14 @@ type ColumnShape = { dataType: ColumnType; enumValues: string[] };
 const TEXT: ColumnShape = { dataType: "TEXT", enumValues: [] };
 
 /**
- * The column type a field's readings fit. AGE normalises to a number (text as years and months), FRACTION to a number, and a
- * MARK field that counts its symbols reads as a number rather than a yes/no (`readMark`).
+ * The column type a field's readings fit, read the way a new mapping reads them (`defaultReadAs`):
+ * an age in years and a fraction are numbers, and a mark is a yes/no. A mapping set to read
+ * differently afterwards (an age as years and months, a mark that counts) needs its column changed
+ * by hand.
  */
-export function fieldColumnType(field: Pick<FieldView, "dataType" | "choices" | "markSymbols" | "typeOptions">): ColumnShape {
+export function fieldColumnType(field: Pick<FieldView, "dataType" | "choices">): ColumnShape {
   switch (field.dataType) {
     case "AGE":
-      return field.typeOptions?.age?.unit === "YEARS_MONTHS" ? TEXT : { dataType: "NUMBER", enumValues: [] };
     case "NUMBER":
     case "FRACTION":
       return { dataType: "NUMBER", enumValues: [] };
@@ -55,9 +56,7 @@ export function fieldColumnType(field: Pick<FieldView, "dataType" | "choices" | 
     case "DATE":
       return { dataType: "DATE", enumValues: [] };
     case "MARK":
-      return Object.values(field.markSymbols ?? {}).includes("count")
-        ? { dataType: "INTEGER", enumValues: [] }
-        : { dataType: "BOOLEAN", enumValues: [] };
+      return { dataType: "BOOLEAN", enumValues: [] };
     case "CHOICE": {
       const values = usableEnumValues(field.choices);
       return values ? { dataType: "ENUM", enumValues: values } : TEXT;

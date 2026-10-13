@@ -1,6 +1,8 @@
 import type { MultipleMarked, NoneMarked, TickSelection } from "@/lib/templates/schemas";
 import type { MappingKind } from "@/lib/transform/types";
 
+import type { ReadAsKind } from "./read-as";
+
 export const MAPPING_KIND_LABELS: Record<MappingKind, string> = {
   COPY: "Copy",
   CONCAT: "Join",
@@ -18,6 +20,27 @@ export const MAPPING_KIND_HINTS: Record<MappingKind, string> = {
   EXPRESSION:
     "A small formula. Insert fields with the picker. + joins text; use number() for sums. Functions: concat, substring, replace, trim, upper, lower, if, number, text, default, floor, ceil, round.",
   TICKS: "Several tick boxes become one answer, e.g. a tick under ကျား or မ becomes M or F. You choose the tick fields and what each one writes.",
+};
+
+export const READ_AS_LABELS: Record<ReadAsKind, string> = {
+  TEXT: "As written",
+  NUMBER: "Number",
+  DATE: "Date",
+  AGE: "Age",
+  FRACTION: "Fraction",
+  MARK: "Mark / tick",
+  CHOICE: "Choice",
+};
+
+/** Date, Age and Mark explain themselves through their own options. */
+export const READ_AS_HINTS: Record<ReadAsKind, string> = {
+  TEXT: "Kept as the AI read it.",
+  NUMBER: "Digits in any script become a plain number. Anything that isn't a number is kept as written.",
+  DATE: "Day/month/year in any digits becomes a date.",
+  AGE: "1 1/2, 4/12 or 1y 6m becomes an age in the unit you choose.",
+  FRACTION: "1 1/2 becomes 1.5 and 3/4 becomes 0.75.",
+  MARK: "A tick becomes yes or no, by what each symbol means.",
+  CHOICE: "Matched to the field's choices. A near miss is matched and flagged.",
 };
 
 export const TICK_SELECTION_LABELS: Record<TickSelection, string> = { ONE_OF: "Only one", ANY_OF: "Several" };

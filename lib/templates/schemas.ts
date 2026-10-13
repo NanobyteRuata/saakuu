@@ -117,8 +117,8 @@ export const markSymbolsSchema = z
 export type MarkSymbols = z.infer<typeof markSymbolsSchema>;
 
 /**
- * What a two-digit year means for one date field (Phase 6). `REFUSE` (the default) flags it rather than
- * guessing a century. `CENTURY` reads it in the book's own century; `PIVOT` splits at a year, so years at
+ * What a two-digit year means for one date a mapping reads (Phase 6; on the mapping's Read as since
+ * Phase 26). `REFUSE` (the default) flags it rather than guessing a century. `CENTURY` reads it in the book's own century; `PIVOT` splits at a year, so years at
  * or above the pivot belong to the century before.
  */
 export const TWO_DIGIT_YEAR_RULES = ["REFUSE", "CENTURY", "PIVOT"] as const;
@@ -134,21 +134,23 @@ export const dateFieldOptionsSchema = z
 export type DateFieldOptions = z.infer<typeof dateFieldOptionsSchema>;
 
 /**
- * How an AGE field's value comes out: `YEARS` (`1 1/2` → 1.5), `MONTHS` (the total, 18) or `YEARS_MONTHS`
- * (text, `1y 6m`). A new Age field is given `YEARS`, because ages on paper are in years. A field with no
- * unit recorded is from before the choice existed and stays `MONTHS`, so losing the setting can never
- * change a book's cells.
+ * How an age comes out: `YEARS` (`1 1/2` → 1.5), `MONTHS` (the total, 18) or `YEARS_MONTHS` (text,
+ * `1y 6m`). Chosen in the mapping's Read as since Phase 26. A new source of an Age field reads
+ * `YEARS`, because ages on paper are in years. Sources that existed when Phase 26 shipped kept the
+ * unit their field had, and `MONTHS` where it had none recorded (decision 85).
  */
 export const AGE_UNITS = ["YEARS", "MONTHS", "YEARS_MONTHS"] as const;
 export type AgeUnit = (typeof AGE_UNITS)[number];
 export const NEW_AGE_UNIT: AgeUnit = "YEARS";
-export const UNSET_AGE_UNIT: AgeUnit = "MONTHS";
 
 export const ageFieldOptionsSchema = z.object({ unit: z.enum(AGE_UNITS) });
 
 export type AgeFieldOptions = z.infer<typeof ageFieldOptionsSchema>;
 
-/** Settings that belong to a field's type. Cleared when the type changes, like choices and mark symbols. */
+/**
+ * Where conversion settings lived before Phase 26. `Field.typeOptions` is kept, unread, for one
+ * release; the field API still accepts this shape from an old browser tab and ignores it.
+ */
 export const fieldTypeOptionsSchema = z.object({ date: dateFieldOptionsSchema.optional(), age: ageFieldOptionsSchema.optional() });
 
 export type FieldTypeOptions = z.infer<typeof fieldTypeOptionsSchema>;
@@ -170,19 +172,7 @@ const fieldProps = {
 };
 
 /** Rules on a field's final shape. Returns a plain-language problem or null. */
-export function fieldShapeProblem(f: {
-  dataType: FieldType;
-  choices: string[];
-  markSymbols: MarkSymbols | null;
-  typeOptions?: FieldTypeOptions | null;
-}): string | null {
-  if (f.typeOptions?.date) {
-    if (f.dataType !== "DATE") return "Only date fields can have date options.";
-    if (f.typeOptions.date.twoDigitYear === "PIVOT" && f.typeOptions.date.pivotYear === null) {
-      return "Choose the year two-digit dates split at.";
-    }
-  }
-  if (f.typeOptions?.age && f.dataType !== "AGE") return "Only age fields can have age options.";
+export function fieldShapeProblem(f: { dataType: FieldType; choices: string[]; markSymbols: MarkSymbols | null }): string | null {
   if (f.dataType === "CHOICE" && f.choices.length === 0) return "A choice field needs at least one choice.";
   if (f.dataType !== "CHOICE" && f.choices.length > 0) return "Only choice fields can have choices.";
   if (new Set(f.choices).size !== f.choices.length) return "Each choice can only be listed once.";

@@ -360,8 +360,8 @@ Prepare a source book with 2 templates (one with headers in its field names and 
 | TPL-26 | Clear a field's label (invalid), click another field, come back | The invalid draft is restored with its message. Nothing typed was lost; nothing was saved |
 | TPL-27 | Edit a field and immediately reload the tab while `Saving…` | Browser asks before leaving |
 | TPL-28 | Set type to Choice with no choices | Refused until at least one choice exists |
-| TPL-29 | Set a Mark field's symbols (`✓` → true, `✗` → false, `/` → count) | Saved and shown; switching type away clears them |
-| TPL-30 | Date field → "Dates written with a two-digit year": flag / read in era's century / split at a year | Each shows a one-line example of what `30.8.20` becomes |
+| TPL-29 | List a Mark field's symbols (`✓`, `✗`, `/`) | Saved and shown, with no meaning beside them (Phase 26); switching type away clears them. On the Mapping tab, the field's Read as lists each symbol with a meaning: `✗` starts as No, the others as Yes |
+| TPL-30 | Mapping tab → edit a mapping that reads a Date field → Read as → "Dates written with a two-digit year": flag / read in era's century / split at a year | Each shows a one-line example of what `30.8.20` becomes; the preview changes at once; after saving the table rebuilds with no reading and no credits. The Fields tab no longer shows this setting (Phase 26) |
 | TPL-31 | Table template: set `No.` as the sequence field | Only live Extract fields are offered; while it's the sequence field its mode can't change |
 | TPL-32 | Modes | Chips are legible: Extract neutral, Skip muted/struck, Manual accented. Help text carries the Skip/Manual guidance (tables: add every column, set unwanted to Skip) |
 | TPL-33 | Try to change a template's kind Form ↔ Table | Not offered / refused; duplicate as a new template is suggested |
@@ -405,7 +405,7 @@ Needs a template that has mapped fields and extracted rows (do after §10).
 | TPL-54 | In the target book, Mapping → `Create columns from this template` | One click completes it. Proposal is empty afterwards |
 | TPL-55 | psql: count `"Mapping"` rows for the copied template before TPL-54 | Zero |
 | TPL-56 | Delete a template with documents | Counted confirmation (templates, documents, photos, rows, edited cells). Template and its documents are soft-deleted |
-| TPL-70 | Set a field's type to `Age`; switch `Show age as` between Years, Months and Years and months; save | A field just changed to Age starts on `Years`; the hint changes with the choice. After saving, the table rebuilds without a reading: `1 1/2` shows 1.5 / 18 / 1y 6m; `4/12` as years shows 0.33 with a warning. Edited cells keep their values. An Age field made before this change still says `Months`. Years into a `Whole number` column, or Years and months into a `Number` column, flags the cells (the hint names the right column type) |
+| TPL-70 | (Phase 26: `Show age as` is on the Mapping tab, under Read as, for each mapping that reads the age; the Fields tab no longer shows it. A mapping made before Phase 26 kept its field's unit; one made after starts on Years.) Edit a mapping that reads an Age field; switch `Show age as` between Years, Months and Years and months; save | A field just changed to Age starts on `Years`; the hint changes with the choice. After saving, the table rebuilds without a reading: `1 1/2` shows 1.5 / 18 / 1y 6m; `4/12` as years shows 0.33 with a warning. Edited cells keep their values. An Age field made before this change still says `Months`. Years into a `Whole number` column, or Years and months into a `Number` column, flags the cells (the hint names the right column type) |
 
 ---
 

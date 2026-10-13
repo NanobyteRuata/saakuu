@@ -28,7 +28,7 @@ import type {
   ProposedFieldView,
   StartFieldProposalInput,
 } from "./field-proposal-schemas";
-import { fieldShapeProblem, FIELD_TYPES, MAX_FIELDS, NEW_AGE_UNIT } from "./schemas";
+import { fieldShapeProblem, FIELD_TYPES, MAX_FIELDS } from "./schemas";
 import { formatPath, nameKey } from "./field-list";
 import { loadSourceFields } from "./source-fields";
 
@@ -353,7 +353,7 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
       throw new AppError("VALIDATION", `A template can have up to ${MAX_FIELDS} fields; this would make ${source.list.length + chosen.length}.`);
     }
     for (const f of chosen) {
-      const shape = fieldShapeProblem({ dataType: f.dataType, choices: f.choices, markSymbols: null, typeOptions: null });
+      const shape = fieldShapeProblem({ dataType: f.dataType, choices: f.choices, markSymbols: null });
       if (shape) throw new AppError("VALIDATION", `“${f.labelSource}”: ${shape}`);
     }
 
@@ -369,7 +369,7 @@ export async function acceptFieldProposal(userId: string, templateId: string, pr
       note: f.note,
       choices: f.choices,
       markSymbols: Prisma.DbNull,
-      typeOptions: f.dataType === "AGE" ? { age: { unit: NEW_AGE_UNIT } } : Prisma.DbNull,
+      typeOptions: Prisma.DbNull,
       position: positions[i] ?? "",
     }));
     await tx.field.createMany({ data });

@@ -9,7 +9,7 @@ import { requestTemplateTransform } from "@/lib/transform/triggers";
 
 import { lockTemplate, markSourceChanged, recomputeConfigState, requireFieldAccess, requireTemplateAccess } from "./access";
 import { appendPosition, positionAfter, type Positioned } from "./positions";
-import { fieldShapeProblem, MAX_FIELDS, NEW_AGE_UNIT, type CreateFieldInput, type FieldTypeOptions, type MarkSymbols, type UpdateFieldInput } from "./schemas";
+import { fieldShapeProblem, MAX_FIELDS, type CreateFieldInput, type MarkSymbols, type UpdateFieldInput } from "./schemas";
 import { applyPositionRewrites, loadSourceFields } from "./source-fields";
 import { fieldSelect, toFieldView, type FieldView } from "./views";
 
@@ -19,7 +19,7 @@ import { fieldSelect, toFieldView, type FieldView } from "./views";
  * here refuses (decision 84).
  */
 
-function jsonOrNull(value: MarkSymbols | FieldTypeOptions | null): Prisma.InputJsonValue | typeof Prisma.DbNull {
+function jsonOrNull(value: MarkSymbols | null): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return value === null ? Prisma.DbNull : value;
 }
 
@@ -32,8 +32,9 @@ export async function createField(userId: string, templateId: string, input: Cre
 
     const dataType = input.dataType ?? "TEXT";
     const markSymbols = input.markSymbols ?? null;
-    const typeOptions = dataType === "AGE" && !input.typeOptions?.age ? { age: { unit: NEW_AGE_UNIT } } : (input.typeOptions ?? null);
-    const shape = fieldShapeProblem({ dataType, choices: input.choices, markSymbols, typeOptions });
+    // Conversion settings belong to the mapping since Phase 26 (decision 86): `typeOptions` is accepted
+    // from a browser tab that still sends it and ignored, and nothing new is stored there.
+    const shape = fieldShapeProblem({ dataType, choices: input.choices, markSymbols });
     if (shape) throw new AppError("VALIDATION", shape);
 
     const id = createId();
@@ -47,14 +48,14 @@ export async function createField(userId: string, templateId: string, input: Cre
       note: input.note ?? null,
       choices: input.choices,
       markSymbols,
-      typeOptions,
+      typeOptions: null,
       isSequence: false,
       position: placed.position,
     };
 
     await applyPositionRewrites(tx, placed.rewrites);
     const field = await tx.field.create({
-      data: { ...draft, templateId, markSymbols: jsonOrNull(markSymbols), typeOptions: jsonOrNull(typeOptions) },
+      data: { ...draft, templateId, markSymbols: jsonOrNull(markSymbols), typeOptions: Prisma.DbNull },
       select: fieldSelect,
     });
     await markSourceChanged(tx, templateId);
@@ -83,10 +84,8 @@ export async function updateField(userId: string, fieldId: string, input: Update
     // A type change drops properties that no longer apply rather than failing on them.
     const choices = input.choices ?? (dataType === "CHOICE" ? current.choices : []);
     const markSymbols = input.markSymbols !== undefined ? input.markSymbols : dataType === "MARK" ? current.markSymbols : null;
-    let typeOptions = input.typeOptions !== undefined ? input.typeOptions : dataType === current.dataType ? current.typeOptions : null;
-    // An age's unit is never cleared: a save without one keeps what the field has, and a field that becomes an Age gets the new default.
-    if (dataType === "AGE" && !typeOptions?.age) typeOptions = current.dataType === "AGE" ? current.typeOptions : { age: { unit: NEW_AGE_UNIT } };
-    const shape = fieldShapeProblem({ dataType, choices, markSymbols, typeOptions });
+    // `typeOptions` stays as stored, unread, for one release (decision 86): a tab that still sends it changes nothing.
+    const shape = fieldShapeProblem({ dataType, choices, markSymbols });
     if (shape) throw new AppError("VALIDATION", shape);
     if (template.sequenceFieldId === fieldId && mode !== "EXTRACT") {
       throw new AppError(
@@ -95,7 +94,7 @@ export async function updateField(userId: string, fieldId: string, input: Update
       );
     }
 
-    const next: FieldView = { ...current, dataType, mode, choices, markSymbols, typeOptions };
+    const next: FieldView = { ...current, dataType, mode, choices, markSymbols };
     if (input.labelSource !== undefined) next.labelSource = input.labelSource;
     if (input.labelMeaning !== undefined) next.labelMeaning = input.labelMeaning;
     if (input.note !== undefined) next.note = input.note;
@@ -118,7 +117,6 @@ export async function updateField(userId: string, fieldId: string, input: Update
         mode,
         choices,
         markSymbols: jsonOrNull(markSymbols),
-        typeOptions: jsonOrNull(typeOptions),
         position: next.position,
       },
       select: fieldSelect,

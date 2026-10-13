@@ -213,7 +213,7 @@ operator combines them in a mapping.
   - `dataType` — see §9
   - `mode` — `EXTRACT` | `SKIP` | `MANUAL` (see §10)
   - `note` — free text instruction to the AI ("people write 1 1/2 to mean 1 year 6 months")
-  - symbol semantics, for MARK type fields
+  - the symbols used on the paper, for MARK type fields (what each means is set where the field is mapped, §11.7)
 - Table templates additionally designate one field as the **sequence field** (§11.4).
 - Optional **anchor strings**: printed text expected on the page, used for template
   mismatch detection (§12).
@@ -448,8 +448,10 @@ meanings**. Model them as distinct `valueState`s. The book glossary defines what
 dash means in this dataset.
 
 ### 11.7 Marks and tallies
-`MARK` field type with configurable symbol semantics (e.g. `✓` → true, `✗` → false,
-circled → true, tally strokes → count).
+`MARK` field type. The field lists the symbols used on the paper, which the AI is told to expect. What
+each one means (e.g. `✓` → true, `✗` → false, circled → true, tally strokes → count) is set on each
+mapping that reads the field, as its **Read as** (Phase 26, decision 86): it is conversion, so changing it
+rebuilds the rows without a new reading.
 
 Registers often encode one answer as a row of tick columns under a spanning header, sometimes
 with sub-headers (Phase 3.1; combined in the mapping since Phase 24):

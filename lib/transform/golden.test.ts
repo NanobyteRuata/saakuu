@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import type { ReadAs } from "@/lib/mappings/read-as";
+
 import { planMerge, type CellValues, type ExistingRow } from "./merge";
 import { runTransform } from "./run";
 import type {
@@ -37,8 +39,11 @@ type Fixture = {
     mappings: {
       column: string;
       kind?: MappingKind;
-      /** A field id, or for TICKS a field with the value its tick writes. */
-      inputs?: (string | { field: string; value: string })[];
+      /**
+       * A field id, or a field with how the mapping reads it (`readAs`) and, for TICKS, the value its
+       * tick writes. Without `readAs` the field is read plainly for its type, with no settings.
+       */
+      inputs?: (string | { field: string; value?: string; readAs?: ReadAs })[];
       ticks?: Partial<TickRules>;
       separator?: string;
       splitBy?: string;
@@ -66,6 +71,27 @@ type Fixture = {
   };
 };
 
+/** A field read with no settings: what its mapping source was given when Read as moved to the mapping. An age always says its unit. */
+function plainReadAs(dataType: TransformField["dataType"]): ReadAs {
+  switch (dataType) {
+    case "TEXT":
+      return { kind: "TEXT" };
+    case "NUMBER":
+    case "INTEGER":
+      return { kind: "NUMBER" };
+    case "DATE":
+      return { kind: "DATE", twoDigitYear: "REFUSE", pivotYear: null };
+    case "FRACTION":
+      return { kind: "FRACTION" };
+    case "CHOICE":
+      return { kind: "CHOICE" };
+    case "MARK":
+      return { kind: "MARK", symbols: {} };
+    case "AGE":
+      throw new Error("A fixture that reads an Age field says which unit: give the input a readAs.");
+  }
+}
+
 function buildInput(f: Fixture["input"]): TransformInput {
   let position = 0;
   const nextPosition = () => `p${String(position++).padStart(4, "0")}`;
@@ -75,8 +101,6 @@ function buildInput(f: Fixture["input"]): TransformInput {
     dataType: "TEXT",
     mode: "EXTRACT",
     choices: [],
-    markSymbols: null,
-    typeOptions: null,
     ...field,
     position: field.position ?? nextPosition(),
   }));
@@ -98,9 +122,11 @@ function buildInput(f: Fixture["input"]): TransformInput {
       expression: m.expression ?? null,
       ticks: m.kind === "TICKS" ? { selection: "ONE_OF", noneMarked: "REVIEW", multipleMarked: "ERROR", noneValue: null, label: null, ...m.ticks } : null,
       fillDown: m.fillDown ?? true,
-      inputs: (m.inputs ?? []).map((input) =>
-        typeof input === "string" ? { fieldId: input, tickValue: null } : { fieldId: input.field, tickValue: input.value },
-      ),
+      inputs: (m.inputs ?? []).map((input) => {
+        const source = typeof input === "string" ? { field: input } : input;
+        const dataType = fields.find((field) => field.id === source.field)?.dataType ?? "TEXT";
+        return { fieldId: source.field, tickValue: source.value ?? null, readAs: source.readAs ?? plainReadAs(dataType) };
+      }),
     })),
     book: { numeralSystem: "AUTO", dateEra: "GREGORIAN", ...f.book },
     manualValues: f.manualValues ?? {},

@@ -10,6 +10,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { createGlossaryEntry } from "@/lib/books/glossary-service";
 import { prisma } from "@/lib/db/client";
 import { log } from "@/lib/log";
+import type { ReadAs } from "@/lib/mappings/read-as";
 import { normalizeTransform, transformHash } from "@/lib/photos/transform";
 import { closeQueues } from "@/lib/queue";
 import { baseKey, thumbKey, workingKey } from "@/lib/storage/keys";
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
       field(f.name, "အမည်", "Name", "TEXT", order[1] ?? ""),
       field(f.m, "ကျား/မ › ကျား", "Sex › M", "MARK", order[2] ?? ""),
       field(f.fe, "ကျား/မ › မ", "Sex › F", "MARK", order[3] ?? ""),
-      field(f.age, "အသက်", "Age", "AGE", order[4] ?? "", { typeOptions: { age: { unit: "MONTHS" } } }),
+      field(f.age, "အသက်", "Age", "AGE", order[4] ?? ""),
       field(f.a, "RDT Test › Positive › A", "Rapid test › Positive, by species › P. falciparum", "MARK", order[5] ?? ""),
       field(f.b, "RDT Test › Positive › B", "Rapid test › Positive, by species › P. vivax", "MARK", order[6] ?? ""),
       field(f.c, "RDT Test › Positive › C", "Rapid test › Positive, by species › Mixed", "MARK", order[7] ?? ""),
@@ -187,7 +188,13 @@ async function main(): Promise<void> {
     ],
   });
   const mappingPositions = generateNKeysBetween(null, null, 7);
-  const mapping = (i: number, key: (typeof columnDefs)[number]["key"], input: { fieldId: string }) => ({
+  /** How the seeded mappings read their fields (decision 86). The age columns hold months. */
+  const AS_TEXT: ReadAs = { kind: "TEXT" };
+  const AS_NUMBER: ReadAs = { kind: "NUMBER" };
+  const AS_MONTHS: ReadAs = { kind: "AGE", unit: "MONTHS" };
+  const AS_DATE: ReadAs = { kind: "DATE", twoDigitYear: "REFUSE", pivotYear: null };
+  const AS_MARK: ReadAs = { kind: "MARK", symbols: marks };
+  const mapping = (i: number, key: (typeof columnDefs)[number]["key"], input: { fieldId: string; readAs: ReadAs }) => ({
     templateId: registerId,
     outputColumnId: column(key),
     kind: "COPY" as const,
@@ -208,16 +215,16 @@ async function main(): Promise<void> {
     multipleMarked: "ERROR" as const,
     ...rules,
     position: mappingPositions[i] ?? "",
-    inputs: { create: values.map(([fieldId, tickValue], position) => ({ fieldId, tickValue, position })) },
+    inputs: { create: values.map(([fieldId, tickValue], position) => ({ fieldId, tickValue, position, readAs: AS_MARK })) },
   });
   for (const m of [
-    mapping(0, "no", { fieldId: f.no }),
-    mapping(1, "name", { fieldId: f.name }),
+    mapping(0, "no", { fieldId: f.no, readAs: AS_NUMBER }),
+    mapping(1, "name", { fieldId: f.name, readAs: AS_TEXT }),
     ticks(2, "sex", { tickLabel: "ကျား/မ", noneMarked: "REVIEW" }, [[f.m, "M"], [f.fe, "F"]]),
-    mapping(3, "age_months", { fieldId: f.age }),
+    mapping(3, "age_months", { fieldId: f.age, readAs: AS_MONTHS }),
     ticks(4, "rdt_result", { tickLabel: "RDT Test", noneMarked: "BLANK", noneValue: "Not tested" }, [[f.a, "Positive (Pf)"], [f.b, "Positive (Pv)"], [f.c, "Positive (mixed)"], [f.neg, "Negative"]]),
-    mapping(5, "test_date", { fieldId: f.date }),
-    mapping(6, "village", { fieldId: f.village }),
+    mapping(5, "test_date", { fieldId: f.date, readAs: AS_DATE }),
+    mapping(6, "village", { fieldId: f.village, readAs: AS_TEXT }),
   ]) {
     await prisma.mapping.create({ data: m });
   }
@@ -239,7 +246,7 @@ async function main(): Promise<void> {
       fields: {
         create: [
           { id: cf.name, labelSource: "ကလေးအမည်", labelMeaning: "Child's name", dataType: "TEXT", position: cardPositions[0] ?? "" },
-          { id: cf.age, labelSource: "အသက်", labelMeaning: "Age", dataType: "AGE", typeOptions: { age: { unit: "MONTHS" } }, position: cardPositions[1] ?? "" },
+          { id: cf.age, labelSource: "အသက်", labelMeaning: "Age", dataType: "AGE", position: cardPositions[1] ?? "" },
           { id: cf.village, labelSource: "ရွာ", labelMeaning: "Village", dataType: "TEXT", position: cardPositions[2] ?? "" },
           { id: cf.date, labelSource: "ထိုးသည့်ရက်", labelMeaning: "Vaccination date", dataType: "DATE", position: cardPositions[3] ?? "" },
         ],
@@ -247,14 +254,14 @@ async function main(): Promise<void> {
     },
   });
   const cardMappings = [
-    ["name", cf.name],
-    ["age_months", cf.age],
-    ["village", cf.village],
-    ["test_date", cf.date],
+    ["name", cf.name, AS_TEXT],
+    ["age_months", cf.age, AS_MONTHS],
+    ["village", cf.village, AS_TEXT],
+    ["test_date", cf.date, AS_DATE],
   ] as const;
-  for (const [i, [key, fieldId]] of cardMappings.entries()) {
+  for (const [i, [key, fieldId, readAs]] of cardMappings.entries()) {
     await prisma.mapping.create({
-      data: { templateId: cardId, outputColumnId: column(key), kind: "COPY", position: mappingPositions[i] ?? "", inputs: { create: [{ position: 0, fieldId }] } },
+      data: { templateId: cardId, outputColumnId: column(key), kind: "COPY", position: mappingPositions[i] ?? "", inputs: { create: [{ position: 0, fieldId, readAs }] } },
     });
   }
 

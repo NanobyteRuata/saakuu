@@ -1,29 +1,17 @@
 {
-  "description": "a date field reads two-digit years by its own rule (century, pivot at its boundary, or flagged), and floor() turns an age in months into whole years",
+  "description": "a mapping reads a date field's two-digit years by its own Read as rule (century, pivot at its boundary, or flagged), and floor() turns an age in months into whole years",
   "input": {
     "kind": "TABLE",
     "fields": [
       {
         "id": "fdate",
         "labelSource": "Collected",
-        "dataType": "DATE",
-        "typeOptions": {
-          "date": {
-            "twoDigitYear": "CENTURY",
-            "pivotYear": null
-          }
-        }
+        "dataType": "DATE"
       },
       {
         "id": "fold",
         "labelSource": "Older register",
-        "dataType": "DATE",
-        "typeOptions": {
-          "date": {
-            "twoDigitYear": "PIVOT",
-            "pivotYear": 50
-          }
-        }
+        "dataType": "DATE"
       },
       {
         "id": "fplain",
@@ -33,19 +21,12 @@
       {
         "id": "fage",
         "labelSource": "အသက်",
-        "dataType": "AGE",
-        "typeOptions": { "age": { "unit": "MONTHS" } }
+        "dataType": "AGE"
       },
       {
         "id": "fnopivot",
         "labelSource": "Pivot without a year",
-        "dataType": "DATE",
-        "typeOptions": {
-          "date": {
-            "twoDigitYear": "PIVOT",
-            "pivotYear": null
-          }
-        }
+        "dataType": "DATE"
       }
     ],
     "columns": [
@@ -74,13 +55,13 @@
       {
         "column": "collected",
         "inputs": [
-          "fdate"
+          { "field": "fdate", "readAs": { "kind": "DATE", "twoDigitYear": "CENTURY", "pivotYear": null } }
         ]
       },
       {
         "column": "older",
         "inputs": [
-          "fold"
+          { "field": "fold", "readAs": { "kind": "DATE", "twoDigitYear": "PIVOT", "pivotYear": 50 } }
         ]
       },
       {
@@ -93,14 +74,14 @@
         "column": "age_years",
         "kind": "EXPRESSION",
         "inputs": [
-          "fage"
+          { "field": "fage", "readAs": { "kind": "AGE", "unit": "MONTHS" } }
         ],
         "expression": "floor(number({fage}) / 12)"
       },
       {
         "column": "no_pivot",
         "inputs": [
-          "fnopivot"
+          { "field": "fnopivot", "readAs": { "kind": "DATE", "twoDigitYear": "PIVOT", "pivotYear": null } }
         ]
       }
     ],

@@ -9,7 +9,6 @@ import { Pane, PaneGroup, PaneHandle } from "@/components/shell/pane";
 import { Button } from "@/components/ui/button";
 import { getJson, postJson } from "@/lib/api-client";
 import { isoDate } from "@/lib/format";
-import type { DateEra } from "@/lib/books/schemas";
 import { langOf } from "@/lib/templates/labels";
 import type { TemplateDetail } from "@/lib/templates/service";
 import { duplicateNames, orderFields } from "@/lib/templates/field-list";
@@ -42,13 +41,11 @@ export function TemplateEditor({
   initial,
   userId,
   bookDefaultModel,
-  bookDateEra,
 }: {
   initial: TemplateDetail;
   /** Pane sizes are remembered per workspace per user (docs/05 §0). */
   userId: string;
   bookDefaultModel: string;
-  bookDateEra: DateEra;
 }) {
   const router = useRouter();
   const [template, setTemplate] = useState(initial);
@@ -116,7 +113,6 @@ export function TemplateEditor({
       template={template}
       duplicateName={duplicateNames(source.list).has(selectedField.id)}
       lang={lang}
-      bookDateEra={bookDateEra}
       drafts={fieldDrafts}
       registerFlush={registerFlush}
       onSaved={(field) => setTemplate((t) => ({ ...t, fields: t.fields.map((f) => (f.id === field.id ? field : f)) }))}

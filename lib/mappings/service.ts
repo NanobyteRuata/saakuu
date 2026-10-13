@@ -20,7 +20,7 @@ import {
 import { lockTemplate, recomputeConfigState, requireTemplateAccess, type Db } from "@/lib/templates/access";
 import { appendPosition } from "@/lib/templates/positions";
 import { MAX_FIELDS, type ConfigState } from "@/lib/templates/schemas";
-import { loadSourceFields } from "@/lib/templates/source-fields";
+import { loadSourceFields, type SourceFields } from "@/lib/templates/source-fields";
 import { parseExpression } from "@/lib/transform/expression";
 import type { DocumentFlag } from "@/lib/transform/flags";
 import { mappingProblem, tidyMapping, type MappingContext } from "@/lib/transform/mappings";
@@ -29,9 +29,19 @@ import { loadDocumentRecords, loadTemplateContext, parseManualValues } from "@/l
 import { requestTemplateTransform } from "@/lib/transform/triggers";
 import type { ComputedCell, TransformMapping, VoidReason } from "@/lib/transform/types";
 
-import { MAX_MAPPINGS, type DeleteMappingInput, type MappingDraft, type MappingSourceInput, type PreviewMappingsInput } from "./schemas";
+import { AS_WRITTEN, defaultReadAs, parseReadAs, readAsProblem, type ReadAs } from "./read-as";
+import { MAX_MAPPING_INPUTS, MAX_MAPPINGS, type DeleteMappingInput, type MappingDraft, type MappingSourceInput, type PreviewMappingsInput } from "./schemas";
 import { recomputeMappingStates } from "./state";
-import { mappingSelect, rowTickRules, rowToTransformMapping, toSourceView, toTransformSource, type MappingRow, type MappingView } from "./views";
+import {
+  mappingSelect,
+  rowTickRules,
+  rowToTransformMapping,
+  toSourceView,
+  toTransformSource,
+  type MappingRow,
+  type MappingSourceView,
+  type MappingView,
+} from "./views";
 
 /**
  * Mapping CRUD, preview and rebuilds (docs/04 → Mappings). Every save is checked with the same rules
@@ -48,7 +58,12 @@ export type MappingsOverview = {
   extractedDocuments: number;
 };
 
-type Context = MappingContext & { columnLabels: Map<string, string> };
+type Context = Omit<MappingContext, "fields"> & { fields: SourceFields; columnLabels: Map<string, string> };
+
+/** How the saved mapping reads each of its fields today, by field id. Empty for a new mapping. */
+type SavedReadAs = ReadonlyMap<string, ReadAs>;
+
+const NOTHING_SAVED: SavedReadAs = new Map();
 
 async function requireMappingAccess(userId: string, mappingId: string): Promise<{ id: string; templateId: string; bookId: string }> {
   const uid = requireUserId(userId);
@@ -112,17 +127,27 @@ const blankToNull = (v: string | null) => (v === null || v === "" ? null : v);
  * A draft as the transform sees it. For an expression the inputs are its `{id}` references. In a
  * From ticks mapping a blank value means "write the field's own words", and a blank name means
  * "call it by the column's label".
+ *
+ * Every source leaves here with an explicit Read as (decision 86): the one sent; else the one the
+ * saved mapping already has for that field, so a save that doesn't mention it changes no cell; else
+ * the default for the field's type. From ticks always reads its tick fields as marks.
  */
-function resolveDraft(draft: MappingDraft): { mapping: Omit<TransformMapping, "id">; sources: MappingSourceInput[] } {
-  let sources = draft.inputs;
+function resolveDraft(draft: MappingDraft, fields: SourceFields, saved: SavedReadAs): { mapping: Omit<TransformMapping, "id">; sources: MappingSourceView[] } {
+  let sent = draft.inputs;
   if (draft.kind === "EXPRESSION" && draft.expression !== null) {
     const parsed = parseExpression(draft.expression);
     if (parsed.ok) {
-      sources = parsed.value.refs.map((id): MappingSourceInput => ({ id, tickValue: null }));
+      const readAs = new Map(draft.inputs.map((i) => [i.id, i.readAs]));
+      sent = parsed.value.refs.map((id): MappingSourceInput => ({ id, tickValue: null, readAs: readAs.get(id) }));
     }
   }
-  if (draft.kind === "CONSTANT") sources = [];
-  sources = sources.map((s) => ({ id: s.id, tickValue: draft.kind === "TICKS" && s.tickValue !== null && s.tickValue.trim() !== "" ? s.tickValue : null }));
+  if (draft.kind === "CONSTANT") sent = [];
+  const sources = sent.map((s): MappingSourceView => {
+    const field = fields.byId.get(s.id);
+    let readAs = s.readAs ?? saved.get(s.id) ?? (field ? defaultReadAs(field) : AS_WRITTEN);
+    if (draft.kind === "TICKS" && readAs.kind !== "MARK" && field?.dataType === "MARK") readAs = defaultReadAs(field);
+    return { id: s.id, tickValue: draft.kind === "TICKS" && s.tickValue !== null && s.tickValue.trim() !== "" ? s.tickValue : null, readAs };
+  });
   const mapping = tidyMapping({
     outputColumnId: draft.outputColumnId,
     kind: draft.kind,
@@ -150,11 +175,15 @@ function draftProblem(
   if (others.some((m) => m.outputColumnId === mapping.outputColumnId && m.id !== mappingId)) {
     return `“${ctx.columnLabels.get(mapping.outputColumnId) ?? ""}” is already filled by another mapping in this template. Change that mapping instead.`;
   }
+  for (const source of mapping.inputs) {
+    const problem = readAsProblem(source.readAs);
+    if (problem) return problem;
+  }
   return mappingProblem({ id: mappingId ?? "draft", ...mapping }, ctx);
 }
 
-function inputRows(sources: MappingSourceInput[]) {
-  return sources.map((s, position) => ({ fieldId: s.id, position, tickValue: s.tickValue }));
+function inputRows(sources: MappingSourceView[]) {
+  return sources.map((s, position) => ({ fieldId: s.id, position, tickValue: s.tickValue, readAs: s.readAs }));
 }
 
 function mappingData(m: Omit<TransformMapping, "id">) {
@@ -184,7 +213,7 @@ export async function createMapping(userId: string, templateId: string, draft: M
     const others = await tx.mapping.findMany({ where: { templateId }, select: { id: true, outputColumnId: true, position: true }, take: MAX_MAPPINGS });
     if (others.length >= MAX_MAPPINGS) throw new AppError("VALIDATION", `A template can have up to ${MAX_MAPPINGS} mappings.`);
     const ctx = await loadContext(tx, templateId, bookId);
-    const { mapping, sources } = resolveDraft(draft);
+    const { mapping, sources } = resolveDraft(draft, ctx.fields, NOTHING_SAVED);
     const problem = draftProblem(mapping, null, ctx, others);
     if (problem) throw new AppError("VALIDATION", problem);
     const row = await tx.mapping.create({
@@ -205,7 +234,15 @@ export async function updateMapping(userId: string, mappingId: string, draft: Ma
     const others = await tx.mapping.findMany({ where: { templateId }, select: { id: true, outputColumnId: true }, take: MAX_MAPPINGS });
     if (!others.some((m) => m.id === mappingId)) throw new AppError("NOT_FOUND", "That mapping doesn't exist or was deleted.");
     const ctx = await loadContext(tx, templateId, bookId);
-    const { mapping, sources } = resolveDraft(draft);
+    const before = await tx.mappingInput.findMany({
+      where: { mappingId },
+      orderBy: [{ position: "desc" }, { id: "desc" }],
+      select: { fieldId: true, readAs: true },
+      take: MAX_MAPPING_INPUTS,
+    });
+    // Listed last to first, so a field joined twice keeps how its first source reads it.
+    const saved = new Map(before.map((i) => [i.fieldId, parseReadAs(i.readAs)]));
+    const { mapping, sources } = resolveDraft(draft, ctx.fields, saved);
     const problem = draftProblem(mapping, mappingId, ctx, others);
     if (problem) throw new AppError("VALIDATION", problem);
     await tx.mappingInput.deleteMany({ where: { mappingId } });
@@ -334,7 +371,7 @@ export async function applyColumnProposal(userId: string, templateId: string): P
       const saved = [...others];
       for (const [i, { item, columnId }] of created.entries()) {
         const draft = { ...EMPTY_DRAFT, outputColumnId: columnId, inputs: [{ id: item.fieldId, tickValue: null }] };
-        const { mapping, sources } = resolveDraft(draft);
+        const { mapping, sources } = resolveDraft(draft, ctx.fields, NOTHING_SAVED);
         const problem = draftProblem(mapping, null, ctx, saved);
         if (problem) throw new AppError("VALIDATION", `“${item.label}” can't be mapped: ${problem}`);
         const row = await tx.mapping.create({
@@ -464,7 +501,8 @@ export async function previewMappings(userId: string, templateId: string, input:
   if (input.draft) {
     const ctx = await loadContext(prisma, templateId, bookId);
     const { id, ...draft } = input.draft;
-    const { mapping } = resolveDraft(draft);
+    const reads = context.mappings.find((m) => m.id === id)?.inputs ?? [];
+    const { mapping } = resolveDraft(draft, ctx.fields, new Map([...reads].reverse().map((s) => [s.fieldId, s.readAs])));
     problem = draftProblem(mapping, id, ctx, context.mappings);
     if (problem === null) {
       const drafted: TransformMapping = { id: id ?? "draft", ...mapping };

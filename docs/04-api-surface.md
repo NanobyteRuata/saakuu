@@ -268,6 +268,10 @@ There are no groups of any kind: **every `/groups` route is removed**, and so ar
 POST   /api/templates/:id/fields            { labelSource, labelMeaning?, dataType?, mode?, note?, after?: fieldId | null, choices?, markSymbols?, typeOptions? }
 PATCH  /api/fields/:id                      any of the above except after, + move: { after: fieldId | null }
 ```
+- **Phase 26** (decision 86): `typeOptions` is still accepted on both routes and **ignored**; nothing is stored
+  from it and what a field already holds is left as it is. A browser tab from before the release keeps saving.
+  `markSymbols` is the list of symbols sent to the AI; the meaning beside each is stored but no longer read.
+  What a date's two-digit year, an age's unit and a mark's symbols mean is set per mapping source (`readAs`, below).
 - Fields are one list per template. `after` names the field it goes after (`null` = first; absent
   on create = the end of the list). A move writes one row.
 - `labelSource` is the field's whole name, the header above it in front, levels joined with ` › `
@@ -322,7 +326,8 @@ GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | 
 ```jsonc
 // MappingDraft
 { "outputColumnId", "kind": "COPY" | "CONCAT" | "SPLIT" | "CONSTANT" | "EXPRESSION" | "TICKS",
-  "inputs": [{ "id": "<fieldId>", "tickValue": "1" | null }],          // tickValue: TICKS only
+  "inputs": [{ "id": "<fieldId>", "tickValue": "1" | null,             // tickValue: TICKS only
+               "readAs": { "kind": "DATE", "twoDigitYear": "CENTURY", "pivotYear": null } }],   // optional; docs/02 → Read as
   "separator", "splitBy", "splitIndex", "splitRegex", "constantValue", "expression",
   "ticks": { "selection": "ONE_OF" | "ANY_OF", "noneMarked": "BLANK" | "REVIEW" | "ERROR",
              "multipleMarked": "REVIEW" | "ERROR", "noneValue": "Not tested" | null, "label": "လိင်" | null } | null,   // TICKS only
@@ -332,6 +337,12 @@ GET    /api/templates/:id/retransform           -> { state: "idle" | "queued" | 
   `noneValue`). `TICKS` ("From ticks") reads several tick fields as one answer: `tickValue` is what each writes
   (blank = the field's meaning or name), and `ticks` carries the rules and the name warnings use (blank = the
   column's label).
+- `readAs` (Phase 26, decision 86) is how that field's reading is converted before the mapping uses it. Left out,
+  the server keeps how the saved mapping already reads that field, or, for a field it did not read before, uses the
+  default for the field's type; so a save never changes a conversion it does not mention. A mapping is always
+  returned with `readAs` on every input. `PIVOT` without a year is refused (`VALIDATION`). `TICKS` reads every
+  input as a mark. For `EXPRESSION`, `inputs` may carry `readAs` for the fields the expression names; entries for
+  other fields are dropped. Changing `readAs` queues the same rebuild as any mapping save: no reading, no credits.
 - Options that don't belong to the kind are cleared. For `EXPRESSION` the inputs are the `{id}` references in the
   expression.
 - `VALIDATION`, each with a plain message: a column that already has a mapping in this template; a deleted column or

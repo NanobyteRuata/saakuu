@@ -352,9 +352,11 @@ smaller), type chip, mode chip. Mode chips are colour-coded and immediately legi
 Field properties panel: **Name on the paper** (grows with the text, with the header hint and the
 same-name warning under it), meaning in English, data type, mode, note (multiline,
 with a hint explaining it is an instruction to the AI and an example), choices editor
-for CHOICE, symbol map for MARK, `use as sequence` toggle for table templates.
-For DATE (Phase 6): **Dates written with a two-digit year** — flag them (default), read them in the
-book era's century, or split at a year — with a one-line example of what `30.8.20` becomes.
+for CHOICE, **Marks used on this paper** for MARK (the symbols only), `use as sequence` toggle for table templates.
+Since Phase 26 (decision 86) this panel holds only what the AI is told. The two-digit-year rule (Phase 6),
+`Show age as` and the meaning beside each mark symbol are gone from it: they are **Read as** on the Mapping tab.
+Under the mark list: *"The AI is told these are the marks to expect. What each one means is set on the Mapping tab,
+under Read as, and costs no reading to change."*
 
 Header of the tab: template name, kind (read-only after creation), language hint,
 anchors editor, template-level instructions, double-extraction toggle (disabled in v1
@@ -380,6 +382,17 @@ feedback.
   From ticks, each with a one-line hint), field pickers in paper order showing each field's whole name,
   up/down reordering for Join, and "Fill in ditto marks from the row above" on table templates. Expressions
   are written with `{Name}` references and an "Insert a field" picker. Escape cancels.
+- **Read as** (Phase 26, decision 86): one line under every field a mapping reads — the field of a Copy or Split,
+  each row of a Join, each field an Expression names. A select: As written, Number, Date, Age, Fraction,
+  Mark / tick, Choice (Choice only when the field has choices). Date opens **Dates written with a two-digit year**
+  (flag them, read them in the book era's century, or split at a year) with its one-line example of what `30.8.20`
+  becomes; Age opens **Show age as** (Years, Months, Years and months) with its hint; Mark lists each symbol with
+  what it means (Yes / ticked, No / not given, Count the strokes). A field picked for the first time starts on the
+  default for its type. The preview follows every change before saving; saving rebuilds the rows with no reading.
+  Under each tick field of a From ticks mapping the same mark list sits folded behind *What its marks mean*.
+  A symbol listed on the Fields tab that has no meaning here yet is offered as a one-click button, with a line
+  saying its cells are flagged until it has one. It is the smallest control that works; the mapping redesign may
+  restyle it.
 - **From ticks** (Phase 24, decision 84): *"Several tick boxes become one answer, e.g. a tick under ကျား or မ
   becomes M or F."* Its form, top to bottom:
   - **Tick fields, and what each one writes** — one row per chosen field: its name, a box for the value it

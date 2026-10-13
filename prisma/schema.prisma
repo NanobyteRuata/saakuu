@@ -278,8 +278,8 @@ model Field {
   mode         FieldMode @default(EXTRACT)
   note         String? // human-language hint to the AI
   choices      String[]  @default([]) // CHOICE
-  markSymbols  Json? // MARK: { "✓": true, "✗": false, "tally": "count" }
-  typeOptions  Json? // Phase 6: settings for this field's type, e.g. date: { twoDigitYear, pivotYear }, age: { unit }
+  markSymbols  Json? // MARK: the symbols used on the paper, as keys. Their meanings are unread since Phase 26 (MappingInput.readAs)
+  typeOptions  Json? // unread since Phase 26; kept for one release. Was date: { twoDigitYear, pivotYear }, age: { unit }
   isSequence   Boolean   @default(false)
   position     String
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
@@ -343,6 +343,7 @@ model MappingInput {
   fieldId   String
   position  Int
   tickValue String? // TICKS: what this tick writes; the field's meaning or name when null
+  readAs    Json // Phase 26: how this field's reading is converted before the mapping uses it (lib/mappings/read-as.ts)
   mapping   Mapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
   field     Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
 

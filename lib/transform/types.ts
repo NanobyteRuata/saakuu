@@ -1,10 +1,9 @@
 import type { DateEra, NumeralSystem, RowType, ValueState } from "@/lib/ai/provider";
 import type { ColumnType } from "@/lib/books/schemas";
+import type { ReadAs } from "@/lib/mappings/read-as";
 import type {
   FieldMode,
   FieldType,
-  FieldTypeOptions,
-  MarkSymbols,
   MultipleMarked,
   NoneMarked,
   TemplateKind,
@@ -36,9 +35,6 @@ export type TransformField = {
   dataType: FieldType;
   mode: FieldMode;
   choices: string[];
-  markSymbols: MarkSymbols | null;
-  /** Settings for the field's type, e.g. how a DATE field reads two-digit years. */
-  typeOptions: FieldTypeOptions | null;
 };
 
 /** Live output columns, in manual order. */
@@ -51,8 +47,11 @@ export type TransformColumn = {
   isRequired: boolean;
 };
 
-/** One field a mapping reads. `tickValue` is what a TICKS mapping writes when this field is ticked; null = the field's own words. */
-export type MappingSource = { fieldId: string; tickValue: string | null };
+/**
+ * One field a mapping reads. `readAs` is how its reading is converted first (decision 86). `tickValue`
+ * is what a TICKS mapping writes when this field is ticked; null = the field's own words.
+ */
+export type MappingSource = { fieldId: string; tickValue: string | null; readAs: ReadAs };
 
 /**
  * How a TICKS mapping turns its tick fields into one answer (docs/03 §8 step 5a, decisions 32, 33

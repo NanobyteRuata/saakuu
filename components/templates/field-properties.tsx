@@ -25,31 +25,20 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { patchJson } from "@/lib/api-client";
 import { pickOption } from "@/lib/books/labels";
-import type { DateEra } from "@/lib/books/schemas";
 import {
   FIELD_GUIDANCE,
   FIELD_MODE_HINTS,
   FIELD_MODE_LABELS,
   FIELD_TYPE_LABELS,
-  AGE_UNIT_HINTS,
-  AGE_UNIT_LABELS,
-  TWO_DIGIT_YEAR_LABELS,
-  twoDigitYearHint,
 } from "@/lib/templates/labels";
 import {
-  AGE_UNITS,
   FIELD_MODES,
-  NEW_AGE_UNIT,
-  UNSET_AGE_UNIT,
   FIELD_TYPES,
   fieldShapeProblem,
-  TWO_DIGIT_YEAR_RULES,
-  type AgeUnit,
+  MAX_MARK_SYMBOLS,
   type FieldMode,
-  type FieldTypeOptions,
   type FieldType,
   type MarkSymbols,
-  type TwoDigitYearRule,
 } from "@/lib/templates/schemas";
 import type { TemplateDetail } from "@/lib/templates/service";
 import type { FieldView } from "@/lib/templates/views";
@@ -58,13 +47,12 @@ import { useAutosaveForm, type Flush } from "./autosave";
 import { ChipListEditor } from "./chip-list-editor";
 import { duplicateNameWarning } from "./field-list";
 
-const MARK_MEANINGS = [
-  { value: "true", label: "Yes / ticked" },
-  { value: "false", label: "No / not given" },
-  { value: "count", label: "Count the strokes" },
-] as const;
-
-type MarkMeaning = (typeof MARK_MEANINGS)[number]["value"];
+/**
+ * What a symbol means is set where the field is mapped (Read as, decision 86). The meaning stored
+ * beside each symbol is from before that and is no longer read; it is carried through unchanged so
+ * a save here rewrites nothing, and a symbol added here is stored as "ticked".
+ */
+type StoredMeaning = MarkSymbols[string];
 
 export type FieldDraft = {
   labelSource: string;
@@ -73,10 +61,7 @@ export type FieldDraft = {
   mode: FieldMode;
   note: string;
   choices: string[];
-  marks: { symbol: string; meaning: MarkMeaning }[];
-  twoDigitYear: TwoDigitYearRule;
-  pivotYear: string;
-  ageUnit: AgeUnit;
+  marks: { symbol: string; stored: StoredMeaning }[];
 };
 
 function toDraft(f: FieldView): FieldDraft {
@@ -87,55 +72,18 @@ function toDraft(f: FieldView): FieldDraft {
     mode: f.mode,
     note: f.note ?? "",
     choices: f.choices,
-    marks: Object.entries(f.markSymbols ?? {}).map(([symbol, v]) => ({
+    marks: Object.entries(f.markSymbols ?? {}).map(([symbol, stored]) => ({
       symbol,
-      meaning: v === "count" ? "count" : v ? "true" : "false",
+      stored,
     })),
-    twoDigitYear: f.typeOptions?.date?.twoDigitYear ?? "REFUSE",
-    pivotYear:
-      f.typeOptions?.date?.pivotYear === undefined ||
-      f.typeOptions.date.pivotYear === null
-        ? ""
-        : String(f.typeOptions.date.pivotYear),
-    ageUnit:
-      f.dataType === "AGE"
-        ? (f.typeOptions?.age?.unit ?? UNSET_AGE_UNIT)
-        : NEW_AGE_UNIT,
   };
-}
-
-function pivotNumber(value: string): number | null {
-  const n = Number(value.trim());
-  return value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 99
-    ? n
-    : null;
-}
-
-function typeOptionsOf(d: FieldDraft): FieldTypeOptions | null {
-  switch (d.dataType) {
-    case "DATE":
-      return {
-        date: {
-          twoDigitYear: d.twoDigitYear,
-          pivotYear:
-            d.twoDigitYear === "PIVOT" ? pivotNumber(d.pivotYear) : null,
-        },
-      };
-    case "AGE":
-      return { age: { unit: d.ageUnit } };
-    default:
-      return null;
-  }
 }
 
 function toPayload(d: FieldDraft) {
   const markSymbols: MarkSymbols | null =
     d.dataType === "MARK" && d.marks.length > 0
       ? Object.fromEntries(
-          d.marks.map((m) => [
-            m.symbol.trim(),
-            m.meaning === "count" ? "count" : m.meaning === "true",
-          ]),
+          d.marks.map((m) => [m.symbol.trim(), m.stored]),
         )
       : null;
   return {
@@ -146,7 +94,6 @@ function toPayload(d: FieldDraft) {
     note: d.note.trim() || null,
     choices: d.dataType === "CHOICE" ? d.choices : [],
     markSymbols,
-    typeOptions: typeOptionsOf(d),
   };
 }
 
@@ -169,8 +116,6 @@ type Props = {
   /** Another live field of the template has this field's name. A warning only: saving is never refused. */
   duplicateName: boolean;
   lang: string | undefined;
-  /** The book's date era: two-digit years are read in that era's century. */
-  bookDateEra: DateEra;
   onSaved: (field: FieldView) => void;
   onTemplate: (template: TemplateDetail) => void;
   onDelete: () => void;
@@ -188,7 +133,6 @@ export function FieldProperties({
   template,
   duplicateName,
   lang,
-  bookDateEra,
   onSaved,
   onTemplate,
   onDelete,
@@ -376,94 +320,10 @@ export function FieldProperties({
         </div>
       ) : null}
 
-      {draft.dataType === "DATE" ? (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="field-two-digit-year">
-            Dates written with a two-digit year
-          </Label>
-          <Select
-            value={draft.twoDigitYear}
-            onValueChange={(v) => {
-              const twoDigitYear =
-                pickOption(TWO_DIGIT_YEAR_RULES, v) ?? draft.twoDigitYear;
-              set({
-                twoDigitYear,
-                pivotYear:
-                  twoDigitYear === "PIVOT" && draft.pivotYear.trim() === ""
-                    ? "50"
-                    : draft.pivotYear,
-              });
-            }}
-          >
-            <SelectTrigger id="field-two-digit-year" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TWO_DIGIT_YEAR_RULES.map((rule) => (
-                <SelectItem key={rule} value={rule}>
-                  {TWO_DIGIT_YEAR_LABELS[rule]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {draft.twoDigitYear === "PIVOT" ? (
-            <div className="flex items-center gap-2">
-              <Label htmlFor="field-pivot-year" className="font-normal">
-                Split at
-              </Label>
-              <Input
-                id="field-pivot-year"
-                className="w-20"
-                inputMode="numeric"
-                placeholder="50"
-                value={draft.pivotYear}
-                onChange={(e) => set({ pivotYear: e.target.value })}
-              />
-            </div>
-          ) : null}
-          <p className="text-muted-foreground text-xs">
-            {twoDigitYearHint(
-              draft.twoDigitYear,
-              bookDateEra,
-              pivotNumber(draft.pivotYear),
-            )}{" "}
-            The AI always copies the date as written; this decides how it is
-            read afterwards.
-          </p>
-        </div>
-      ) : null}
-
-      {draft.dataType === "AGE" ? (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="field-age-unit">Show age as</Label>
-          <Select
-            value={draft.ageUnit}
-            onValueChange={(v) =>
-              set({ ageUnit: pickOption(AGE_UNITS, v) ?? draft.ageUnit })
-            }
-          >
-            <SelectTrigger id="field-age-unit" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {AGE_UNITS.map((unit) => (
-                <SelectItem key={unit} value={unit}>
-                  {AGE_UNIT_LABELS[unit]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-muted-foreground text-xs">
-            {AGE_UNIT_HINTS[draft.ageUnit]} The AI always copies the age as
-            written; this decides how it is shown afterwards.
-          </p>
-        </div>
-      ) : null}
-
       {draft.dataType === "MARK" ? (
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-2 text-sm font-medium">
-            What the marks mean
+            Marks used on this paper
           </legend>
           {draft.marks.length === 0 ? (
             <p className="text-muted-foreground text-sm">
@@ -486,34 +346,6 @@ export function FieldProperties({
                   })
                 }
               />
-              <Select
-                value={mark.meaning}
-                onValueChange={(v) => {
-                  const meaning = MARK_MEANINGS.find(
-                    (o) => o.value === v,
-                  )?.value;
-                  if (meaning)
-                    set({
-                      marks: draft.marks.map((m, j) =>
-                        j === i ? { ...m, meaning } : m,
-                      ),
-                    });
-                }}
-              >
-                <SelectTrigger
-                  aria-label={`Mark ${i + 1} meaning`}
-                  className="flex-1"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MARK_MEANINGS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Button
                 type="button"
                 variant="ghost"
@@ -528,19 +360,21 @@ export function FieldProperties({
             </div>
           ))}
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                set({
-                  marks: [...draft.marks, { symbol: "", meaning: "true" }],
-                })
-              }
-            >
-              <Plus />
-              Add a symbol
-            </Button>
+            {draft.marks.length < MAX_MARK_SYMBOLS ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  set({
+                    marks: [...draft.marks, { symbol: "", stored: true }],
+                  })
+                }
+              >
+                <Plus />
+                Add a symbol
+              </Button>
+            ) : null}
             {draft.marks.length === 0 ? (
               <Button
                 type="button"
@@ -549,8 +383,8 @@ export function FieldProperties({
                 onClick={() =>
                   set({
                     marks: [
-                      { symbol: "✓", meaning: "true" },
-                      { symbol: "✗", meaning: "false" },
+                      { symbol: "✓", stored: true },
+                      { symbol: "✗", stored: false },
                     ],
                   })
                 }
@@ -559,6 +393,11 @@ export function FieldProperties({
               </Button>
             ) : null}
           </div>
+          <p className="text-muted-foreground text-xs">
+            The AI is told these are the marks to expect. What each one means
+            is set on the Mapping tab, under Read as, and costs no reading to
+            change.
+          </p>
         </fieldset>
       ) : null}
 

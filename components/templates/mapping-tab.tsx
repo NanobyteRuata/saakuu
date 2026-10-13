@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getJson, patchJson, postJson } from "@/lib/api-client";
-import { COLUMN_TYPE_LABELS } from "@/lib/books/schemas";
+import { COLUMN_TYPE_LABELS, type DateEra } from "@/lib/books/schemas";
 import { plural } from "@/lib/format";
 import {
   MAPPING_KIND_HINTS,
@@ -25,6 +25,7 @@ import {
   TICK_SELECTION_HINTS,
   TICK_SELECTION_LABELS,
 } from "@/lib/mappings/labels";
+import { AS_WRITTEN, defaultReadAs, type ReadAs } from "@/lib/mappings/read-as";
 import type { MappingDraft, MappingSourceInput } from "@/lib/mappings/schemas";
 import type { ColumnOption, MappingsOverview, RetransformStatus } from "@/lib/mappings/service";
 import type { MappingView } from "@/lib/mappings/views";
@@ -33,7 +34,7 @@ import { FIELD_MODE_LABELS, FIELD_TYPE_LABELS } from "@/lib/templates/labels";
 import { MULTIPLE_MARKED, NONE_MARKED, TICK_SELECTIONS, type MultipleMarked, type NoneMarked, type TickSelection } from "@/lib/templates/schemas";
 import type { TemplateDetail } from "@/lib/templates/service";
 import type { FieldView } from "@/lib/templates/views";
-import { expressionFromDisplay, expressionToDisplay } from "@/lib/transform/expression";
+import { expressionFromDisplay, expressionToDisplay, parseExpression } from "@/lib/transform/expression";
 import { DEFAULT_SEPARATOR, DEFAULT_TICK_RULES } from "@/lib/transform/mappings";
 import { MAPPING_KINDS, type MappingKind } from "@/lib/transform/types";
 
@@ -43,8 +44,9 @@ import { ColumnSetupBar } from "./column-setup-bar";
 import { DeleteMappingDialog } from "./delete-mapping-dialog";
 import { FieldName } from "./field-name";
 import { MappingPreviewPanel } from "./mapping-preview";
+import { ReadAsControl } from "./read-as-control";
 
-type SourceOption = { id: string; name: string; detail: string; isTick: boolean; tickDefault: string };
+type SourceOption = { id: string; name: string; detail: string; isTick: boolean; tickDefault: string; field: FieldView };
 
 /** The template's fields in paper order. */
 function sourceOptions(fields: FieldView[]): SourceOption[] {
@@ -54,7 +56,18 @@ function sourceOptions(fields: FieldView[]): SourceOption[] {
     detail: `${FIELD_TYPE_LABELS[f.dataType]} · ${FIELD_MODE_LABELS[f.mode]}`,
     isTick: f.dataType === "MARK",
     tickDefault: shortName(f),
+    field: f,
   }));
+}
+
+/** How a source reads its field: what it was given, else the default for the field's type (decision 86). */
+function readAsOf(source: MappingSourceInput, option: SourceOption | undefined): ReadAs {
+  return source.readAs ?? (option ? defaultReadAs(option.field) : AS_WRITTEN);
+}
+
+/** A newly chosen field, read the default way for its type. */
+function newSource(option: SourceOption, tickValue: string | null): MappingSourceInput {
+  return { id: option.id, tickValue, readAs: defaultReadAs(option.field) };
 }
 
 /** How expressions name fields for people: the name when no other field has it, else the id. */
@@ -81,6 +94,8 @@ type EditorState = {
   splitRegex: string;
   constantValue: string;
   expressionText: string;
+  /** How an expression reads each field it names, by field id. Its fields come from its text, not from `inputs`. */
+  expressionReadAs: Record<string, ReadAs>;
   tickSelection: TickSelection;
   noneMarked: NoneMarked;
   multipleMarked: MultipleMarked;
@@ -100,6 +115,7 @@ function initialState(mapping: MappingView | null, nameFor: Map<string, string>)
     splitRegex: mapping?.splitRegex ?? "",
     constantValue: mapping?.constantValue ?? "",
     expressionText: mapping?.expression ? expressionToDisplay(mapping.expression, (id) => nameFor.get(id) ?? null) : "",
+    expressionReadAs: Object.fromEntries((mapping?.inputs ?? []).map((i) => [i.id, i.readAs])),
     tickSelection: mapping?.ticks?.selection ?? DEFAULT_TICK_RULES.selection,
     noneMarked: mapping?.ticks?.noneMarked ?? DEFAULT_TICK_RULES.noneMarked,
     multipleMarked: mapping?.ticks?.multipleMarked ?? DEFAULT_TICK_RULES.multipleMarked,
@@ -115,7 +131,14 @@ function toDraft(columnId: string, s: EditorState, idFor: Map<string, string>): 
   return {
     outputColumnId: columnId,
     kind: s.kind,
-    inputs: s.kind === "CONCAT" || s.kind === "TICKS" ? s.inputs : s.kind === "COPY" || s.kind === "SPLIT" ? s.inputs.slice(0, 1) : [],
+    inputs:
+      s.kind === "CONCAT" || s.kind === "TICKS"
+        ? s.inputs
+        : s.kind === "COPY" || s.kind === "SPLIT"
+          ? s.inputs.slice(0, 1)
+          : s.kind === "EXPRESSION"
+            ? Object.entries(s.expressionReadAs).map(([id, readAs]) => ({ id, tickValue: null, readAs }))
+            : [],
     separator: s.kind === "CONCAT" ? s.separator : null,
     splitBy: splitting && s.splitMode === "separator" ? s.splitBy : null,
     splitIndex: splitting && s.splitMode === "separator" ? (Number.isInteger(part) && part >= 1 ? part - 1 : null) : null,
@@ -148,7 +171,8 @@ function SourcePicker({
     <Select
       value={known ? value?.id : undefined}
       onValueChange={(v) => {
-        if (v && v !== value?.id && options.some((o) => o.id === v)) onChange({ id: v, tickValue: null });
+        const option = options.find((o) => o.id === v);
+        if (option && v !== value?.id) onChange(newSource(option, null));
       }}
     >
       {/* The chosen name wraps rather than losing its end, so the trigger grows with it. */}
@@ -218,13 +242,14 @@ type EditorProps = {
   options: SourceOption[];
   names: { nameFor: Map<string, string>; idFor: Map<string, string> };
   lang: string | undefined;
+  era: DateEra;
   onDraft: (draft: (MappingDraft & { id: string | null }) | null) => void;
   onCancel: () => void;
   onSaved: (mapping: MappingView) => void;
   onDelete: () => void;
 };
 
-function MappingEditor({ column, mapping, template, options, names, lang, onDraft, onCancel, onSaved, onDelete }: EditorProps) {
+function MappingEditor({ column, mapping, template, options, names, lang, era, onDraft, onCancel, onSaved, onDelete }: EditorProps) {
   const [state, setState] = useState(() => initialState(mapping, names.nameFor));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -252,10 +277,34 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
         kind === "TICKS"
           ? state.inputs.flatMap((i) => {
               const o = byId.get(i.id);
-              return o?.isTick ? [{ id: i.id, tickValue: i.tickValue ?? o.tickDefault }] : [];
+              if (!o?.isTick) return [];
+              const readAs = readAsOf(i, o);
+              return [{ id: i.id, tickValue: i.tickValue ?? o.tickDefault, readAs: readAs.kind === "MARK" ? readAs : defaultReadAs(o.field) }];
             })
           : state.inputs,
     });
+  /** The Read as line under a field this mapping reads. */
+  const readAsControl = (source: MappingSourceInput, i: number, marksOnly = false) => {
+    const o = byId.get(source.id);
+    return o ? (
+      <ReadAsControl
+        key={`${i}:${source.id}`}
+        id={`mapping-read-as-${i}`}
+        name={o.tickDefault}
+        value={readAsOf(source, o)}
+        field={o.field}
+        era={era}
+        lang={lang}
+        marksOnly={marksOnly}
+        onChange={(readAs) => setInput(i, { ...source, readAs })}
+      />
+    ) : null;
+  };
+  const expressionRefs = useMemo(() => {
+    if (state.kind !== "EXPRESSION") return [];
+    const parsed = parseExpression(expressionFromDisplay(state.expressionText, (name) => names.idFor.get(name) ?? null));
+    return parsed.ok ? parsed.value.refs : [];
+  }, [state.kind, state.expressionText, names.idFor]);
   const tickOptions = options.filter((o) => o.isTick && !state.inputs.some((i) => i.id === o.id));
 
   async function save() {
@@ -312,6 +361,7 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
             lang={lang}
             onChange={(s) => set({ inputs: [s] })}
           />
+          {single ? readAsControl(single, 0) : null}
         </div>
       ) : null}
 
@@ -329,7 +379,8 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
             {state.inputs.map((source, i) => {
               const o = byId.get(source.id);
               return (
-                <div key={source.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,9rem)_auto] items-center gap-2">
+                <div key={source.id} className="flex flex-col gap-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,9rem)_auto] items-center gap-2">
                   {o ? <FieldName name={o.name} lang={lang} className="text-sm" /> : <span className="text-destructive text-sm">A deleted field</span>}
                   <Input
                     aria-label={`Written when ${o?.name ?? "this field"} is ticked`}
@@ -337,11 +388,16 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
                     className="font-value"
                     value={source.tickValue ?? ""}
                     placeholder={o?.tickDefault ?? ""}
-                    onChange={(e) => setInput(i, { id: source.id, tickValue: e.target.value })}
+                    onChange={(e) => setInput(i, { ...source, tickValue: e.target.value })}
                   />
                   <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${o?.name ?? "this field"}`} onClick={() => set({ inputs: state.inputs.filter((_, j) => j !== i) })}>
                     <X />
                   </Button>
+                </div>
+                  <details className="text-sm">
+                    <summary className="text-muted-foreground cursor-pointer text-xs">What its marks mean</summary>
+                    <div className="pt-2">{readAsControl(source, i, true)}</div>
+                  </details>
                 </div>
               );
             })}
@@ -350,7 +406,7 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
                 value=""
                 onValueChange={(v) => {
                   const o = tickOptions.find((x) => x.id === v);
-                  if (o) set({ inputs: [...state.inputs, { id: o.id, tickValue: o.tickDefault }] });
+                  if (o) set({ inputs: [...state.inputs, newSource(o, o.tickDefault)] });
                 }}
               >
                 <SelectTrigger className="w-full" aria-label="Add a tick field">
@@ -443,12 +499,14 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
                   <X />
                 </Button>
               </div>
+              {readAsControl(source, i)}
             </div>
           ))}
           <Select
             value=""
             onValueChange={(v) => {
-              if (byId.has(v)) set({ inputs: [...state.inputs, { id: v, tickValue: null }] });
+              const o = byId.get(v);
+              if (o) set({ inputs: [...state.inputs, newSource(o, null)] });
             }}
           >
             <SelectTrigger className="w-full" aria-label="Add a field to join">
@@ -550,6 +608,24 @@ function MappingEditor({ column, mapping, template, options, names, lang, onDraf
               ))}
             </SelectContent>
           </Select>
+          {expressionRefs.map((id, i) => {
+            const o = byId.get(id);
+            if (!o) return null;
+            return (
+              <div key={id} className="flex flex-col gap-2">
+                <FieldName name={o.name} lang={lang} className="text-sm" />
+                <ReadAsControl
+                  id={`mapping-read-as-${i}`}
+                  name={o.tickDefault}
+                  value={state.expressionReadAs[id] ?? defaultReadAs(o.field)}
+                  field={o.field}
+                  era={era}
+                  lang={lang}
+                  onChange={(readAs) => set({ expressionReadAs: { ...state.expressionReadAs, [id]: readAs } })}
+                />
+              </div>
+            );
+          })}
         </div>
       ) : null}
 
@@ -609,12 +685,14 @@ type Props = {
   /** The template's fields in paper order. */
   fields: FieldView[];
   lang: string | undefined;
+  /** The book's date era: Read as date reads two-digit years in that era's century. */
+  bookDateEra: DateEra;
   /** Reloads the template, so the config badge follows mapping changes. */
   onChanged: () => Promise<void>;
 };
 
 /** The mapping layer (docs/01 §6.5b, docs/05 §7): how fields become output columns, with a live preview. */
-export function MappingTab({ template, fields, lang, onChanged }: Props) {
+export function MappingTab({ template, fields, lang, bookDateEra, onChanged }: Props) {
   const [overview, setOverview] = useState<MappingsOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingColumn, setEditingColumn] = useState<string | null>(null);
@@ -712,6 +790,7 @@ export function MappingTab({ template, fields, lang, onChanged }: Props) {
       options={options}
       names={names}
       lang={lang}
+      era={bookDateEra}
       onDraft={onDraft}
       onCancel={() => setEditingColumn(null)}
       onSaved={(m) => void afterChange(`Saved the mapping for “${overview.columns.find((c) => c.id === m.outputColumnId)?.label ?? column.label}”. Rows are being rebuilt.`)}

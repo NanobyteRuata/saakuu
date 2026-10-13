@@ -176,7 +176,8 @@ edited value would flag the same cell on every rebuild after the operator had al
 older column in the same book is not, so the century belongs to the column written that way. It lives in
 `Field.typeOptions`, a per-type settings bag, so later type settings need no migration. The century is a fixed constant
 per era (2000 / 2500 / 1300), never "this century today", so a rebuild is reproducible. The default stays `REFUSE`: an
-unconfigured field flags the date rather than guessing. (Phase 6)
+unconfigured field flags the date rather than guessing. (Phase 6) **Superseded by 86** as to where it lives: the
+rule is now per mapping source, which is still per column written that way; the reasoning against a book setting stands.
 
 **37. Deleting a row is soft and survives re-extraction.** A hard delete would come straight back on the next rebuild,
 because the raw record still produces it. `Row.deletedAt` lets the merge keep matching the row by record key and leave it
@@ -712,7 +713,44 @@ keeps the one the field has. So a lost setting (a browser tab from before the de
 didn't run) can never turn 18 into 1.5 across a book. Migration `20261008000002_age_unit` writes
 `MONTHS` on every Age field that existed, for the record only. Known edges: a Years field sent to a
 Whole number column, or a Years and months field sent to a Number column, flags its cells — the hint
-under the setting says which column type to use; nothing blocks it. (2026-10-08)
+under the setting says which column type to use; nothing blocks it. (2026-10-08) **Superseded by 86**
+as to where the unit lives (the mapping's Read as) and who stamps it (a new mapping source, not a new
+field). What it protects is unchanged: a source whose field had no unit recorded was given `MONTHS`.
+
+**86. Fields are what the AI is told; conversion belongs to each field a mapping reads.** A date field
+was left on "flag two-digit years", a reading showed errors, the setting was changed, and the errors
+went away with no new reading. Nothing on the Fields screen said which settings cost a reading to
+change and which cost nothing, because both kinds sat side by side. The rule now: **a field setting
+exists only if it changes what the AI is told or sent; everything done to a reading afterwards belongs
+to the mapping, is free, and re-runs at once.** The three settings that were conversion (the
+two-digit-year rule, the age unit, what each mark symbol means) moved to **Read as**,
+`MappingInput.readAs`, in Phase 26.
+- *Why on each field a mapping reads, and not on the output column.* Conversion has to happen before
+  fields are combined: a real mapping reads an Age inside an Expression and needs the age as a number,
+  and what a symbol means decides whether a box counts as ticked, which `From ticks` depends on. A
+  per-column setting could do neither.
+- *Why every source carries an explicit value, never "follow the field".* So a later change to a
+  field's type can flag documents (Phase 28) but can never change a cell by itself. The cost is
+  accepted and shown: a symbol added on the Fields tab is unknown to mappings that already read the
+  field until it is given a meaning there; the control offers it in one click and says its cells are
+  flagged meanwhile.
+- *A save that does not mention Read as changes nothing.* The server keeps how the saved mapping
+  already reads that field, and only a field the mapping did not read before gets the default for its
+  type. That is what makes a browser tab from before the release, and an Expression whose fields are
+  worked out from its text, safe.
+- *Defaults for a new source.* A date flags two-digit years; an age comes out in years; `✗ ✘ ×` mean no
+  and every other listed symbol means ticked. Counting strokes is never assumed, so `Create columns`
+  proposes a Yes/No column for every mark and a Number column for every age.
+- *No cell changed.* The migration copied each field's setting onto every source that read it, and
+  stops, changing nothing, on any stored setting in a shape the app would not have understood. It was
+  rehearsed on a copy of the database: every row the transform builds, before and after, identical
+  (docs/06 Phase 26 has the numbers).
+- *What was given up.* A field no mapping read had nowhere to put its setting: mapped later, it
+  starts from the defaults. Duplicating a template without its mappings no longer carries
+  conversions. `Field.typeOptions` and the meanings in `Field.markSymbols` stay, unread, for one
+  release, and go in Phase 27.
+- *The honest limit.* A field's **type** is still told to the AI *and* picks the default Read as for a
+  new source. It is one setting with two effects; only the first costs a reading. (Phase 26)
 
 ## Part C — Open questions for later
 

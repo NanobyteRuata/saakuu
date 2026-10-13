@@ -77,6 +77,7 @@ export function mappingShapeProblem(m: MappingShape): string | null {
     }
     case "TICKS":
       if (n === 0) return "Choose the tick fields to read.";
+      if (m.inputs.some((i) => i.readAs.kind !== "MARK")) return "From ticks reads every one of its fields as a mark.";
       return new Set(m.inputs.map((i) => i.fieldId)).size === n ? null : "Each tick field can only be listed once.";
   }
 }

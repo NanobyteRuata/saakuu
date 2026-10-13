@@ -1,6 +1,7 @@
 import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 
+import { parseReadAs } from "@/lib/mappings/read-as";
 import { MAX_MAPPINGS } from "@/lib/mappings/schemas";
 import { recomputeMappingStates } from "@/lib/mappings/state";
 import { expressionFromDisplay } from "@/lib/transform/expression";
@@ -101,16 +102,16 @@ export async function copyTemplateInto(
     const mappings = await tx.mapping.findMany({
       where: { templateId },
       include: {
-        inputs: { select: { fieldId: true, position: true, tickValue: true } },
+        inputs: { select: { fieldId: true, position: true, tickValue: true, readAs: true } },
         outputColumn: { select: { deletedAt: true } },
       },
       take: MAX_MAPPINGS,
     });
     for (const m of mappings) {
-      // Inputs point at the copies of the fields they read.
+      // Inputs point at the copies of the fields they read, and read them the same way (decision 86).
       const inputs = m.inputs.flatMap((i) => {
         const fieldId = fieldIds.get(i.fieldId);
-        return fieldId === undefined ? [] : [{ fieldId, position: i.position, tickValue: i.tickValue }];
+        return fieldId === undefined ? [] : [{ fieldId, position: i.position, tickValue: i.tickValue, readAs: parseReadAs(i.readAs) }];
       });
       const gone = inputs.length !== m.inputs.length;
       const outputColumnId = columnMap === "same" ? m.outputColumnId : columnMap.get(m.outputColumnId);

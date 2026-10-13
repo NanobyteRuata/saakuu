@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { hashPassword } from "@/lib/auth/password";
 import { prisma } from "@/lib/db/client";
 import { log } from "@/lib/log";
+import { defaultReadAs, type ReadAs } from "@/lib/mappings/read-as";
 import { closeQueues } from "@/lib/queue";
 import { putObject } from "@/lib/storage/s3";
 import { transformDocument } from "@/lib/transform/service";
@@ -71,6 +72,11 @@ async function main(): Promise<void> {
     return c.id;
   };
 
+  const MARKS = { "✓": true, "✗": false };
+  /** How each seeded mapping reads its field. The age column holds months, so the age is read as months. */
+  const readAsFor = (dataType: (typeof fieldDefs)[number]["dataType"]): ReadAs =>
+    dataType === "AGE" ? { kind: "AGE", unit: "MONTHS" } : defaultReadAs({ dataType, markSymbols: dataType === "MARK" ? MARKS : null });
+
   const fieldDefs = [
     { key: "no", labelSource: "စဉ်", labelMeaning: "No.", dataType: "INTEGER", mode: "EXTRACT" },
     { key: "name", labelSource: "အမည်", labelMeaning: "Name", dataType: "TEXT", mode: "EXTRACT" },
@@ -102,8 +108,7 @@ async function main(): Promise<void> {
           mode: f.mode,
           isSequence: f.key === "no",
           position: fieldPositions[i] ?? "",
-          ...(f.dataType === "MARK" ? { markSymbols: { "✓": true, "✗": false } } : {}),
-          ...(f.dataType === "AGE" ? { typeOptions: { age: { unit: "MONTHS" } } } : {}),
+          ...(f.dataType === "MARK" ? { markSymbols: MARKS } : {}),
         })),
       },
       mappings: {
@@ -111,7 +116,7 @@ async function main(): Promise<void> {
           outputColumnId: column(f.key),
           kind: "COPY",
           position: fieldPositions[i] ?? "",
-          inputs: { create: [{ fieldId: fieldIds[f.key], position: 0 }] },
+          inputs: { create: [{ fieldId: fieldIds[f.key], position: 0, readAs: readAsFor(f.dataType) }] },
         })),
       },
     },

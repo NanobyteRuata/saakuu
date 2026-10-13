@@ -1219,7 +1219,7 @@ fact without saving anything between them.
 
 ---
 
-## Phases 26–28 — Fields are what the AI is told (planned, not built)
+## Phases 26–28 — Fields are what the AI is told (26 built; 27 and 28 planned)
 
 **Why.** A date field was left on "flag two-digit years", a reading showed errors, the setting was
 changed, and the errors went away with no new reading. The Fields screen mixes two kinds of
@@ -1237,58 +1237,126 @@ listed here, counted, and rehearsed on a copy of the database, as Phase 24's was
 deploy`, never `migrate dev`.
 
 **Before any rehearsal:** migration `20261008000002_age_unit` was in the repository but not
-applied to the dev database on 2026-10-08. Until it is, every Age field there has no unit and
-behaves as Months by rule.
+applied to the dev database on 2026-10-08. Do not apply it there as written: see Phase 26 for why
+and for what was done instead.
 
-### Phase 26 — Conversion moves to the mapping
+### Phase 26 — Conversion moves to the mapping (built, not shipped)
 
 **Operator sees:** the Fields screen loses the two-digit-year rule, `Show age as`, and the meaning
-beside each mark symbol. On the Mapping tab, each field a mapping reads gains **Read as**: as
-written, number, date (with the two-digit-year rule), age (with the unit), fraction, mark (with
-what each symbol means), choice. Changing it rebuilds the rows at once, with no reading. On
-release day no cell in any book changes.
+beside each mark symbol; a Mark field keeps the list of symbols used on the paper. On the Mapping
+tab, each field a mapping reads gains **Read as**: as written, number, date (with the two-digit-year
+rule), age (with the unit), fraction, mark (with what each symbol means), choice. The preview follows
+each change, and saving rebuilds the rows at once, with no reading. On release day no cell in any
+book changes.
 
 **Why per field read, and not per output column.** Conversion has to happen before fields are
 combined: one real mapping reads an Age field inside an Expression and needs the age as a number.
 Mark meanings also decide whether a box counts as ticked, which `From ticks` depends on. Both
-hold only if each source carries its own conversion.
+hold only if each source carries its own conversion. Decision 86 has the rest.
 
-**Schema (one migration).** `MappingInput.readAs` (JSON), filled from the field each input reads:
-Text → as written · Number and Whole number → number · Date → date with its rule (none recorded =
-flag) · Age → age with its unit (none recorded = Months, decision 85) · Fraction → fraction ·
-Choice → choice · Mark → mark with its symbol meanings. Inputs of soft-deleted fields are filled
-too, so a restore gives the same cells. Every source gets an explicit value, never "follow the
-field", so a later change of a field's type can flag documents but cannot change a cell.
-`Field.typeOptions` and the meanings in `Field.markSymbols` stay in place, unread, for one release.
-The migration **stops without changing anything** if a stored setting is not in the expected shape.
+**Schema (one migration).** `20261013000000_phase_26_read_as` adds `MappingInput.readAs` (JSON,
+required) and fills it from the field each input reads: Text → as written · Number and Whole number
+→ number · Date → date with its rule (none recorded = flag) · Age → age with its unit (none recorded
+= Months, decision 85) · Fraction → fraction · Choice → choice · Mark → mark with its symbol
+meanings (none = no symbols, so anything written is ticked, as before). Inputs of soft-deleted
+fields are filled too. Every source gets an explicit value, never "follow the field".
+`Field.typeOptions` and the meanings in `Field.markSymbols` stay in place, unread and no longer
+written, for one release.
+- It **stops without changing anything** if any field, mapped or not, holds `typeOptions` that is
+  not an object, a two-digit-year rule outside the three, a split year outside 0–99, "split" with no
+  year, an age unit outside the three; or `markSymbols` that is not an object, has a meaning other
+  than yes / no / count, a blank or padded symbol, or more than 20. It also stops if any input is
+  left without a Read as.
 
-**Code.** `normaliseReading` (`lib/transform/normalise.ts`) switches on the source's Read as
-instead of the field's type; `parseDate`, `parseAge`, `parseFraction`, the mark reader and the
-choice matcher are reused as they are. `MappingSource` (`lib/transform/types.ts`) carries it, and
-the per-record cache in `lib/transform/run.ts` is keyed by it. `coerce.ts` is untouched. A new
-mapping source takes its Read as from the field's type when the mapping is saved. Also:
-`lib/mappings/` (schemas, service, views), the mapping editor (the smallest control that works;
-the mapping redesign may restyle it), `field-properties.tsx` (three blocks out),
-`lib/templates/copy.ts` and `lib/documents/copy.ts` (Read as travels with a copied mapping),
-`lib/books/column-proposal.ts`. An old browser tab that still sends the removed options must be
-ignored, not refused.
+**What ships**
+- `lib/mappings/read-as.ts`: the shape (`readAsSchema`), `defaultReadAs` (what a new source gets
+  from its field's type) and `readAsProblem` (a split with no year is refused when saving).
+- Transform: `normaliseReading` (`lib/transform/normalise.ts`) switches on the source's Read as
+  instead of the field's type; `parseDate`, `parseAge`, `parseFraction`, `readMark` and
+  `matchChoice` are called as they were, and every warning keeps its words. `MappingSource` carries
+  `readAs`; the per-record cache in `lib/transform/run.ts` is keyed by field, fill-down and Read as,
+  so two mappings can read one field differently. `coerce.ts` is untouched.
+- Saving a mapping (`resolveDraft`, `lib/mappings/service.ts`): each source gets the Read as that
+  was sent; else the one the saved mapping already has for that field; else the default for the
+  field's type. So a browser tab from before the release, which sends none, changes no cell. From
+  ticks reads every field as a mark.
+- New-source defaults: a date flags two-digit years, an age is in years, `✗ ✘ ×` mean no and any
+  other listed symbol means ticked. Counting is never assumed.
+- Mapping editor: the **Read as** line under every field read (`components/templates/read-as-control.tsx`),
+  with the date, age and mark blocks lifted from the field editor. The smallest control that works;
+  the mapping redesign may restyle it.
+- Fields: `field-properties.tsx` loses the three blocks. The field API still accepts `typeOptions`
+  and ignores it.
+- `lib/templates/copy.ts` carries Read as with a copied mapping. `lib/books/column-proposal.ts`
+  proposes from the defaults. `scripts/dump-built-rows.ts` (read-only) is the rehearsal's dump, kept
+  for Phase 27.
 
-**Listed changes** (count each in the rehearsal and in production):
+**What did not match the plan above when it was built (2026-10-13).**
+- `lib/documents/copy.ts` copies pages and readings and never touched mappings; mappings are copied
+  only by `copyTemplateInto` in `lib/templates/copy.ts`.
+- The mapping editor is `components/templates/mapping-tab.tsx`; `mapping-editor.tsx` is the page wrapper.
+- Migration `20261008000002_age_unit`, still unapplied on dev, would have **changed cells if applied
+  as written**: it sets every Age field to Months, and one Age field made on 2026-10-13 (template
+  `Test`, mapped, 21 values) says Years. On the rehearsal copy it was marked as applied and Months
+  was written only where no unit was recorded (40 fields); built rows were identical before and after.
+  Production applied the file when it was deployed, before any field could hold Years.
+- The dev database had grown: 41 Age fields, 2 Fraction, 839 fields, 181 documents with records.
+
+**Listed changes** (dev database, 2026-10-13):
 1. A field with a setting and **no mapping** has nowhere to put it; the setting is dropped in
-   Phase 27. No cell changes, because an unmapped field fills nothing. Dev database on
-   2026-10-08: 30 of 39 Age fields, and the unmapped Date fields set to "this century".
-2. Duplicating a template without its mappings no longer carries conversions.
+   Phase 27. No cell changes, because an unmapped field fills nothing. Mapped later, it starts from
+   the defaults: an age in years, a date that flags two-digit years. **31 Age fields** (none with a
+   unit recorded, so Months by rule), **2 Date fields** set to "this century", **4 Mark fields** with
+   symbol meanings.
+2. Duplicating a template without its mappings no longer carries conversions. **9 templates** have
+   mappings whose conversion is not the default for the field's type (12 sources: 9 ages in months,
+   3 dates read in this century).
 3. `Create columns from this template` no longer proposes a Text column for a years-and-months
-   age or a Whole number column for a count mark.
+   age or a Whole number column for a count mark. **0 and 0** unmapped fields of either kind.
 
-**Rehearsal.** Copy the database; dump every row the transform builds for every document (value,
-state, flag level, message); migrate the copy; dump again on the new code; compare. **Expected: no
-difference.** Production may hold what dev does not (typed fields inside a Join, odd stored
-settings), so count there first: mapped and unmapped Age, Fraction and Date fields with a
-setting, and the mappings that read them, by kind.
+**Rehearsal (2026-10-13).** The dev database was copied (`saakuu_p26`: 839 fields, 279 mappings,
+291 mapping sources, 4,206 raw values). Every row the transform builds for every document with a
+reading was dumped on the Phase 25 code: **176 documents, 557 rows, 3,957 cells, 51 of them
+flagged** (5 more documents belong to deleted templates and build nothing). The copy was migrated
+and the dump repeated on the new code. Compared: every cell's value, state, flag level, message
+text, inherited mark and confidence; every row's key and void reason; every document's flags and
+dropped duplicates. **No difference**: the two files are byte for byte the same. The 291 sources
+came out as 226 as written, 14 number, 10 age (9 months, 1 years), 6 date (3 flag, 3 this
+century), 32 mark, 2 choice, 1 fraction.
+- *The comparison is not blind:* turning the 9 month ages to years on the copy changed 583 values
+  and raised the flagged cells from 51 to 113; turning them back gave the identical file again.
+- *Not covered by dev data:* a typed field inside a Join or Split, a field read twice by one
+  mapping, an input on a soft-deleted field, a broken mapping, a mark that counts strokes, a
+  years-and-months age. Dev has none of them. Production's counts say whether they exist.
 
-**Tests.** The golden fixtures change their input shape only (Read as on each source); expected
-rows untouched. One E2E: change Read as on a mapping and the cells change with no reading.
+**Applied to the dev database (2026-10-13)**, the same three steps as on the copy: the age-unit
+migration marked as applied, Months written on the 40 Age fields with no unit recorded, then this
+migration. All 291 sources have a Read as. Dev's built rows were dumped afterwards and compared
+with the baseline: the same 176 documents, **no difference**.
+
+**Production, counted before the push (2026-10-13, read-only).** 2 templates, 29 fields, 17
+mappings with 17 sources, 8 documents with records. `20261008000002_age_unit` is applied.
+- **Nothing the migration stops on:** no stored setting in an unexpected shape, no setting on a
+  field of another type.
+- **None of the cases dev lacks:** every mapping is a one-field Copy; no field read twice, no input
+  on a deleted field, no broken mapping, no Manual field.
+- Typed sources: 3 Whole number, 1 Date (no rule recorded, so it keeps flagging two-digit years),
+  1 Age in months into a Number column, 4 Choice, and 5 Mark fields (`✓` = yes) copied into
+  `One of a list` columns. A Mark copied into a `One of a list` column is a pairing dev does not
+  have (dev's go to `Yes / no` columns), so it was **staged on the copy and rehearsed apart**: the
+  14 columns filled by a copied Mark were turned into lists (12 of `true, false`, 2 of `Yes, No`,
+  which flags 10 cells as errors), and the rows built by the Phase 25 code and by this code were
+  compared for the 176 documents. No difference.
+
+- Listed change 1: no live field loses a setting. Two deleted, unmapped fields hold one (a Date on
+  "this century", an Age in months). Listed change 2: 1 template, 1 source (the age in months).
+  Listed change 3: 0 and 0.
+
+**Tests.** The golden fixtures changed their input shape only: four files moved a field's setting
+onto the mapping input that reads it (`readAs`); every expected row is untouched, and a fixture
+that reads an Age field must say its unit. One E2E, `e2e/read-as.spec.ts`: a field read as written
+shows `41/ 1`; its mapping is set to read it as a fraction, the cell becomes `41`, and the credit
+balance is what the one reading left.
 
 **Done when** the rehearsal shows no difference and the three listed changes are counted.
 
@@ -1364,6 +1432,14 @@ clears all three.
 
 ### Left for the mapping redesign
 
+- **One tick box that writes your own words** (asked for on 2026-10-13). A box read as a mark gives
+  true or false; writing `Yes` / `No` (or `Positive` / `Negative`) for it takes an Expression today,
+  because `From ticks` refuses fewer than two tick fields. Production's five Mark fields copied
+  into `One of a list` columns look like this need. Smallest route: let `From ticks` read one field
+  (its value when ticked, "write this instead of leaving it blank" when not). It is mapping-side
+  only and needs no schema change; it would also make a `From ticks` mapping that is broken for
+  having one field start working, so count those first (dev and production: none).
+
 - **Cleaning the running number.** The gap check strips `.` and spaces but not `။`, so `၁။` counts
   as unreadable. The fix is one shared number-cleaning rule, but the cleaned number is also a
   row's identity between rebuilds, and an edited row whose identity changes is kept as an orphan
@@ -1433,7 +1509,7 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 82 | How long the model thinks is one deployment setting, recorded on every reading; it is not a prompt version. ✅ written up |
 | 83 | In a table answer a cell left out is blank; fields are named by alias. Prompts `v2` to `v4`. ✅ written up |
 | 84 | A field is one box; the header is part of its name; ticks are combined in a `From ticks` mapping. Supersedes 28 (in part), 30, 31, 33. ✅ written up |
-| 86 | Fields are what the AI is told; conversion belongs to each field a mapping reads. Supersedes 36 and where 85 keeps the age unit. Phase 26; to write up when it ships. |
+| 86 | Fields are what the AI is told; conversion belongs to each field a mapping reads. Supersedes 36 and where 85 keeps the age unit. Phase 26. ✅ written up |
 | 87 | Five field types; one hint for every number (prompt `v5`, `template-v4`), on Phase 25's readings. Phases 25 and 27; to write up. |
 | 88 | "Fields changed since read" is a fingerprint of what the AI was sent; it only flags, and keeping a reading is a human action. Amends 78. Phase 28; to write up. |
 | 89 | Readings made before the fingerprint start clean. Phase 28; to write up. |

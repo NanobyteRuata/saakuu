@@ -3,11 +3,16 @@ import type { Prisma } from "@prisma/client";
 import { DEFAULT_TICK_RULES } from "@/lib/transform/mappings";
 import type { MappingSource, TickRules, TransformMapping } from "@/lib/transform/types";
 
+import { parseReadAs, type ReadAs } from "./read-as";
 import type { MappingDraft, MappingSourceInput } from "./schemas";
 
 /** Mapping rows as the API returns them, and the conversions to the transform's shape. */
 
-export type MappingView = MappingDraft & {
+/** A source as stored: its Read as is always there. */
+export type MappingSourceView = MappingSourceInput & { readAs: ReadAs };
+
+export type MappingView = Omit<MappingDraft, "inputs"> & {
+  inputs: MappingSourceView[];
   id: string;
   state: "OK" | "BROKEN";
   /** Why it is broken, in plain language; null when it works. Worked out on read. */
@@ -34,19 +39,19 @@ export const mappingSelect = {
   fillDown: true,
   position: true,
   inputs: {
-    select: { fieldId: true, position: true, tickValue: true },
+    select: { fieldId: true, position: true, tickValue: true, readAs: true },
     orderBy: [{ position: "asc" }, { id: "asc" }],
   },
 } satisfies Prisma.MappingSelect;
 
 export type MappingRow = Prisma.MappingGetPayload<{ select: typeof mappingSelect }>;
 
-export function toSourceView(input: MappingRow["inputs"][number]): MappingSourceInput {
-  return { id: input.fieldId, tickValue: input.tickValue };
+export function toSourceView(input: MappingRow["inputs"][number]): MappingSourceView {
+  return { id: input.fieldId, tickValue: input.tickValue, readAs: parseReadAs(input.readAs) };
 }
 
-export function toTransformSource(source: MappingSourceInput): MappingSource {
-  return { fieldId: source.id, tickValue: source.tickValue };
+export function toTransformSource(source: MappingSourceView): MappingSource {
+  return { fieldId: source.id, tickValue: source.tickValue, readAs: source.readAs };
 }
 
 type TickColumns = Pick<MappingRow, "kind" | "tickSelection" | "noneMarked" | "multipleMarked" | "noneValue" | "tickLabel">;

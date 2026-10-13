@@ -5,6 +5,8 @@ import { MULTIPLE_MARKED, NONE_MARKED, TICK_SELECTIONS } from "@/lib/templates/s
 import { MAPPING_KINDS } from "@/lib/transform/types";
 import { confirmSchema, idSchema } from "@/lib/validation";
 
+import { readAsSchema } from "./read-as";
+
 /** Mapping input schemas (docs/04 → Mappings). Client-safe: shared by the Mapping tab and the handlers. */
 
 export const MAX_MAPPINGS = 500;
@@ -12,8 +14,12 @@ export const MAX_MAPPING_INPUTS = 50;
 
 const tickText = z.string().max(200, { error: "Keep this to 200 characters or fewer." }).nullable().default(null);
 
-/** One field a mapping reads. `tickValue` is for From ticks: what is written when this field is ticked. */
-export const mappingSourceSchema = z.object({ id: idSchema, tickValue: tickText });
+/**
+ * One field a mapping reads. `tickValue` is for From ticks: what is written when this field is ticked.
+ * `readAs` left out means "as this mapping already reads the field", or the field type's default for
+ * a field it didn't read before: a browser tab from before Phase 26 saves without changing a cell.
+ */
+export const mappingSourceSchema = z.object({ id: idSchema, tickValue: tickText, readAs: readAsSchema.optional() });
 
 export type MappingSourceInput = z.infer<typeof mappingSourceSchema>;
 

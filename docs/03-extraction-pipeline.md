@@ -292,14 +292,17 @@ transform(document, rawRecords, template, mappings, book, existingCells) -> Row[
    field — flag suspected duplicates for review instead.
 4. **Sequence check.** Verify monotonic increase. Report gaps ("rows 14–16 missing")
    and repeats as document-level review flags.
-5. **Normalise per field type.** Deterministic, inspectable:
+5. **Normalise, as each mapping source reads its field.** Since Phase 26 (decision 86) the conversion is chosen
+   by the source's **Read as** (`MappingInput.readAs`, docs/02), not by the field's type: as written, number,
+   date, age, fraction, mark or choice. Two mappings can read one field differently; each answer is worked out
+   once per record. Deterministic, inspectable:
    - Numeral conversion (Myanmar → Latin digits) per book `numeralSystem`
    - Era conversion (BE → CE, Myanmar calendar → CE) per book `dateEra`
-   - `AGE`: parse `1 1/2` → the field's unit (years, total months, or years and months);
+   - Age: parse `1 1/2` → the unit Read as asks for (years, total months, or years and months);
      `4/12` → 4 months.
-   - `FRACTION`: parse to a decimal or keep as a fraction string
-   - `MARK`: apply `markSymbols` semantics
-   - `CHOICE`: fuzzy-match to the declared choice list; no match → flag
+   - Fraction: parse to a decimal or keep as a fraction string
+   - Mark: apply the symbol meanings in Read as
+   - Choice: fuzzy-match to the field's declared choice list; no match → flag
    - Whitespace collapse, Unicode NFC normalisation
    - **Burmese-specific:** normalise the well-known Zawgyi/Unicode confusions and
      apply NFC. Consider `rabbit-node` or a small hand-written digit map; a digit map
@@ -386,20 +389,21 @@ Code: `lib/transform/` — `run.ts` (steps 1–8, pure), `merge.ts` (step 9, pur
   - `DATE`: day/month/year or year-month-day. Buddhist era: CE = BE − 543. Myanmar era: CE = ME + 638, with a warning
     (dates before Thingyan belong to the next year; day and month aren't converted). A Gregorian year ≥ 2400 is kept
     with a warning to check the era setting.
-  - **Two-digit years** are refused with a warning unless the field says otherwise (`Field.typeOptions.date`, docs/07
-    decision 36): `CENTURY` reads them in the book era's own century, `PIVOT` splits at a year so those at or above it
+  - **Two-digit years** are refused with a warning unless Read as says otherwise (`readAs.twoDigitYear`; on the
+    field as `Field.typeOptions.date` until Phase 26; docs/07 decisions 36 and 86): `CENTURY` reads them in the book era's own century, `PIVOT` splits at a year so those at or above it
     belong to the century before. The century is a fixed constant per era (2000 / 2500 / 1300), never today's date, so
-    rebuilding the same document years later gives the same date. A `TEXT` field mapped to a `DATE` column has no
-    field options, so its two-digit years stay refused.
-  - `AGE`: numbers are years (`1 1/2`, `4/12`, `2`); `1y 6m` and `1 နှစ် 6 လ` are read by their units. The field
-    chooses how it comes out (`Field.typeOptions.age.unit`, docs/07 decision 85): `YEARS` (1.5, 2; what a new field
-    gets), `MONTHS` (18, 4, 24; also what a field with no unit means) or `YEARS_MONTHS` (text: `1y 6m`, `0y 4m`).
+    rebuilding the same document years later gives the same date. A source read as written and sent to a `DATE` column
+    has no rule, so its two-digit years stay refused; read it as a date to give it one.
+  - `AGE`: numbers are years (`1 1/2`, `4/12`, `2`); `1y 6m` and `1 နှစ် 6 လ` are read by their units. Read as
+    chooses how it comes out (`readAs.unit`, docs/07 decisions 85 and 86): `YEARS` (1.5, 2; what a new source of an
+    Age field gets), `MONTHS` (18, 4, 24; what a source got in Phase 26 when its field had no unit recorded) or
+    `YEARS_MONTHS` (text: `1y 6m`, `0y 4m`).
     Years that aren't exact are rounded to two decimals with a warning (`4/12` → 0.33); months and years-and-months
     are exact or unreadable, never rounded. Not driven by the glossary or field notes: the transform is deterministic, so those stay prompt text.
   - `FRACTION`: exact decimal (`1 1/2` → `1.5`), or the tidy fraction when it doesn't terminate (`1/3`).
   - `CHOICE`: exact match ignoring case, spaces and numeral script; a single-character difference matches with a
     warning; otherwise the text is kept with a warning.
-  - `MARK`: the field's symbols; without symbols anything written is ticked. `count` symbols count repeats; the symbol
+  - `MARK`: the symbols in Read as; without symbols anything written is ticked. `count` symbols count repeats; the symbol
     `tally` counts strokes. An undeclared mark is kept as text with a warning and counts as an unreadable tick.
 - **Step 5a.** As specified. An unreadable tick makes the answer `ILLEGIBLE` with a warning, never "nothing ticked".
   `ANY_OF` values are joined with `, `. The value per tick, the nothing-ticked value and the rules are the mapping's own

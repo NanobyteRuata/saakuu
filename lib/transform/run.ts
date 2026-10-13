@@ -257,13 +257,15 @@ function sequenceFlags(
 
 type Reader = {
   fields: ReadonlyMap<string, TransformField>;
-  field: (fieldId: string, fillDown: boolean) => NormValue;
+  /** One source's value: the field's reading, converted the way that source reads it. */
+  read: (source: MappingSource, fillDown: boolean) => NormValue;
 };
 
 function makeReader(values: ReadonlyMap<string, Reading>, fields: ReadonlyMap<string, TransformField>, book: BookSettings): Reader {
   const cache = new Map<string, NormValue>();
-  const field = (fieldId: string, fillDown: boolean): NormValue => {
-    const cacheKey = `${fieldId}:${fillDown}`;
+  const read = ({ fieldId, readAs }: MappingSource, fillDown: boolean): NormValue => {
+    // Two mappings can read one field differently, so the answer is kept per Read as.
+    const cacheKey = `${fieldId}:${fillDown}:${JSON.stringify(readAs)}`;
     const hit = cache.get(cacheKey);
     if (hit) return hit;
     const f = fields.get(fieldId);
@@ -272,12 +274,12 @@ function makeReader(values: ReadonlyMap<string, Reading>, fields: ReadonlyMap<st
     if (!f || f.mode === "SKIP" || !raw) value = emptyValue();
     else if (raw.dittoToken && !fillDown) value = emptyValue([warn("A ditto mark isn't filled in because fill-down is off for this column.")]);
     else if (raw.unresolved) value = emptyValue([warn("A ditto mark has no value above it to copy.")]);
-    else value = normaliseReading(f, raw, book);
+    else value = normaliseReading(readAs, f.choices, raw, book);
     cache.set(cacheKey, value);
     return value;
   };
 
-  return { fields, field };
+  return { fields, read };
 }
 
 /**
@@ -290,7 +292,7 @@ function resolveTicks(m: TransformMapping, reader: Reader, columnLabel: string):
   // A Skip field is listed but never read, so it is never an option.
   const options = m.inputs.flatMap((input) => {
     const option = reader.fields.get(input.fieldId);
-    return option && isTickOption(option) ? [{ option, input, value: reader.field(option.id, m.fillDown) }] : [];
+    return option && isTickOption(option) ? [{ option, input, value: reader.read(input, m.fillDown) }] : [];
   });
   const issues = options.flatMap((o) => o.value.issues);
   const ticked = options.filter((o) => o.value.mark?.ticked === true);
@@ -347,7 +349,7 @@ function combine(values: NormValue[], text: string | null, extra: Issue[] = []):
 }
 
 function applyMapping({ mapping: m, parsed, pattern, columnLabel }: WorkingMapping, reader: Reader): NormValue {
-  const read = (s: MappingSource | undefined): NormValue => (s ? reader.field(s.fieldId, m.fillDown) : emptyValue());
+  const read = (s: MappingSource | undefined): NormValue => (s ? reader.read(s, m.fillDown) : emptyValue());
   switch (m.kind) {
     case "TICKS": {
       const v = resolveTicks(m, reader, columnLabel);

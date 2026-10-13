@@ -203,7 +203,8 @@ model Field {
   mode         FieldMode @default(EXTRACT)
   note         String?   // human-language hint to the AI
   choices      String[]  @default([])   // CHOICE
-  markSymbols  Json?     // MARK: { "✓": true, "✗": false, "tally": "count" }
+  markSymbols  Json?     // MARK: the symbols used on the paper, as keys. The meanings beside them are unread since Phase 26
+  typeOptions  Json?     // unread since Phase 26, kept for one release (was date: { twoDigitYear, pivotYear }, age: { unit })
   isSequence   Boolean   @default(false)
   position     String
   createdAt    DateTime  @default(now())
@@ -255,6 +256,7 @@ model MappingInput {
   fieldId   String
   position  Int
   tickValue String?  // TICKS: what this tick writes; the field's meaning or name when null
+  readAs    Json     // Phase 26: how this field's reading is converted before the mapping uses it
   mapping   Mapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
   field     Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   @@unique([mappingId, fieldId, position])
@@ -633,10 +635,11 @@ One additive migration:
   the tick rules sit on a `TICKS` mapping — `Mapping.tickSelection`, `noneMarked`, `multipleMarked`, `noneValue`,
   `tickLabel`, and `MappingInput.tickValue` per tick field. Migration `20261008000001_phase_24_ticks_in_mapping` carried
   every mapping that read a tick set across with the same values and rules. This answers docs/07 Part C question 7.
-- `Field.typeOptions Json?`: settings that belong to the field's type, cleared when the type changes (like choices and
-  mark symbols). `DATE`: `{ date: { twoDigitYear: "REFUSE" | "CENTURY" | "PIVOT", pivotYear } }`.
-  `AGE`: `{ age: { unit: "YEARS" | "MONTHS" | "YEARS_MONTHS" } }`. The service stamps `YEARS` on a new Age field
-  and never clears a unit; absent means `MONTHS` (a field from before the choice existed).
+- `Field.typeOptions Json?`: as built, settings that belonged to the field's type. `DATE`:
+  `{ date: { twoDigitYear: "REFUSE" | "CENTURY" | "PIVOT", pivotYear } }`. `AGE`:
+  `{ age: { unit: "YEARS" | "MONTHS" | "YEARS_MONTHS" } }`. **Phase 26 moved both, and the meaning of each mark
+  symbol, to `MappingInput.readAs`** (below). The column and the stored meanings stay in place, unread and no longer
+  written, for one release.
 - `Row.recordKey String?` and `Row.voidReason String?`.
 - `Document.transformFlags Json?`: `[{ kind, message }]` from the last transform (sequence gaps, repeats, suspected
   duplicates, unresolved ditto marks, flagged cells, unmatched edited rows, and a build that couldn't run).
@@ -660,6 +663,34 @@ Rules:
 - `Document.needsReview` = extraction's reasons (no rows found, possible template mismatch) or any transform flag.
 - `RawRecord.duplicateOf` is written by the overlap dedupe and cleared when a record stops being a duplicate. It is the
   only raw-layer column the transform writes.
+
+### Read as (Phase 26, decision 86)
+
+`MappingInput.readAs` (JSON, required) says how one field a mapping reads is converted before the mapping uses it.
+The shape is `readAsSchema` in `lib/mappings/read-as.ts`:
+
+```jsonc
+{ "kind": "TEXT" }                                   // as written
+{ "kind": "NUMBER" }
+{ "kind": "DATE", "twoDigitYear": "REFUSE" | "CENTURY" | "PIVOT", "pivotYear": 0-99 | null }
+{ "kind": "AGE", "unit": "YEARS" | "MONTHS" | "YEARS_MONTHS" }
+{ "kind": "FRACTION" }
+{ "kind": "CHOICE" }                                 // matched against Field.choices
+{ "kind": "MARK", "symbols": { "✓": true, "✗": false, "tally": "count" } }
+```
+
+- **Every source has its own explicit value.** Nothing is "follow the field", so changing a field's type later can
+  never change a cell. Two mappings may read one field differently.
+- **Where a value comes from.** Migration `20261013000000_phase_26_read_as` filled every existing input from its field
+  as it stood: Text → `TEXT`; Number and Whole number → `NUMBER`; Date → `DATE` with the field's rule (none recorded =
+  `REFUSE`); Age → `AGE` with the field's unit (none recorded = `MONTHS`, decision 85); Fraction → `FRACTION`; Choice →
+  `CHOICE`; Mark → `MARK` with the field's symbol meanings. Inputs of soft-deleted fields were filled too. It stops,
+  changing nothing, if any field holds `typeOptions` or `markSymbols` in a shape the app would not have understood.
+- **A source added afterwards** gets, when the mapping is saved: the value sent; else the value the saved mapping
+  already has for that field; else `defaultReadAs` for the field's type (a date flags two-digit years, an age comes
+  out in years, `✗ ✘ ×` mean no and every other listed symbol means ticked; counting is never assumed).
+- A `TICKS` mapping reads every one of its fields as `MARK`.
+- `Field.choices` stays on the field: the choices are sent to the AI.
 
 ## Output table (Phase 7)
 

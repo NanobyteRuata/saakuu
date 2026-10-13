@@ -6,12 +6,12 @@
     "fields": [
       { "id": "fno", "labelSource": "No.", "dataType": "INTEGER" },
       { "id": "fname", "labelSource": "အမည်" },
-      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE", "typeOptions": { "age": { "unit": "MONTHS" } } }
+      { "id": "fage", "labelSource": "အသက်", "dataType": "AGE" }
     ],
     "columns": [{ "key": "no", "dataType": "INTEGER" }, { "key": "age", "dataType": "INTEGER" }, { "key": "name" }],
     "mappings": [
       { "column": "no", "inputs": ["fno"] },
-      { "column": "age", "inputs": ["fage"] },
+      { "column": "age", "inputs": [{ "field": "fage", "readAs": { "kind": "AGE", "unit": "MONTHS" } }] },
       { "column": "name", "inputs": ["fname"] }
     ],
     "records": [

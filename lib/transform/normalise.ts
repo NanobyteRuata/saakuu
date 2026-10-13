@@ -1,11 +1,12 @@
-import { UNSET_AGE_UNIT, type AgeUnit, type DateFieldOptions, type MarkSymbols } from "@/lib/templates/schemas";
+import type { ReadAs } from "@/lib/mappings/read-as";
+import type { AgeUnit, DateFieldOptions, MarkSymbols } from "@/lib/templates/schemas";
 
 import { divDecimal, formatDecimal, rationalToDecimalText } from "./decimal";
 import { cleanText, numericReading, parseNumberText, toLatinDigits } from "./numerals";
-import type { BookSettings, DateEra, Issue, TransformField, ValueState } from "./types";
+import type { BookSettings, DateEra, Issue, ValueState } from "./types";
 
 /**
- * Per-field-type normalisers (docs/03 §8 step 5). Each takes the verbatim reading and returns the
+ * The normalisers behind Read as (docs/03 §8 step 5). Each takes the verbatim reading and returns the
  * value mappings work with. Raw values are never modified; this runs again on every transform.
  */
 
@@ -16,7 +17,7 @@ export type NormValue = {
   state: ValueState;
   confidence: number | null;
   inherited: boolean;
-  /** MARK fields only: whether it is ticked (null: can't tell) and a tally count. */
+  /** Read as a mark only: whether it is ticked (null: can't tell) and a tally count. */
   mark: MarkReading | null;
   issues: Issue[];
 };
@@ -58,7 +59,7 @@ export function parseDate(value: string, era: DateEra, options?: DateFieldOption
   if (m) parts = [Number(m[3]), Number(m[2]), Number(m[1])];
   const short = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})$/u.exec(t);
   if (short) {
-    // Written without a century. A date field can say which century its register uses (docs/07 decision 36).
+    // Written without a century. Read as can say which century the register uses (docs/07 decisions 36 and 86).
     const written = Number(short[3]);
     const pivotYear = options?.pivotYear ?? null;
     // A pivot rule without its year can't decide the century, so it is treated like no rule at all.
@@ -147,7 +148,7 @@ function ageMonths(value: string): Rational | null {
 }
 
 /**
- * An age in the field's unit: years (`1 1/2` → 1.5), total months (18) or both (`1y 6m`). Years that don't
+ * An age in the unit Read as asks for: years (`1 1/2` → 1.5), total months (18) or both (`1y 6m`). Years that don't
  * come out exact are rounded to AGE_YEAR_PLACES and say so. Null when unreadable, or when the unit shows
  * months and they don't come out exact.
  */
@@ -253,7 +254,7 @@ function countTally(text: string): number | null {
 }
 
 /**
- * A tick column's reading per the field's symbol meanings (docs/01 §11.7). Without symbols, anything
+ * A tick column's reading per the symbol meanings in Read as (docs/01 §11.7). Without symbols, anything
  * written counts as ticked. A symbol meaning `count` counts repeats of itself; the symbol `tally`
  * counts tally strokes. `ticked: null` means the mark isn't one of the declared symbols.
  */
@@ -284,10 +285,10 @@ export function readMark(text: string, symbols: MarkSymbols | null): MarkReading
 
 // ---------- entry point ----------
 
-/** Normalises one reading for its field's type. */
-export function normaliseReading(field: TransformField, raw: RawReading, book: BookSettings): NormValue {
+/** Normalises one reading the way its mapping source reads it. `choices` are the field's, for Read as choice. */
+export function normaliseReading(readAs: ReadAs, choices: string[], raw: RawReading, book: BookSettings): NormValue {
   const base = { confidence: raw.confidence, inherited: raw.inherited, issues: [] as Issue[], mark: null };
-  const isMark = field.dataType === "MARK";
+  const isMark = readAs.kind === "MARK";
   if (raw.state !== "OK") {
     // A blank, dash or n/a tick column is not ticked; an unreadable one can't be told.
     const mark = isMark ? { ticked: raw.state === "ILLEGIBLE" ? null : false, count: null } : null;
@@ -297,21 +298,20 @@ export function normaliseReading(field: TransformField, raw: RawReading, book: B
   if (cleaned === "") return { ...base, text: null, state: "EMPTY", mark: isMark ? { ticked: false, count: null } : null };
   const ok = (text: string, issues: Issue[] = []): NormValue => ({ ...base, text, state: "OK", issues });
 
-  switch (field.dataType) {
+  switch (readAs.kind) {
     case "TEXT":
       return ok(cleaned);
-    case "NUMBER":
-    case "INTEGER": {
+    case "NUMBER": {
       const reading = numericReading(cleaned, book.numeralSystem);
       const number = parseNumberText(reading.text);
       return number === null ? ok(reading.text) : ok(number, reading.notes.map(warn));
     }
     case "DATE": {
-      const { iso, issues } = parseDate(cleaned, book.dateEra, field.typeOptions?.date);
+      const { iso, issues } = parseDate(cleaned, book.dateEra, { twoDigitYear: readAs.twoDigitYear, pivotYear: readAs.pivotYear });
       return ok(iso ?? toLatinDigits(cleaned), issues);
     }
     case "AGE": {
-      const age = parseAge(cleaned, field.typeOptions?.age?.unit ?? UNSET_AGE_UNIT);
+      const age = parseAge(cleaned, readAs.unit);
       if (age === null) return ok(toLatinDigits(cleaned), [warn(`“${cleaned}” isn't an age we can read, such as 1 1/2, 4/12 or 2.`)]);
       return ok(
         age.text,
@@ -323,13 +323,13 @@ export function normaliseReading(field: TransformField, raw: RawReading, book: B
       return fraction === null ? ok(toLatinDigits(cleaned), [warn(`“${cleaned}” isn't a fraction we can read, such as 1 1/2 or 3/4.`)]) : ok(fraction);
     }
     case "CHOICE": {
-      if (field.choices.length === 0) return ok(cleaned);
-      const match = matchChoice(cleaned, field.choices);
+      if (choices.length === 0) return ok(cleaned);
+      const match = matchChoice(cleaned, choices);
       if (!match) return ok(cleaned, [warn(`“${cleaned}” isn't one of the choices.`)]);
       return ok(match.choice, match.exact ? [] : [warn(`Read as “${cleaned}” and matched to the choice “${match.choice}”.`)]);
     }
     case "MARK": {
-      const mark = readMark(cleaned, field.markSymbols);
+      const mark = readMark(cleaned, readAs.symbols);
       if (mark.ticked === null) {
         return { ...ok(cleaned, [warn(`“${cleaned}” isn't one of the mark symbols set for this field.`)]), mark };
       }

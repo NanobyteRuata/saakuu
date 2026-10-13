@@ -24,5 +24,5 @@ export default async function TemplateMappingPage({ params }: Params) {
   }
   if (template.bookId !== book.id) notFound();
 
-  return <MappingEditor initial={template} bookDefaultModel={book.defaultModel} />;
+  return <MappingEditor initial={template} bookDefaultModel={book.defaultModel} bookDateEra={book.dateEra} />;
 }

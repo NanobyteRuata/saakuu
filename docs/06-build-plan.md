@@ -1148,6 +1148,79 @@ been compared yet. The fields for it are now in `Test 3`.
 
 ---
 
+## Phase 25 — One hint for every number (built on a branch, not shipped)
+
+First of four phases that make Fields mean one thing: what the AI is told. Conversion moves to the
+mapping in Phase 26, the types go from eight to five in Phase 27, and Phase 28 flags documents
+read before a field change. This phase is the test that had to come first: can Whole number, Age
+and Fraction be read under Number's instruction without losing what is written?
+
+**What changed.** Prompt `v5` is `v4` with one difference. Number, Whole number, Age and Fraction
+fields are all sent as type `NUMBER` with one hint, which names what has to survive: digits in
+their own script, decimal points, commas, the slash of a fraction, the space inside a mixed
+number, and unit words. No schema change, no screen change; a field keeps its type and its
+converter. The operator sees nothing new.
+
+### What the readings showed
+
+Thinking `low` throughout, 2026-10-13. Counted on the number cells only.
+
+A made page (document `k3c2loa9kdrlmn315jpbhgs1`), ten rows, six number columns typed Whole
+number, Age, Fraction, Whole number, Number, Number; 3.5 Flash. It holds the hard cases:
+`၁ နှစ် ၆ လ`, `2y 3m`, `၈ လ`, `2 နှစ်`, `1 1/2`, `၃ ၁/၂`, `4/12`, `၆/၁၂`, `၁/၄`, `61.0`,
+`2,000.00`, `၁၀,၅၀၀.၅၀`, Burmese and Latin digits mixed down every column.
+
+| Prompt | Reading | Kept as written | Right column | Wrong digit |
+|---|---|---|---|---|
+| `v4` | 1 | 60 of 60 | 60 | 0 |
+| `v4` | 2 | 60 of 60 | 60 | 0 |
+| `v5` | 1 | 60 of 60 | 60 | 0 |
+| `v5` | 2 | 60 of 60 | 60 | 0 |
+
+A real register page (template `Test 2`, document `gt6iuevk4vohsq13cyfm34js`), handwritten, 28
+columns; 3.7 Flash. Its `v4` reading of 2026-10-08 is the baseline. Nine running numbers, nine
+ages (`1 1/2`, `9/12` twice, `3 1/2` among them), six number columns that are blank on the paper,
+and a total of `9`.
+
+| Prompt | Reading | Number cells same as the `v4` reading | Blank number columns |
+|---|---|---|---|
+| `v5` | 1 | 19 of 19 | still blank |
+| `v5` | 2 | 19 of 19 | still blank |
+
+What follows:
+
+- **The merged hint passed.** Nothing was dropped, converted, reordered or moved in either page,
+  in four `v5` readings. The sixth type ("Number with fraction or unit") is not needed. Phase 27
+  goes ahead with five types.
+- **The evidence is small, and one half of it is easy.** The made page is a generated image in
+  print-like letters, not handwriting; `v4` was already perfect on it, so `v5` could only tie. The
+  real page has 19 number cells, no unit words and no Burmese digits, and one baseline reading.
+  **Not measured:** an age with unit words, or a Burmese-digit fraction, in real handwriting.
+- **A header row came back under `v5`.** Both `v5` readings of the made page returned the printed
+  header line as a record of type `HEADER`; neither `v4` reading did. The instruction about
+  headers is the same words in both prompts, and the real page did not show it. The transform
+  drops header records, so no row changes. Unexplained; watch for it.
+- **Two ticks differ, outside the number columns.** On the real page both `v5` readings put the
+  sex tick of rows 126 and 128 under `မ`, where the `v4` reading has `ကျား`. The Mark hint is
+  unchanged in `v5`. Looked up on the paper afterwards, both rows read as female, though not with
+  certainty; if so `v5` is the correct one and this is not a loss.
+- **Handwriting moved as it always does.** Names and addresses differed from the `v4` reading in
+  16 and 13 cells, and the two `v5` readings differed from each other as much. One `v5` reading
+  flagged the date column's ditto marks as dittos; the other two readings returned them as dashes.
+
+**The page first planned is gone.** The plan named template `Test 3`; it was deleted on
+2026-10-08, and templates have no restore. `Test 2` stood in.
+
+**Each run keeps its answer.** A new reading replaces a document's raw values, but
+`ExtractionRun.rawResponse` stays on every run, so readings of one page can be compared after the
+fact without saving anything between them.
+
+**Tests:** none added. `v5` changes no code path the existing tests cover differently.
+
+**Docs to update when this ships:** docs/03 §3 item 9 (the type and hint sent for a number).
+
+---
+
 ## Post-v1
 
 **Provisional, as before** (decision 64). Re-rank from real usage rather than building down it. Three

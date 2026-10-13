@@ -177,6 +177,7 @@ export type SourceRun = {
   photoIds: string[];
   rawResponse: Prisma.JsonValue;
   createdAt: Date;
+  readingKey: string | null;
 };
 
 export type SourceValue = {
@@ -256,6 +257,7 @@ export function planReadingCopy(
       photoIds: photoIds.filter((p): p is string => p !== undefined),
       rawResponse: summaryOnly(r.rawResponse),
       createdAt: r.createdAt,
+      readingKey: r.readingKey,
       idempotencyKey: `copy:${id}`,
     });
   }
@@ -296,6 +298,7 @@ export async function loadReading(db: Db, documentId: string): Promise<{ runs: S
         startedAt: true,
         finishedAt: true,
         photoIds: true,
+        readingKey: true,
         rawResponse: true,
         createdAt: true,
       },

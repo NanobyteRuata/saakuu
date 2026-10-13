@@ -21,6 +21,8 @@ export const DOCUMENT_STATUSES = [
   "not-edited",
   "changed",
   "up-to-date",
+  "fields-changed",
+  "fields-unchanged",
 ] as const;
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
@@ -37,8 +39,10 @@ export const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
   reviewed: "Fully reviewed",
   edited: "Has edited cells",
   "not-edited": "No edited cells",
-  changed: "Changed since last read",
-  "up-to-date": "Unchanged since last read",
+  changed: "Pages changed since read",
+  "up-to-date": "Pages unchanged since read",
+  "fields-changed": "Fields changed since read",
+  "fields-unchanged": "Fields unchanged since read",
 };
 
 export const DOCUMENT_STATUS_GROUPS: { label: string; statuses: DocumentStatus[] }[] = [
@@ -46,6 +50,7 @@ export const DOCUMENT_STATUS_GROUPS: { label: string; statuses: DocumentStatus[]
   { label: "Review", statuses: ["not-reviewed", "reviewed", "flagged", "not-flagged"] },
   { label: "Edits", statuses: ["edited", "not-edited"] },
   { label: "Page changes", statuses: ["changed", "up-to-date"] },
+  { label: "Field changes", statuses: ["fields-changed", "fields-unchanged"] },
 ];
 
 const RUN_STATE_STATUS: Record<string, DocumentStatus> = {

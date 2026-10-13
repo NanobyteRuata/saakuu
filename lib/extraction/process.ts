@@ -7,6 +7,7 @@ import { chargeRun, chargesCredits, OUT_OF_CREDITS_MESSAGE, outOfCredits } from 
 import { modelIdSchema } from "@/lib/ai/models";
 import { getEnv } from "@/lib/env";
 import { isServerKeyFailure, ProviderError, providerErrorMessage, type Bbox, type ExtractionImage, type ExtractionResult, type ResponseLog, type TokenUsage } from "@/lib/ai/provider";
+import { readingKey } from "@/lib/ai/reading-key";
 import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
 import { sortByPosition } from "@/lib/books/column-ops";
 import { prisma } from "@/lib/db/client";
@@ -15,6 +16,7 @@ import { log } from "@/lib/log";
 import { normalizeTransform, transformHash } from "@/lib/photos/transform";
 import { workingKey } from "@/lib/storage/keys";
 import { getObjectBuffer } from "@/lib/storage/s3";
+import { lockTemplate } from "@/lib/templates/access";
 import { MAX_FIELDS } from "@/lib/templates/schemas";
 import { fieldSelect, toFieldView } from "@/lib/templates/views";
 import { flagBuildProblem, transformDocument } from "@/lib/transform/service";
@@ -151,6 +153,7 @@ async function writeRun(
   result: ExtractionResult,
   sequenceFieldId: string | null,
   payer: { userId: string; keySource: AiKeySource },
+  sentKey: string,
 ): Promise<boolean> {
   const photoByPage = new Map(images.map((img, i) => [img.pageIndex, run.photoIds[i] ?? null]));
   const firstPage = Math.min(...images.map((i) => i.pageIndex));
@@ -226,6 +229,7 @@ async function writeRun(
           imageTokens: result.usage.imageTokens,
           thinkingTokens: result.usage.thinkingTokens,
           thinkingLevel: getEnv().AI_THINKING,
+          readingKey: sentKey,
           rawResponse: { summary, responses: responsesJson(result.rawResponse.responses) },
         },
       });
@@ -291,7 +295,7 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
     where: { id: documentId, deletedAt: null, template: { deletedAt: null }, book: { deletedAt: null } },
     select: {
       bookId: true,
-      template: { select: { id: true, kind: true, languageHint: true, instructions: true, anchors: true, sequenceFieldId: true } },
+      template: { select: { id: true, kind: true, languageHint: true, instructions: true, anchors: true, sequenceFieldId: true, readingKey: true } },
       // Phase 12: `userId` is whose key pays for this run. A book has one owner, so the run bills them
       // however it was started (`lib/auth/guards.ts` already refuses anyone else).
       book: { select: { numeralSystem: true, dateEra: true, userId: true } },
@@ -316,11 +320,22 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
   claimed.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   await prisma.$transaction((tx) => recomputeDocumentRun(tx, documentId));
 
+  // A template from before Phase 28 gets its fingerprint here, before its first new reading, so that
+  // reading is not flagged against a template nobody has changed (decision 89).
+  if (doc.template.readingKey === null) {
+    const templateId = doc.template.id;
+    await prisma.$transaction((tx) => lockTemplate(tx, templateId)).catch((err: unknown) => {
+      if (!(err instanceof AppError)) throw err;
+    });
+  }
+
   const [fieldRows, glossary] = await Promise.all([
     prisma.field.findMany({ where: { templateId: doc.template.id, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS }),
     prisma.glossaryEntry.findMany({ where: { bookId: doc.bookId }, select: { id: true, term: true, meaning: true, position: true }, take: 500 }),
   ]);
   const snapshot = buildTemplateSnapshot(doc.template, fieldRows.map(toFieldView));
+  // What these runs are really sent, whatever the template says by the time they finish.
+  const sentKey = readingKey(snapshot);
   const sequenceFieldId = snapshot.fields.find((f) => f.isSequence)?.id ?? null;
 
   // Resolved once per claim round, not per run: the owner's own key when they have saved one,
@@ -362,7 +377,7 @@ async function processClaimRound(documentId: string, opts: { isLastAttempt: bool
         book: bookSettings,
         model: model.data,
       });
-      if (await writeRun(documentId, run, images, result, sequenceFieldId, { userId: bookOwnerId, keySource: aiKey.source })) completed++;
+      if (await writeRun(documentId, run, images, result, sequenceFieldId, { userId: bookOwnerId, keySource: aiKey.source }, sentKey)) completed++;
     } catch (err) {
       if (err instanceof RunFailure) {
         await failRun(run, err.message);

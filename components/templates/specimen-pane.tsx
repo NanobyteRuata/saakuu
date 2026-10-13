@@ -47,7 +47,6 @@ export function SpecimenPane({
   userId,
   lang,
   hasExtractFields,
-  fieldsChangedAt,
   fieldsKey,
   flushPending,
   onRead,
@@ -62,9 +61,7 @@ export function SpecimenPane({
   lang: string | undefined;
   /** A test reading extracts only fields set to Extract; with none, there is nothing to read. */
   hasExtractFields: boolean;
-  /** Bumped by every saved change to what a reading depends on: fields, groups, prompt settings (decision 78). */
-  fieldsChangedAt: string;
-  /** Changes whenever the fields or groups on screen change, saved or not yet reloaded. */
+  /** Changes whenever what the AI is told changes on screen (fields sent, prompt settings), saved or not yet reloaded. */
   fieldsKey: string;
   /** Saves the properties form being edited, so the promote check sees the fields as they are on screen. */
   flushPending: () => Promise<void>;
@@ -97,11 +94,9 @@ export function SpecimenPane({
   const [shown, setShown] = useState<{ raw: unknown; fieldsKey: string }>({ raw: null, fieldsKey });
   if (shown.raw !== reading.raw) setShown({ raw: reading.raw, fieldsKey });
   // The same rule the server applies before copying a test into the documents (`testReadingState`).
-  const readAt = reading.detail?.lastExtractedAt ?? null;
   const pagesChanged = reading.detail?.changedSinceLastRead ?? false;
-  const readBeforeChanges =
-    reading.raw !== null &&
-    (shown.fieldsKey !== fieldsKey || pagesChanged || (readAt !== null && Date.parse(readAt) < Date.parse(fieldsChangedAt)));
+  const fieldsChanged = reading.detail?.fieldsChangedSinceRead ?? false;
+  const readBeforeChanges = reading.raw !== null && (shown.fieldsKey !== fieldsKey || pagesChanged || fieldsChanged);
 
   const load = useCallback(async (select?: string) => {
     setError(null);

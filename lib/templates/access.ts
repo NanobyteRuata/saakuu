@@ -1,11 +1,14 @@
 import type { Prisma } from "@prisma/client";
 
+import { READING_KEY_START, readingKey } from "@/lib/ai/reading-key";
+import { buildTemplateSnapshot } from "@/lib/ai/snapshot";
 import { requireUserId } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 
 import { computeConfigState } from "./config-state";
-import type { ConfigState } from "./schemas";
+import { MAX_FIELDS, type ConfigState } from "./schemas";
+import { fieldSelect, toFieldView } from "./views";
 
 export type Db = Prisma.TransactionClient;
 
@@ -55,25 +58,48 @@ export async function requireFieldAccess(
   return field;
 }
 
+/** The fingerprint of what the AI is told about this template as it stands now (`lib/ai/reading-key.ts`). */
+async function currentReadingKey(tx: Db, templateId: string): Promise<string> {
+  const [template, fields] = await Promise.all([
+    tx.template.findUniqueOrThrow({
+      where: { id: templateId },
+      select: { id: true, kind: true, languageHint: true, instructions: true, anchors: true },
+    }),
+    tx.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS }),
+  ]);
+  return readingKey(buildTemplateSnapshot(template, fields.map(toFieldView)));
+}
+
 /**
  * Locks the template row for the rest of the transaction. Every structural change (positions,
  * deletes, restores, sequence field) takes this lock, so concurrent edits can't compute the same
  * fractional position or confirm stale counts.
+ *
+ * It is also where a template's fingerprint is first taken (decision 89). A template from before
+ * Phase 28 has none, and its read documents carry `start`: here, before the change the caller is
+ * about to make, the template gets its real fingerprint and those documents get the same one. So
+ * nothing is flagged until something really changes, and undoing that change clears the flag.
  */
 export async function lockTemplate(tx: Db, templateId: string): Promise<void> {
-  const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "Template" WHERE id = ${templateId} AND "deletedAt" IS NULL FOR UPDATE`;
-  if (rows.length === 0) throw new AppError("NOT_FOUND", TEMPLATE_NOT_FOUND);
+  const rows = await tx.$queryRaw<{ id: string; readingKey: string | null }[]>`
+    SELECT id, "readingKey" FROM "Template" WHERE id = ${templateId} AND "deletedAt" IS NULL FOR UPDATE`;
+  const row = rows[0];
+  if (!row) throw new AppError("NOT_FOUND", TEMPLATE_NOT_FOUND);
+  if (row.readingKey !== null) return;
+  const key = await currentReadingKey(tx, templateId);
+  await tx.$executeRaw`UPDATE "Template" SET "readingKey" = ${key} WHERE id = ${templateId}`;
+  await tx.$executeRaw`UPDATE "Document" SET "readWithKey" = ${key} WHERE "templateId" = ${templateId} AND "readWithKey" = ${READING_KEY_START}`;
 }
 
 /**
- * Marks the part of the template a reading depends on as changed (decision 78): fields and
- * the settings that go into the prompt. A test reading older than this is stale. Mapping changes don't
- * call it, which is why it isn't `updatedAt`: every mapping save touches the template row.
+ * Recomputes the template's fingerprint after a change to what a reading depends on (decision 88):
+ * fields and the settings that go into the prompt. A document read under another fingerprint is
+ * flagged `fields changed since read`. Call under `lockTemplate`, after the change. A change that
+ * leaves what the AI is told as it was (a Manual field, a save of nothing) leaves the fingerprint
+ * as it was, and one that is undone brings the old fingerprint back. Mapping changes don't call it.
  */
 export async function markSourceChanged(tx: Db, templateId: string): Promise<void> {
-  const now = new Date();
-  await tx.template.update({ where: { id: templateId }, data: { fieldsChangedAt: now, updatedAt: now } });
+  await tx.template.update({ where: { id: templateId }, data: { readingKey: await currentReadingKey(tx, templateId), updatedAt: new Date() } });
 }
 
 /** Recomputes and stores `Template.configState`. Call in the same transaction as the change. */

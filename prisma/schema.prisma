@@ -219,9 +219,11 @@ model Template {
   // reserved for the deferred source-definition library:
   sourceDefId      String?
   sourceDefVersion Int?
-  // Decision 78: when the part a reading depends on last changed (fields, groups, language hint,
-  // instructions, sequence field). Mappings bump `updatedAt` but not this, so a test stays current.
+  // Decision 78's time stamp. Replaced by `readingKey` in Phase 28; unread and unwritten, kept for one release.
   fieldsChangedAt  DateTime     @default(now()) @db.Timestamptz(3)
+  // Decision 88: the fingerprint of what the AI is told about this template (`lib/ai/reading-key.ts`).
+  // Null until the template is first edited or read after Phase 28 (decision 89).
+  readingKey       String?
   createdAt        DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
   deletedAt        DateTime?    @db.Timestamptz(3)
@@ -404,6 +406,9 @@ model Document {
   transformFlags       Json? // Phase 6: document review flags from the last transform: [{ kind, message }]
   contentChangedAt     DateTime?    @db.Timestamptz(3) // Phase 11: a page was transformed, replaced or added
   lastExtractedAt      DateTime?    @db.Timestamptz(3) // Phase 11: finishedAt of the latest COMPLETE run; only ever moves forward
+  // Decision 88: the template fingerprint this document's reading was made under, or the one the
+  // operator kept it at. `start` = read before Phase 28; `mixed` = its pages were read under different ones.
+  readWithKey          String?
   copyKey              String?      @unique // decision 78: idempotency key of the copy that created this document
   copiedFromDocumentId String? // decision 78: soft reference (no FK), counts earlier copies of a specimen
   createdAt            DateTime     @default(now()) @db.Timestamptz(3)
@@ -502,6 +507,7 @@ model ExtractionRun {
   imageTokens          Int?
   thinkingTokens       Int?
   thinkingLevel        String? // the AI_THINKING the reading was made at
+  readingKey           String? // decision 88: the template fingerprint this run was really sent; never rewritten
   rawResponse          Json? // full model response, for debugging
   photoIds             String[]  @default([]) // Phase 5: pages sent in this model call, in page order
   // Phase 22: the estimate held against the owner's credits while this run is QUEUED or RUNNING.

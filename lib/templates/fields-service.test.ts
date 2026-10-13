@@ -19,6 +19,8 @@ vi.mock("@/lib/transform/triggers", () => ({ requestTemplateTransform: vi.fn() }
 vi.mock("./access", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./access")>()),
   requireFieldAccess: vi.fn().mockResolvedValue({ id: "f_seq", templateId: "t1" }),
+  // The fingerprint has its own test (`lib/ai/reading-key.test.ts`).
+  markSourceChanged: vi.fn(),
 }));
 
 import { deleteFields, fieldsDeleteImpact, restoreField } from "./fields-service";

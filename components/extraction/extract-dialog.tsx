@@ -23,7 +23,8 @@ import { postJson } from "@/lib/api-client";
 import type { ExtractionEstimate, StartResult } from "@/lib/extraction/service";
 import { plural } from "@/lib/format";
 
-export type ExtractTarget = { documentIds: string[] } | { templateId: string };
+/** `fieldsChanged`: only the template's documents read before its latest field changes (decision 88). */
+export type ExtractTarget = { documentIds: string[] } | { templateId: string; fieldsChanged?: true };
 
 type Props = {
   target: ExtractTarget | null;

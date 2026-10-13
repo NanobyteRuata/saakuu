@@ -565,6 +565,9 @@ warned about** (decision 58). From Phase 11 a document is marked
 `Changed since last read` whenever one of its pages is transformed, replaced or added,
 and stays marked until it is read again. A one-off warning at save time is forgotten
 across four hundred documents; a chip and a `Needs re-extraction` filter are not.
+Since Phase 28 the chip reads `pages changed since read`, and a document read before a change to
+its template's fields carries `fields changed since read` (decision 88). That one only flags: the
+operator reads again or keeps the reading.
 
 **A page can be re-shot without destroying the document** (decision 59). `Replace page`
 puts a new photo at the same page index of the same document: rows, cells, human edits

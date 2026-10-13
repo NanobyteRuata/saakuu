@@ -13,5 +13,18 @@ export function isStale(d: { contentChangedAt: Date | null; lastExtractedAt: Dat
   return d.contentChangedAt !== null && d.lastExtractedAt !== null && d.contentChangedAt > d.lastExtractedAt;
 }
 
+/**
+ * The document was read under another fingerprint than its template has now (decision 88): the AI was
+ * told something different about the fields when it read this. A template with no fingerprint yet has
+ * not changed since Phase 28 shipped, so nothing of it is flagged (decision 89). It only flags;
+ * nothing is read again by itself.
+ */
+export function fieldsChanged(d: { readWithKey: string | null }, template: { readingKey: string | null }): boolean {
+  return d.readWithKey !== null && template.readingKey !== null && d.readWithKey !== template.readingKey;
+}
+
+/** The same test in SQL. Keep in step with `fieldsChanged`; `d` is the Document alias and `t` its Template. */
+export const FIELDS_CHANGED_SQL = Prisma.sql`(d."readWithKey" IS NOT NULL AND t."readingKey" IS NOT NULL AND d."readWithKey" <> t."readingKey")`;
+
 /** The same test in SQL, for the list filter. Keep in step with `isStale`; `d` is the Document alias. */
 export const STALE_SQL = Prisma.sql`(d."contentChangedAt" IS NOT NULL AND d."lastExtractedAt" IS NOT NULL AND d."contentChangedAt" > d."lastExtractedAt")`;

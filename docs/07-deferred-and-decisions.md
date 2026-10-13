@@ -780,6 +780,45 @@ removed.
   field still has a type though it is never sent: it picks the default Read as, and a Manual Mark can
   be read by `From ticks`; the screen says so. (Phases 25 and 27)
 
+**88. "Fields changed since read" is a fingerprint of what the AI was told; it only flags, and keeping
+a reading is a human action.** Decision 78 gave the template a time stamp that every field save
+moved. Only the test pane read it, real documents never showed it, and an edit undone still counted.
+- *The fingerprint.* A hash of what `buildTemplateSnapshot` hands the prompt: the template's kind,
+  language hint and instructions, and the Extract and Skip fields in paper order with their id, name,
+  meaning, type, mode, note, choices, mark symbols and the sequence mark. It is built from the same
+  object the prompt is built from, so the flag cannot drift from what is sent.
+- *What is left out, and why.* Anchors: they are sent, but only to score whether the page looks like
+  this template. The template's id and name, the model, mappings, Manual fields. The book's glossary,
+  numerals and era: the glossary grows during review and would flag the whole book each time. The
+  prompt version: a run already records its own.
+- *Field ids are in.* A field deleted and made again sends the same words, but its values hang on the
+  deleted field, so the page does need reading again. Delete then restore keeps the id and clears.
+- *A rename flags, on purpose.* The name is the main thing the AI finds a column by.
+- *Three places.* The template has its fingerprint; each run records the one it was really sent; each
+  document has the one its reading counts as made under. A document is flagged when its own differs
+  from its template's. Undoing an edit brings the template's back, and the flag goes by itself.
+- *Pages read apart.* A long table is read eight pages at a time and a failed chunk can be retried
+  alone, after a field edit. A document whose pages were read under different fingerprints is `mixed`
+  and always flagged; taking the newest chunk's would hide the stale ones.
+- *It only flags.* Nothing is read again by itself. The operator reads again (the Extract dialog, with
+  its estimate) or keeps the reading: one click on a document, a counted confirmation on a template.
+  Keep sets the document's fingerprint to the template's and touches no run and no cell.
+- *Other paths.* A document moved to another template forgets its fingerprint with its reading. A test
+  page added to the documents with its reading takes the test's. Test pages are left out of the
+  template's count and of Keep; the test pane keeps its own note.
+- *Risk accepted.* A note edit or a reorder flags every document of the template. If Keep is clicked
+  by reflex the flag stops meaning anything. (Phase 28; amends 78)
+
+**89. Readings made before the fingerprint start clean.** The old stamp could not say which documents
+were read before a real change, so on release day none is flagged.
+- *How.* The fingerprint cannot be computed in SQL. The migration leaves every template's empty and
+  gives every read document the placeholder `start`. The first time a template is edited or read,
+  `lockTemplate` takes its real fingerprint, before the change, and gives it to those documents.
+- *Why not one placeholder on both sides,* as first planned: a new reading on an untouched template
+  would get the real fingerprint and be flagged against the placeholder for no reason, and undoing the
+  first edit would land on the real fingerprint, not the placeholder, and never clear.
+- *What was given up.* A document read before an old, real field change is not flagged. (Phase 28)
+
 ## Part C — Open questions for later
 
 Not blocking v1, but worth revisiting once real data exists.

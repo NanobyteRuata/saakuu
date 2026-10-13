@@ -162,6 +162,21 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
     onChanged(detail.id);
   }
 
+  /** Decision 88: the reading stays, the mark goes. Nothing is read and no cell changes. */
+  async function keepReading() {
+    if (!detail) return;
+    setBusy(true);
+    const result = await postJson<{ kept: boolean }>(`/api/documents/${detail.id}/keep-reading`, {});
+    setBusy(false);
+    if (!result.ok) {
+      toast.error(result.error.message);
+      return;
+    }
+    toast.success("Reading kept. Nothing was read again.");
+    void load(detail.id);
+    onChanged(detail.id);
+  }
+
   async function reorder(photoIds: string[]) {
     if (!detail) return;
     const previous = detail;
@@ -239,8 +254,21 @@ export function DocumentDrawer({ documentId, onOpenChange, onChanged, onRemoved 
               </SheetDescription>
               {detail.changedSinceLastRead ? (
                 <Badge variant="outline" className="w-fit font-normal">
-                  Changed since last read
+                  Pages changed since read
                 </Badge>
+              ) : null}
+              {detail.fieldsChangedSinceRead ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="w-fit font-normal">
+                    Fields changed since read
+                  </Badge>
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busy || extracting} onClick={() => setExtractOpen(true)}>
+                    Read again
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busy} onClick={() => void keepReading()}>
+                    Keep this reading
+                  </Button>
+                </div>
               ) : null}
             </SheetHeader>
 

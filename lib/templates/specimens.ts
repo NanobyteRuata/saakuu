@@ -13,7 +13,7 @@ import {
   type SourcePage,
 } from "@/lib/documents/copy";
 import type { PromoteSpecimenInput } from "@/lib/documents/schemas";
-import { isStale } from "@/lib/documents/staleness";
+import { fieldsChanged, isStale } from "@/lib/documents/staleness";
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { estimateExtraction, startExtraction, type ExtractionEstimate } from "@/lib/extraction/service";
@@ -83,16 +83,17 @@ export type TestReadingState = "current" | "fields-changed" | "pages-changed" | 
 /**
  * Whether a specimen's test reading still says what the template reads now (decision 78). One rule, on
  * the server: the pane's `Read before your latest field changes` note and the promote confirmation both
- * come from the same two columns, `lastExtractedAt` against `contentChangedAt` and `fieldsChangedAt`.
+ * come from the same columns: `lastExtractedAt` against `contentChangedAt` for the pages, and the
+ * fingerprint the test was read under against the template's for the fields (decision 88).
  */
 export function testReadingState(
-  doc: { runState: string; lastExtractedAt: Date | null; contentChangedAt: Date | null },
-  template: { fieldsChangedAt: Date },
+  doc: { runState: string; lastExtractedAt: Date | null; contentChangedAt: Date | null; readWithKey: string | null },
+  template: { readingKey: string | null },
 ): TestReadingState {
   if (doc.runState === "QUEUED" || doc.runState === "RUNNING") return "running";
   if (doc.lastExtractedAt === null || doc.runState !== "COMPLETE") return "none";
   if (isStale(doc)) return "pages-changed";
-  if (doc.lastExtractedAt < template.fieldsChangedAt) return "fields-changed";
+  if (fieldsChanged(doc, template)) return "fields-changed";
   return "current";
 }
 
@@ -107,7 +108,8 @@ async function requireSpecimen(userId: string, documentId: string, db: Db = pris
       runState: true,
       lastExtractedAt: true,
       contentChangedAt: true,
-      template: { select: { fieldsChangedAt: true } },
+      readWithKey: true,
+      template: { select: { readingKey: true } },
     },
   });
   if (!doc.isSpecimen) throw new AppError("VALIDATION", "That page is already one of your documents.");
@@ -235,7 +237,13 @@ async function checkProvider(userId: string, specimenId: string): Promise<Provid
   };
 }
 
-type ImpactContext = { impact: PromoteImpact; pages: SourcePage[]; plan: ReadingCopy | null; provider: ProviderCheck | null };
+type ImpactContext = {
+  impact: PromoteImpact;
+  pages: SourcePage[];
+  plan: ReadingCopy | null;
+  provider: ProviderCheck | null;
+  readWithKey: string | null;
+};
 
 /**
  * The impact from the database, plus the provider check when the copy would need reading. Inside the
@@ -295,9 +303,16 @@ async function computePromoteImpact(
     pageIds: pages.map((p) => p.id),
     lastExtractedAt: specimen.lastExtractedAt?.toISOString() ?? null,
     contentChangedAt: specimen.contentChangedAt?.toISOString() ?? null,
-    fieldsChangedAt: specimen.template.fieldsChangedAt.toISOString(),
+    readWithKey: specimen.readWithKey,
+    readingKey: specimen.template.readingKey,
   });
-  return { impact: { impactHash: hash, mode, pages: pages.length, values: counts.values, reason, estimate, earlierCopies }, pages, plan, provider };
+  return {
+    impact: { impactHash: hash, mode, pages: pages.length, values: counts.values, reason, estimate, earlierCopies },
+    pages,
+    plan,
+    provider,
+    readWithKey: specimen.readWithKey,
+  };
 }
 
 /** What adding a specimen to the documents does, for the counted confirmation. */
@@ -351,6 +366,8 @@ export async function promoteSpecimen(
           const plan = planReadingCopy(reading.runs, reading.records, photoIdMap);
           if (plan === null) throw new AppError("CONFLICT", CHANGED);
           await insertReading(tx, documentId, plan);
+          // The copy counts as read with what the test was read with, which is the template's now.
+          await tx.document.update({ where: { id: documentId }, data: { readWithKey: now.readWithKey } });
         }
         return { documentId, mode: now.impact.mode };
       },

@@ -24,7 +24,7 @@ import { idSchema } from "@/lib/validation";
 
 import { assertNoExtractionOutput, assertNotSpecimens, lockBook, requireDocumentAccess, requireDocumentsAccess, type Db } from "./access";
 import { isProblem, planGroup, planReorder, planSplit, type RestructurePlan } from "./restructure";
-import { isStale, STALE_SQL } from "./staleness";
+import { fieldsChanged, FIELDS_CHANGED_SQL, isStale, STALE_SQL } from "./staleness";
 import type { DocumentStatus } from "./status";
 import {
   DOCUMENT_SORTS,
@@ -70,6 +70,8 @@ export type DocumentSummary = {
   hasDisagreements: boolean;
   /** A page was transformed, replaced or added after the last successful reading (decision 58). */
   changedSinceLastRead: boolean;
+  /** Read under another fingerprint than the template has now: the fields changed since (decision 88). */
+  fieldsChangedSinceRead: boolean;
   lastRunAt: string | null;
   /** When the document was last read successfully; null means it never was. */
   lastExtractedAt: string | null;
@@ -127,7 +129,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
         id: true,
         label: true,
         templateId: true,
-        template: { select: { name: true, kind: true } },
+        template: { select: { name: true, kind: true, readingKey: true } },
         runState: true,
         contentState: true,
         needsReview: true,
@@ -135,6 +137,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
         transformFlags: true,
         contentChangedAt: true,
         lastExtractedAt: true,
+        readWithKey: true,
         lastRunAt: true,
         lastModel: true,
         createdAt: true,
@@ -204,6 +207,7 @@ async function loadSummaries(db: Db, ids: string[]): Promise<DocumentSummary[]> 
       editedCells: s?.edited ?? 0,
       hasDisagreements: s?.disagreements ?? false,
       changedSinceLastRead: isStale(d),
+      fieldsChangedSinceRead: fieldsChanged(d, d.template),
       lastRunAt: d.lastRunAt?.toISOString() ?? null,
       lastExtractedAt: d.lastExtractedAt?.toISOString() ?? null,
       lastModel: d.lastModel,
@@ -280,6 +284,10 @@ function statusSql(status: DocumentStatus): Prisma.Sql {
       return STALE_SQL;
     case "up-to-date":
       return Prisma.sql`NOT ${STALE_SQL}`;
+    case "fields-changed":
+      return FIELDS_CHANGED_SQL;
+    case "fields-unchanged":
+      return Prisma.sql`NOT ${FIELDS_CHANGED_SQL}`;
   }
 }
 
@@ -841,6 +849,8 @@ export async function moveDocuments(userId: string, input: MoveDocumentsInput): 
         transformFlags: Prisma.DbNull,
         lastRunAt: null,
         lastModel: null,
+        // Its reading is gone, and the fingerprint it was read under was another template's.
+        readWithKey: null,
         manualValues: Prisma.DbNull,
       },
     });

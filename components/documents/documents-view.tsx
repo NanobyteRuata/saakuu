@@ -159,6 +159,7 @@ export function DocumentsView({ bookId, templates, filters, timeZone, initialPag
                   needsReview: s.needsReview,
                   templateMatchScore: s.templateMatchScore,
                   changedSinceLastRead: s.changedSinceLastRead,
+                  fieldsChangedSinceRead: s.fieldsChangedSinceRead,
                   lastRunAt: s.lastRunAt,
                   lastExtractedAt: s.lastExtractedAt,
                   lastModel: s.lastModel,
@@ -695,7 +696,8 @@ function DocumentFlags({ d, onOpenRuns }: { d: DocumentSummary; onOpenRuns: () =
   if (d.processingPages > 0) flags.push({ text: `${plural(d.processingPages, "page")} processing`, tone: "info" });
   if (d.failedPages > 0) flags.push({ text: `${plural(d.failedPages, "page")} failed`, tone: "error" });
   // High on purpose: only the first two chips are shown, and this is the one with an action behind it.
-  if (d.changedSinceLastRead) flags.push({ text: "changed since last read", tone: "warn" });
+  if (d.changedSinceLastRead) flags.push({ text: "pages changed since read", tone: "warn" });
+  if (d.fieldsChangedSinceRead) flags.push({ text: "fields changed since read", tone: "warn" });
   if (d.templateMatchScore !== null && d.templateMatchScore < MISMATCH_THRESHOLD) flags.push({ text: "possible template mismatch", tone: "warn" });
   if (d.runState === "FAILED" || d.runState === "PARTIAL") flags.push({ text: "extraction failed, retry in runs", tone: "error", onClick: onOpenRuns });
   if (d.contentState === "NO_ROWS_FOUND") flags.push({ text: "no rows found", tone: "warn" });

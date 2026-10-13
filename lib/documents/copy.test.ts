@@ -21,6 +21,7 @@ function run(id: string, photoIds: string[], over: Partial<SourceRun> = {}): Sou
     photoIds,
     rawResponse: { summary: { contentState: "HAS_CONTENT", records: 1 }, responses: [{ text: "big" }] },
     createdAt: t(0),
+    readingKey: null,
     ...over,
   };
 }

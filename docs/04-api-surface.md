@@ -433,7 +433,7 @@ which is `NOT_FOUND`) and the nav's document count leave it out. Group, split an
   document of *this* template with every page processed (`CONFLICT` otherwise), and the template may hold at most
   20 specimens. The nonce makes a double click one copy (`Document.copyKey`).
 - `promote-impact` decides the case on the server. `mode` is `with-reading` when the test is current (read
-  since the template's `fieldsChangedAt`, no page changed since, every page covered by a finished run), and then
+  under the template's present fingerprint, decision 88; no page changed since; every page covered by a finished run), and then
   `values` is the number of raw values copied; `read-again` when it is not but the page can be read now, with
   `reason` (a phrase: "your fields changed since this test") and `estimate` (`estCostUsd`, `estSeconds`,
   `keySource`, `keyHint`, `model`); `unread` otherwise, with `reason` the extraction blocker or key problem as a
@@ -524,8 +524,18 @@ POST   /api/extractions/estimate    { documentIds[] | templateId, model? }
                                     -> { documentIds, documents, extractable, pages, requests, estInputTokens, estSeconds,
                                          model, suggestedModel, warnings[], blockers: [{ documentId, label, reason }] }
 POST   /api/extractions/start       { documentIds[] | templateId, model, nonce } -> { queued, alreadyStarted, skipped[] }
+                                    Phase 28: with templateId, `fieldsChanged: true` on estimate and start picks only the
+                                    documents read before the template's latest field changes.
 GET    /api/extractions/status?documentIds=a,b,c       [{ id, runState, contentState, needsReview, templateMatchScore,
                                                           lastRunAt, lastModel, pages: { total, done, failed } }]
+                                                       (also changedSinceLastRead and, Phase 28, fieldsChangedSinceRead)
+
+Phase 28, fields changed since read (decision 88). None of these reads anything or changes a cell:
+GET    /api/templates/:id/reading-changes   -> { impactHash, read, changed }   documents with a reading; of those, flagged
+POST   /api/templates/:id/keep-readings     { impactHash } -> { kept }         CONFLICT if the count or the fields moved since
+POST   /api/documents/:id/keep-reading      -> { kept: boolean }
+Specimens are left out of all three counts. `GET /api/books/:id/documents?status=fields-changed | fields-unchanged`
+filters the list; every document summary carries `fieldsChangedSinceRead`.
 POST   /api/extractions/retry       { documentIds[] | photoIds[] } -> same shape as start
 GET    /api/runs/:id                run detail incl. rawResponse and record count
 ```

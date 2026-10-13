@@ -1219,7 +1219,7 @@ fact without saving anything between them.
 
 ---
 
-## Phases 26–28 — Fields are what the AI is told (26 shipped; 27 built; 28 planned)
+## Phases 26–28 — Fields are what the AI is told ✅ shipped
 
 **Why.** A date field was left on "flag two-digit years", a reading showed errors, the setting was
 changed, and the errors went away with no new reading. The Fields screen mixes two kinds of
@@ -1360,7 +1360,7 @@ balance is what the one reading left.
 
 **Done when** the rehearsal shows no difference and the three listed changes are counted.
 
-### Phase 27 — Five types (built, not shipped)
+### Phase 27 — Five types ✅ shipped
 
 **Operator sees:** Type offers Text, Number, Date, Mark / tick, Choice. Fields that were Whole
 number, Age or Fraction show as Number. A Mark field lists the symbols used on the paper, as chips,
@@ -1467,45 +1467,99 @@ page said `37/ 1`. All 12 E2E and 144 unit tests pass.
 
 **Done when** both comparisons are empty. They are, on the copy and on dev.
 
-### Phase 28 — Read before your field changes
+### Phase 28 — Read before your field changes ✅ shipped
 
 **Operator sees:**
-- **Documents list:** a chip, *fields changed since read*, and a filter for it. The chip that
-  exists today is about pages and is reworded *pages changed since read*.
+- **Documents list:** a chip, *fields changed since read*, and a Status group **Field changes** to
+  find them. The chip that was there is about pages and now reads *pages changed since read*; its
+  two Status states say pages too.
 - **Document drawer:** the same line, with **Read again** (the Extract dialog, with its estimate)
   and **Keep this reading**.
-- **Template screen:** "38 of 120 documents were read before your latest field changes", with
-  **Read them again…** and **Keep these readings**. Keep confirms with the exact count and costs
-  nothing.
+- **Template screen, above the field list:** "38 of 120 documents were read before your latest field
+  changes", with **Read them again…** (the Extract dialog, on those documents only) and **Keep these
+  readings**. Keep confirms with the exact count and costs nothing.
 - It only flags. Nothing is read again by itself. Undoing the edit clears the flag by itself.
 
-**How.** A fingerprint of exactly what the AI is sent for a template, computed from
-`buildTemplateSnapshot` (`lib/ai/snapshot.ts`), the one place that decides it; so the flag cannot
-drift from the prompt. Each document remembers the fingerprint it was read with. Different means
-flagged. This replaces `Template.fieldsChangedAt`, which every field save moves (a reorder, the
-English meaning, a conversion setting) and which only the test-reading pane ever showed.
+**How.** A fingerprint of what the AI is told about a template (`readingKey`,
+`lib/ai/reading-key.ts`), computed from `buildTemplateSnapshot`, the one place that decides it; so
+the flag cannot drift from the prompt. The template has its fingerprint, each run records the one it
+was really sent, and each document has the one its reading counts as made under. Different means
+flagged (`fieldsChanged` and `FIELDS_CHANGED_SQL`, `lib/documents/staleness.ts`). Decisions 88 and
+89 have the reasoning.
 
-**Raises the flag:** a field's name or meaning, type, note, choices, mark symbols; Extract ↔
-Skip; a field moved into or out of Manual; adding, deleting, restoring or reordering a read or
-skipped field; the sequence field; the template's language hint and instructions. A rename flags
+**Raises the flag:** a field's name or meaning, type, note, choices, mark symbols (and their order);
+Extract ↔ Skip; a field moved into or out of Manual; adding, deleting, restoring or reordering a read
+or skipped field; the sequence field; the template's language hint and instructions. A rename flags
 on purpose: the name is the main thing the AI finds a column by. **Keep these readings** is what
 makes a typo fix cost one click.
 
-**Does not:** anything on the Mapping tab; an edit to a field that is and stays Manual; anchors;
-the template's name; the model. Book settings that reach the AI (glossary, numerals, era) do not
-flag either: the glossary grows during review and would flag the whole book each time.
+**Does not:** anything on the Mapping tab; an edit to a field that is and stays Manual; anchors; the
+template's name; the model; a new prompt version; a save that changes nothing. Book settings that
+reach the AI (glossary, numerals, era) do not flag either: the glossary grows during review and would
+flag the whole book each time.
 
-**Schema (one migration).** `Template.readingKey`, `Document.readWithKey`,
-`ExtractionRun.readingKey` (what that run was really sent; Keep never rewrites it). **Existing
-readings start clean:** every template and every read document get the same placeholder, so
-nothing is flagged on release day and the first real edit flags. A document read before an old,
-real field change is therefore not flagged; the old stamp could not tell those apart.
+**Schema (one migration).** `20261013200000_phase_28_reading_key` adds `Template.readingKey`,
+`Document.readWithKey` and `ExtractionRun.readingKey`, all text and empty, and writes `start` on
+every document that has a reading. Nothing else. `Template.fieldsChangedAt` stays, unread and
+unwritten, so the Phase 27 image still runs on this database.
 
-**Tests.** One unit test of which edits change the fingerprint (a wrong one hides a mismatch
-silently). One E2E: edit a note, the documents flag, Keep clears it, no run is created.
+**What ships**
+- `lockTemplate` (`lib/templates/access.ts`) takes a template's first fingerprint and hands it to its
+  `start` documents; `markSourceChanged` recomputes it after every change to fields or prompt
+  settings. `updateTemplate` now goes through `markSourceChanged` too.
+- The worker (`lib/extraction/process.ts`) makes sure the template has its fingerprint before reading
+  and writes the fingerprint of the snapshot it really sent on each run.
+- `recomputeDocumentRun` sets the document's fingerprint when a reading finishes
+  (`rollupReadingKey`, `lib/extraction/plan.ts`): one fingerprint over its pages, or `mixed`.
+- `lib/documents/reading-changes.ts`: the template count, `keepReadings` (refused if the count or the
+  fields moved since it was shown) and `keepReading`. Three routes (docs/04).
+- `fieldsChanged: true` with a template on the estimate and start calls picks only the flagged
+  documents. The Extract dialog warns about pages and fields in separate lines.
+- The test pane's note and the "add this test page to the documents" rule (`testReadingState`) use the
+  fingerprint. A copy made with its reading takes the test's fingerprint; a document moved to another
+  template forgets its own.
+
+**What did not match the plan above when it was built (2026-10-13).**
+- **One placeholder on both sides would have broken two promises.** A new reading on a template
+  nobody had edited would get the real fingerprint and be flagged against the placeholder at once;
+  and undoing the first edit after release would land on the real fingerprint and never clear. So
+  the template starts with none, and its first real one is taken before its first change or reading
+  (decision 89). Same result as decided: nothing flagged on release day, the first real edit flags.
+- **The snapshot holds things that must not flag.** It carries the anchors and the template's id.
+  The fingerprint leaves both out, with the always-empty `groups`.
+- **Field ids are in the fingerprint,** so a field deleted and made again flags, and one deleted and
+  restored does not.
+- **A document is not read in one piece.** A long table is read eight pages at a time and one failed
+  chunk can be retried later, after a field edit. Hence `mixed`.
+- **Move and copy** were not in the plan (above).
+- **"Read them again…" had nothing to pick the flagged documents with.** Hence the option on start.
+- **The old stamp was read in four places, not two:** the test pane, `testReadingState`, the hash
+  guarding the add-to-documents confirmation, and `updateTemplate`, which set it by itself.
+- **"Which every field save moves (… a conversion setting)" was out of date.** Since Phases 26–27 no
+  conversion setting is on a field, so nearly every field save does change what is sent. What the
+  fingerprint adds: real documents are flagged at all, an undone edit clears, and Manual fields and
+  empty saves do not flag.
+- **Test pages are left out** of the template's count and of Keep. They keep their own note in the
+  test pane until tested again.
+
+**Applied to the dev database (2026-10-13).** 275 templates, 135 documents with a reading. Before and
+after the migration, on this code: what the AI is sent for every template
+(`scripts/dump-sent-fields.ts`: 275 templates, 831 fields) and every row the transform builds
+(`scripts/dump-built-rows.ts`: 185 documents, 566 rows, 3,965 cells, 51 flagged). **No difference in
+either.** After it: 135 documents on `start`, no template with a fingerprint, **0 documents flagged**.
+
+**Not tried by hand or by a test:** a chunked table with one chunk retried after a field edit
+(`mixed`); a document moved to another template while flagged. Both are a few lines each and read
+straight off the code, but nothing exercises them.
+
+**Tests.** One unit test, `lib/ai/reading-key.test.ts`: 19 edits that must change the fingerprint, 8
+that must not, and an edit undone. One E2E, `e2e/fields-changed.spec.ts`: a page is read and added to
+the documents; a note is edited and the chip, both sides of the filter and the template's count all
+show it; the note is undone and all three clear; it is edited again, **Keep these readings** clears
+all three, and the credit balance is what the one reading left. All 13 E2E and 172 unit tests pass.
 
 **Done when** the chip, the filter and the template count agree after an edit, and an undone edit
-clears all three.
+clears all three. They do.
 
 ### Left for the mapping redesign
 
@@ -1588,8 +1642,8 @@ crossing to the documents by copy; it was written up with that change. **79** is
 | 84 | A field is one box; the header is part of its name; ticks are combined in a `From ticks` mapping. Supersedes 28 (in part), 30, 31, 33. ✅ written up |
 | 86 | Fields are what the AI is told; conversion belongs to each field a mapping reads. Supersedes 36 and where 85 keeps the age unit. Phase 26. ✅ written up |
 | 87 | Five field types; one hint for every number (prompt `v5`, `template-v4`), on Phase 25's readings. Phases 25 and 27. ✅ written up |
-| 88 | "Fields changed since read" is a fingerprint of what the AI was sent; it only flags, and keeping a reading is a human action. Amends 78. Phase 28; to write up. |
-| 89 | Readings made before the fingerprint start clean. Phase 28; to write up. |
+| 88 | "Fields changed since read" is a fingerprint of what the AI was told; it only flags, and keeping a reading is a human action. Amends 78. Phase 28. ✅ written up |
+| 89 | Readings made before the fingerprint start clean. Phase 28. ✅ written up |
 
 ---
 

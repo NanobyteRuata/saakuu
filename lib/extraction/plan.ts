@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { CONTENT_STATES, type ExtractedContentState } from "@/lib/ai/provider";
+import { READING_KEY_MIXED } from "@/lib/ai/reading-key";
 import type { ContentState, RunState } from "@/lib/documents/schemas";
 import { stableStringify } from "@/lib/impact";
 
@@ -90,6 +91,22 @@ export function supersededRecordIds(
   return records
     .filter((r) => r.runId !== run.id && r.runCreatedAt.getTime() <= run.createdAt.getTime() && (r.photoId === null || pages.has(r.photoId)))
     .map((r) => r.id);
+}
+
+/**
+ * The fingerprint a document counts as read with, after a reading finishes (decision 88). `fresh` are
+ * the keys of the current COMPLETE runs that finished since the document's fingerprint was last set;
+ * `olderPagesRemain` says some page is still on a reading from before that, which `previous` stands
+ * for (it may be one the operator kept). One fingerprint over all of them is the document's; more
+ * than one is `mixed`, which matches no template and so flags: a failed chunk retried after a field
+ * change must not make the chunks read before it look current.
+ */
+export function rollupReadingKey(fresh: (string | null)[], olderPagesRemain: boolean, previous: string | null): string | null {
+  const keys = new Set(fresh.filter((k): k is string => k !== null));
+  if (keys.size === 0) return previous;
+  if (olderPagesRemain && previous !== null) keys.add(previous);
+  const [only] = keys;
+  return keys.size === 1 && only !== undefined ? only : READING_KEY_MIXED;
 }
 
 export function rollupRunState(states: RunState[]): RunState {

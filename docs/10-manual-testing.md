@@ -496,7 +496,7 @@ and check the Result Table after the rebuild.
 |---|---|---|
 | DOC-13 | Columns | Checkbox, thumbnail, label, template, pages, run state, content state, rows, unreviewed, errors, last run, model, uploaded |
 | DOC-14 | Search by part of a label | Filters |
-| DOC-15 | Status select | 14 named states in 4 groups: Reading (`Not read yet`, `Waiting to be read`, `Being read`, `Read`, `Partly read`, `Reading failed`), Review (`Not fully reviewed`, `Fully reviewed`, `Flagged for a closer look`, `Not flagged`), Edits, Page changes. Each narrows correctly |
+| DOC-15 | Status select | 16 named states in 5 groups: Reading (`Not read yet`, `Waiting to be read`, `Being read`, `Read`, `Partly read`, `Reading failed`), Review (`Not fully reviewed`, `Fully reviewed`, `Flagged for a closer look`, `Not flagged`), Edits, Page changes, Field changes. Each narrows correctly |
 | DOC-16 | `Uploaded` | Lists days with counts (`Uploaded 2026-09-21 · 60 documents`), in **your** time zone |
 | DOC-17 | Set the machine's time zone to `Asia/Yangon`, upload at 05:00 local; filter by today | Document is under today (local), not yesterday (UTC) |
 | DOC-18 | Sort `Newest upload first` / `Oldest upload first` / `Book order` | Orders correctly. With >100 documents, scroll through page boundaries: no rows skipped or repeated |
@@ -529,9 +529,11 @@ Needs an extracted document with some edited and reviewed cells.
 
 | ID | Steps | Expected |
 |---|---|---|
-| DOC-31 | Save a transform on an extracted page | Document gets `changed since last read` chip; Status `Page changes` finds it |
+| DOC-31 | Save a transform on an extracted page | Document gets `pages changed since read` chip; Status `Page changes` finds it |
+| DOC-31a | Edit a field's note on a template with read documents | Documents get `fields changed since read`; Status `Field changes` finds them; the template shows "N of M documents were read before your latest field changes". Undo the note: all three clear |
+| DOC-31b | `Keep these readings` on that banner | Confirmation states the exact count. Banner, chips and filter clear; no run is created, no credit spent, no cell changes |
 | DOC-32 | `Replace` on a page | Before the picker unlocks: "Its 12 rows and 4 cells you edited are kept, and so are your reviewed marks" |
-| DOC-33 | Replace with a JPEG | Same page index. Rows, edits and reviewed marks untouched **[CRITICAL]**. Chip `changed since last read` |
+| DOC-33 | Replace with a JPEG | Same page index. Rows, edits and reviewed marks untouched **[CRITICAL]**. Chip `pages changed since read` |
 | DOC-34 | Replace with a PDF | Refused (use Upload documents) |
 | DOC-35 | `Add page` with a PDF | Pages appended in order |
 | DOC-36 | Try delete / reorder / group / split on an extracted document | Refused plainly |

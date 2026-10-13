@@ -163,7 +163,8 @@ model Template {
   // reserved for the deferred source-definition library:
   sourceDefId      String?
   sourceDefVersion Int?
-  fieldsChangedAt DateTime      @default(now()) // decision 78: what a reading depends on last changed
+  fieldsChangedAt DateTime      @default(now()) // decision 78's stamp; unread and unwritten since Phase 28
+  readingKey      String?       // decision 88: fingerprint of what the AI is told; null until first edited or read after Phase 28
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   deletedAt       DateTime?
@@ -177,12 +178,24 @@ model Template {
 }
 
 /*
- * Decision 78 — `fieldsChangedAt` is when the part of the template a reading depends on last changed:
- * a group or field created, edited, moved, deleted or restored, proposed fields accepted, or the
- * language hint, instructions or sequence field changed (`markSourceChanged`, lib/templates/access.ts).
- * Mappings, the name, the model and anchors don't bump it. It is not `updatedAt` because every mapping
- * save recomputes the config state and so touches the template row. A specimen's test is *current*
- * when `lastExtractedAt >= fieldsChangedAt` and no page changed since (`testReadingState`).
+ * Decision 88 — `readingKey` is a fingerprint of what the AI is told about the template: its kind,
+ * language hint, instructions and the list of Extract and Skip fields in paper order (id, name and
+ * meaning, type, mode, note, choices, mark symbols, sequence). It is computed from
+ * `buildTemplateSnapshot` by `readingKey` (lib/ai/reading-key.ts) and rewritten by `markSourceChanged`
+ * (lib/templates/access.ts) after a field is created, edited, moved, deleted or restored, proposed
+ * fields are accepted, or the language hint, instructions or sequence field change. Anchors, the name,
+ * the model, mappings and Manual fields are not in it. A change that is undone brings the old value back.
+ *
+ * `Document.readWithKey` is the fingerprint a document's reading was made under, and
+ * `ExtractionRun.readingKey` what one run was really sent. A document is flagged "fields changed since
+ * read" when both keys exist and differ (`fieldsChanged`, lib/documents/staleness.ts). A specimen's
+ * test is *current* when it is not flagged and no page changed since (`testReadingState`).
+ *
+ * Decision 89 — a template from before Phase 28 has no fingerprint and its read documents carry
+ * `start`. `lockTemplate` takes the real fingerprint the first time the template is edited or read and
+ * gives it to those documents, so nothing is flagged until something really changes.
+ *
+ * `fieldsChangedAt` (decision 78) is what this replaced. The column stays for one release.
  */
 
 // How a TICKS mapping reads its tick fields (Phase 24, decision 84). Until Phase 24 these lived on
@@ -290,6 +303,10 @@ model Document {
   templateMatchScore Float?       // anchor detection, 0..1
   needsReview        Boolean      @default(false)
   isSpecimen         Boolean      @default(false) // Phase 15: a page uploaded to build a template against
+  // decision 88: the template fingerprint this reading was made under, or the one the operator kept it at.
+  // `start` = read before Phase 28; `mixed` = its pages were read under different ones (always flagged).
+  // Written when a reading finishes (`rollupReadingKey`), by Keep, and cleared by a move to another template.
+  readWithKey          String?
   copyKey              String?    @unique // decision 78: idempotency key of the copy that made this document
   copiedFromDocumentId String?    // decision 78: soft reference, counts earlier copies of a specimen
   lastRunAt          DateTime?
@@ -398,6 +415,7 @@ model ExtractionRun {
   imageTokens    Int?     // Phase 23: the share of inputTokens spent on page images
   thinkingTokens Int?     // Phase 23: the share of outputTokens spent thinking
   thinkingLevel  String?  // Phase 23: the AI_THINKING it was made at (decision 82); FieldProposal has the same three
+  readingKey     String?  // decision 88: the template fingerprint this run was really sent; Keep never rewrites it
   rawResponse    Json?    // full model response, for debugging
 
   document Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)

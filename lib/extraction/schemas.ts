@@ -11,19 +11,22 @@ export const MISMATCH_THRESHOLD = 0.5;
 /** Documents a template-wide extract can cover in one action. */
 export const MAX_TEMPLATE_EXTRACT_DOCUMENTS = 2000;
 
-const exactlyOneTarget = (v: { documentIds?: string[]; templateId?: string }) =>
-  (v.documentIds !== undefined) !== (v.templateId !== undefined);
+const exactlyOneTarget = (v: { documentIds?: string[]; templateId?: string; fieldsChanged?: boolean }) =>
+  (v.documentIds !== undefined) !== (v.templateId !== undefined) && (v.fieldsChanged === undefined || v.templateId !== undefined);
+
+/** With `templateId`: only its documents read before the latest field changes (decision 88). */
+const fieldsChangedOnly = z.literal(true).optional();
 
 /** Generated once per extract action in the browser and reused, so a double submit is one run. */
 export const nonceSchema = z.string().regex(/^[A-Za-z0-9-]{16,100}$/, { error: "Reload the page and try again." });
 
 export const estimateSchema = z
-  .object({ documentIds: idListSchema.optional(), templateId: idSchema.optional(), model: modelIdSchema.optional() })
+  .object({ documentIds: idListSchema.optional(), templateId: idSchema.optional(), fieldsChanged: fieldsChangedOnly, model: modelIdSchema.optional() })
   .refine(exactlyOneTarget, { error: "Choose documents or a template to extract." });
 export type EstimateInput = z.infer<typeof estimateSchema>;
 
 export const startSchema = z
-  .object({ documentIds: idListSchema.optional(), templateId: idSchema.optional(), model: modelIdSchema, nonce: nonceSchema })
+  .object({ documentIds: idListSchema.optional(), templateId: idSchema.optional(), fieldsChanged: fieldsChangedOnly, model: modelIdSchema, nonce: nonceSchema })
   .refine(exactlyOneTarget, { error: "Choose documents or a template to extract." });
 export type StartInput = z.infer<typeof startSchema>;
 

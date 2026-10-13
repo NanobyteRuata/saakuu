@@ -9,7 +9,7 @@ import { AppError } from "@/lib/errors";
 import { impactHash } from "@/lib/impact";
 import type { PaginationInput } from "@/lib/validation";
 
-import { lockTemplate, requireTemplateAccess, type Db } from "./access";
+import { lockTemplate, markSourceChanged, requireTemplateAccess, type Db } from "./access";
 import { summariseRunState, type RunCounts, type RunSummary } from "./config-state";
 import { copyTemplateInto, nextTemplatePosition, type TemplateCopy } from "./copy";
 import {
@@ -55,8 +55,6 @@ export type TemplateDetail = {
   instructions: string | null;
   sequenceFieldId: string | null;
   updatedAt: string;
-  /** Decision 78: a test reading older than this was read with different fields. */
-  fieldsChangedAt: string;
   fields: FieldView[];
   deletedFields: DeletedFieldView[];
   mappingCount: number;
@@ -160,7 +158,6 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
       instructions: true,
       sequenceFieldId: true,
       updatedAt: true,
-      fieldsChangedAt: true,
     },
   });
   const fields = await db.field.findMany({ where: { templateId, deletedAt: null }, select: fieldSelect, take: MAX_FIELDS });
@@ -181,7 +178,6 @@ async function loadTemplateDetail(db: Db, templateId: string): Promise<TemplateD
   return {
     ...t,
     updatedAt: t.updatedAt.toISOString(),
-    fieldsChangedAt: t.fieldsChangedAt.toISOString(),
     fields: sortByPosition(fields).map(toFieldView),
     deletedFields: deleted.map(({ deletedAt, ...f }) => ({
       ...toFieldView(f),
@@ -247,28 +243,14 @@ export async function updateTemplate(userId: string, templateId: string, input: 
       }
     }
 
-    // What goes into the prompt makes a test reading stale (decision 78); the name, model and anchors don't.
-    const touchesReading = rest.languageHint !== undefined || rest.instructions !== undefined || sequenceFieldId !== undefined;
-    const before = touchesReading
-      ? await tx.template.findUniqueOrThrow({
-          where: { id: templateId },
-          select: { languageHint: true, instructions: true, sequenceFieldId: true },
-        })
-      : null;
-    const readingChanged =
-      before !== null &&
-      ((rest.languageHint !== undefined && rest.languageHint !== before.languageHint) ||
-        (rest.instructions !== undefined && rest.instructions !== before.instructions) ||
-        (sequenceFieldId !== undefined && sequenceFieldId !== before.sequenceFieldId));
-
     await tx.template.update({
       where: { id: templateId },
-      data: {
-        ...rest,
-        ...(sequenceFieldId !== undefined ? { sequenceFieldId } : {}),
-        ...(readingChanged ? { fieldsChangedAt: new Date() } : {}),
-      },
+      data: { ...rest, ...(sequenceFieldId !== undefined ? { sequenceFieldId } : {}) },
     });
+    // What goes into the prompt changes the fingerprint (decision 88); the name, model and anchors don't.
+    if (rest.languageHint !== undefined || rest.instructions !== undefined || sequenceFieldId !== undefined) {
+      await markSourceChanged(tx, templateId);
+    }
     return loadTemplateDetail(tx, templateId);
   });
 }

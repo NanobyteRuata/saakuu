@@ -21,6 +21,7 @@ import { DeleteFieldDialog } from "./delete-field-dialog";
 import { FieldList } from "./field-list";
 import { FieldName } from "./field-name";
 import { FieldProperties, type FieldDraft } from "./field-properties";
+import { ReadingChangesBanner } from "./reading-changes-banner";
 import { SpecimenPane } from "./specimen-pane";
 import { TemplateChrome } from "./template-chrome";
 
@@ -55,8 +56,17 @@ export function TemplateEditor({
   const layout = useLayoutTarget();
   const lang = langOf(template.languageHint);
   const source = useMemo(() => orderFields(template.fields), [template.fields]);
-  // Local edits don't refresh `fieldsChangedAt`, so the specimen pane also watches the fields themselves.
-  const fieldsKey = useMemo(() => JSON.stringify([...template.fields].sort((a, b) => a.id.localeCompare(b.id))), [template.fields]);
+  // A reading's "fields changed" flag is as old as the reading on screen, so the specimen pane and the
+  // banner also watch what the AI is told as it stands here: the fields it is sent and the prompt settings.
+  const fieldsKey = useMemo(
+    () =>
+      JSON.stringify([
+        template.languageHint,
+        template.instructions,
+        template.fields.filter((f) => f.mode !== "MANUAL").sort((a, b) => a.id.localeCompare(b.id)),
+      ]),
+    [template.fields, template.languageHint, template.instructions],
+  );
   const selectedField = selected === null ? null : (source.byId.get(selected) ?? null);
 
   /*
@@ -123,6 +133,7 @@ export function TemplateEditor({
 
   const listPane = (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <ReadingChangesBanner templateId={template.id} watch={fieldsKey} onChanged={() => router.refresh()} />
       <FieldList
         template={template}
         list={source.list}
@@ -177,7 +188,6 @@ export function TemplateEditor({
             userId={userId}
             lang={lang}
             hasExtractFields={template.fields.some((f) => f.mode === "EXTRACT")}
-            fieldsChangedAt={template.fieldsChangedAt}
             fieldsKey={fieldsKey}
             flushPending={async () => {
               await flushRef.current?.();

@@ -310,11 +310,16 @@ else.
   Every case adds "This specimen stays here for building the template.", and a warning when the page was
   already added before ("… on 2026-09-24 (1 copy). Adding it again puts its rows in the table twice.").
 - **The reading pane has a heading**: `Test reading · stays with this template, not in your table`.
-- **Stale, one rule on both sides.** `Read before your latest field changes` shows when the reading is
-  older than the template's `fieldsChangedAt`, when a page was added, replaced or cropped since it, or
-  when the fields on screen changed since it appeared. `fieldsChangedAt` moves with fields and
-  the prompt settings — not with mappings, which is why it is not `updatedAt`. The server's promote
-  check uses the same columns.
+- **Stale, one rule on both sides.** `Read before your latest field changes` shows when the test was
+  read under another fingerprint than the template has now (decision 88), when a page was added,
+  replaced or cropped since it, or when what the AI is told changed on screen since it appeared (the
+  fields it is sent, the language hint, the instructions). Mappings and Manual fields don't count. The
+  server's promote check uses the same rule.
+- **Phase 28: the banner above the field list.** "38 of 120 documents were read before your latest
+  field changes", with **Read them again…** (the Extract dialog, on those documents only, with its
+  estimate) and **Keep these readings** (a confirmation with the exact count; reads nothing, changes no
+  cell, costs nothing). It counts again after every field save, shows nothing at zero, and leaves
+  specimens out. Undoing the edit makes it go by itself.
 
 ### Fields tab
 Two-pane. Left: the field list, drag-reorderable, with an add bar above it.
@@ -464,6 +469,14 @@ data. The Extract dialog states the same count as a warning.
   "max over photos against the latest run" would be a join per visible row.
 - `lastExtractedAt` only advances on a `COMPLETE` run, so a re-extraction that *failed* does not
   clear the chip while the stale reading is still on screen.
+
+*As built (Phase 28):* the chip reads **`pages changed since read`**, and a second chip,
+**`fields changed since read`**, marks a document read before a change to what the AI is told about
+its template (decision 88). Status has a **Field changes** group (`Fields changed since read`,
+`Fields unchanged since read`) beside **Page changes**, whose two states are reworded to say pages.
+The drawer shows the same line with **Read again** (the Extract dialog) and **Keep this reading**
+(one click, no reading). The Extract dialog names the two counts in separate warnings. Nothing is
+read again by itself.
 
 *As built (Phase 18):*
 - **One Status select replaces the run-state select and the four tri-states.** Seven controls in one row,

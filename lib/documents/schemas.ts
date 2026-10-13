@@ -95,6 +95,10 @@ export const documentsImpactSchema = z.object({ ids: idListSchema });
 export const deleteDocumentsSchema = z.object({ ids: idListSchema, impactHash: impactHashSchema, confirm: confirmSchema });
 export type DeleteDocumentsInput = z.infer<typeof deleteDocumentsSchema>;
 
+/** Keep these readings (decision 88): the count the operator confirmed, so a change since is refused. */
+export const keepReadingsSchema = z.object({ impactHash: impactHashSchema });
+export type KeepReadingsInput = z.infer<typeof keepReadingsSchema>;
+
 export const moveImpactSchema = z.object({ ids: idListSchema, targetTemplateId: idSchema });
 export type MoveImpactInput = z.infer<typeof moveImpactSchema>;
 

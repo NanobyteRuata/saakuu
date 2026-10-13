@@ -9,7 +9,7 @@ import { chargesCredits, checkStart, creditEstimate, lockUser, runCharge } from 
 import { milliCreditsFor, shareByPages, type CreditEstimate } from "@/lib/credits/rate";
 import { prisma } from "@/lib/db/client";
 import { requireDocumentsAccess, type Db } from "@/lib/documents/access";
-import { isStale } from "@/lib/documents/staleness";
+import { fieldsChanged, FIELDS_CHANGED_SQL, isStale } from "@/lib/documents/staleness";
 import { ACTIVE_RUN_STATES, MAX_DOCUMENT_PAGES, type ContentState, type RunState } from "@/lib/documents/schemas";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
@@ -28,6 +28,7 @@ import {
   MAX_IMAGES_PER_REQUEST,
   parseRunSummary,
   rollupContent,
+  rollupReadingKey,
   rollupRunState,
 } from "./plan";
 import { MAX_TEMPLATE_EXTRACT_DOCUMENTS, MISMATCH_THRESHOLD, type EstimateInput, type RetryInput, type StartInput } from "./schemas";
@@ -69,7 +70,8 @@ async function loadTargets(db: Db, documentIds: string[]) {
       templateMatchScore: true,
       contentChangedAt: true,
       lastExtractedAt: true,
-      template: { select: { id: true, name: true, kind: true, configState: true, modelOverride: true } },
+      readWithKey: true,
+      template: { select: { id: true, name: true, kind: true, configState: true, modelOverride: true, readingKey: true } },
       book: { select: { id: true, defaultModel: true } },
       photos: {
         where: { deletedAt: null },
@@ -112,7 +114,7 @@ function blockerFor(t: Target): string | null {
   return null;
 }
 
-async function resolveDocumentIds(userId: string, input: { documentIds?: string[]; templateId?: string }): Promise<string[]> {
+async function resolveDocumentIds(userId: string, input: { documentIds?: string[]; templateId?: string; fieldsChanged?: boolean }): Promise<string[]> {
   if (input.documentIds) {
     await requireDocumentsAccess(userId, input.documentIds);
     return [...new Set(input.documentIds)];
@@ -123,9 +125,16 @@ async function resolveDocumentIds(userId: string, input: { documentIds?: string[
   // the template against has already been read and produces nothing anyone exports (decision 71).
   // Selecting one explicitly in the Documents list still extracts it.
   const docs = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "Document" WHERE "templateId" = ${input.templateId} AND "deletedAt" IS NULL AND NOT "isSpecimen"
-    ORDER BY position COLLATE "C", id LIMIT ${MAX_TEMPLATE_EXTRACT_DOCUMENTS}`;
-  if (docs.length === 0) throw new AppError("VALIDATION", "This template has no documents yet. Upload some first.");
+    SELECT d.id FROM "Document" d JOIN "Template" t ON t.id = d."templateId"
+    WHERE d."templateId" = ${input.templateId} AND d."deletedAt" IS NULL AND NOT d."isSpecimen"
+      ${input.fieldsChanged ? Prisma.sql`AND ${FIELDS_CHANGED_SQL}` : Prisma.empty}
+    ORDER BY d.position COLLATE "C", d.id LIMIT ${MAX_TEMPLATE_EXTRACT_DOCUMENTS}`;
+  if (docs.length === 0) {
+    throw new AppError(
+      "VALIDATION",
+      input.fieldsChanged ? "No document of this template was read before your latest field changes." : "This template has no documents yet. Upload some first.",
+    );
+  }
   return docs.map((d) => d.id);
 }
 
@@ -272,7 +281,14 @@ export async function estimateExtraction(userId: string, input: EstimateInput): 
   const stale = ready.filter(isStale).length;
   if (stale > 0) {
     warnings.push(
-      `${n(stale, "document")} changed since ${stale === 1 ? "it was" : "they were"} last read. Reading ${stale === 1 ? "it" : "them"} again updates ${stale === 1 ? "its" : "their"} rows, and every cell you edited is kept.`,
+      `${n(stale, "document")} had ${stale === 1 ? "its" : "their"} pages changed since ${stale === 1 ? "it was" : "they were"} last read. Reading ${stale === 1 ? "it" : "them"} again updates ${stale === 1 ? "its" : "their"} rows, and every cell you edited is kept.`,
+    );
+  }
+  // Phase 28: read before a field change. Reading again is the fix here too.
+  const fieldsMoved = ready.filter((t) => fieldsChanged(t, t.template)).length;
+  if (fieldsMoved > 0) {
+    warnings.push(
+      `${n(fieldsMoved, "document was", "documents were")} read before your latest field changes. Reading ${fieldsMoved === 1 ? "it" : "them"} again uses the fields as they are now, and every cell you edited is kept.`,
     );
   }
   // Never a blocker: extracting before mapping is the correct order, because the preview needs real
@@ -325,6 +341,7 @@ export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<
     select: {
       transformFlags: true,
       lastExtractedAt: true,
+      readWithKey: true,
       template: { select: { anchors: true } },
       photos: { where: { deletedAt: null }, select: { id: true }, orderBy: { pageIndex: "asc" }, take: MAX_DOCUMENT_PAGES },
     },
@@ -334,7 +351,7 @@ export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<
     where: { documentId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 500,
-    select: { id: true, state: true, photoIds: true, createdAt: true, finishedAt: true, model: true, rawResponse: true },
+    select: { id: true, state: true, photoIds: true, createdAt: true, finishedAt: true, model: true, rawResponse: true, readingKey: true },
   });
   const current = currentRuns(doc.photos.map((p) => p.id), runs);
   if (current.length === 0) return;
@@ -361,7 +378,15 @@ export async function recomputeDocumentRun(tx: Db, documentId: string): Promise<
     const read = current.flatMap((r) => (r.state === "COMPLETE" && r.finishedAt ? [r.finishedAt.getTime()] : []));
     if (read.length > 0) {
       const latest = new Date(Math.max(...read));
-      if (doc.lastExtractedAt === null || latest > doc.lastExtractedAt) data.lastExtractedAt = latest;
+      if (doc.lastExtractedAt === null || latest > doc.lastExtractedAt) {
+        data.lastExtractedAt = latest;
+        // Decision 88: which fingerprint the document now counts as read with. Only the runs that
+        // finished since the last time count as new, so a reading the operator kept stays kept.
+        const since = doc.lastExtractedAt?.getTime() ?? -Infinity;
+        const complete = current.filter((r) => r.state === "COMPLETE" && r.finishedAt !== null);
+        const fresh = complete.filter((r) => (r.finishedAt?.getTime() ?? 0) > since);
+        data.readWithKey = rollupReadingKey(fresh.map((r) => r.readingKey), fresh.length < complete.length, doc.readWithKey);
+      }
     }
   }
   await tx.document.update({ where: { id: documentId }, data });
@@ -589,6 +614,8 @@ export type ExtractionStatus = {
   lastModel: string | null;
   /** Phase 11: so the `Changed since last read` chip clears on the poll after a re-extraction. */
   changedSinceLastRead: boolean;
+  /** Phase 28: so the `fields changed since read` chip clears the same way. */
+  fieldsChangedSinceRead: boolean;
   lastExtractedAt: string | null;
   pages: { total: number; done: number; failed: number };
 };
@@ -612,6 +639,8 @@ export async function getExtractionStatus(userId: string, documentIds: string[])
       templateMatchScore: true,
       contentChangedAt: true,
       lastExtractedAt: true,
+      readWithKey: true,
+      template: { select: { readingKey: true } },
       lastRunAt: true,
       lastModel: true,
       photos: { where: { deletedAt: null }, select: { id: true }, take: MAX_DOCUMENT_PAGES },
@@ -638,6 +667,7 @@ export async function getExtractionStatus(userId: string, documentIds: string[])
       lastRunAt: d.lastRunAt?.toISOString() ?? null,
       lastModel: d.lastModel,
       changedSinceLastRead: isStale(d),
+      fieldsChangedSinceRead: fieldsChanged(d, d.template),
       lastExtractedAt: d.lastExtractedAt?.toISOString() ?? null,
       pages: { total: d.photos.length, done: pagesIn("COMPLETE"), failed: pagesIn("FAILED") },
     });
